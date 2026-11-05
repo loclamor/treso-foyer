@@ -55,6 +55,20 @@ final class PdfStatementParser implements StatementParserInterface
     {
         $lines = explode("\n", str_replace(["\r\n", "\r"], "\n", $text));
 
+        // Relevés jusqu'à début 2017 : colonne « Soit en francs » (contre-valeur toujours signée) après
+        // la colonne Crédit. On la retire pour que le montant en euros redevienne le dernier de la ligne.
+        // Son signe est conservé : il fait foi pour les soldes, dont la colonne est ambiguë.
+        /** @var array<int, string> $francSigns n° de ligne => « + » ou « - » */
+        $francSigns = [];
+        if (str_contains($text, 'Soit en francs')) {
+            foreach ($lines as $i => $line) {
+                if (preg_match('/\s{2,}([+-])\s?'.self::MONTANT.'\s*$/u', $line, $fm, PREG_OFFSET_CAPTURE)) {
+                    $francSigns[$i] = $fm[1][0];
+                    $lines[$i] = substr($line, 0, $fm[0][1]);
+                }
+            }
+        }
+
         // Un relevé mensuel peut contenir en annexe le décompte annuel des frais : seul compte l'en-tête d'opérations.
         if (!$this->hasOperationsHeader($lines)) {
             throw new NotAnAccountStatementException('Document sans en-tête d’opérations de relevé de compte (relevé annuel de frais ?).');
@@ -136,6 +150,9 @@ final class PdfStatementParser implements StatementParserInterface
                 if (null === $openingBalance) {
                     throw new ParseException(sprintf('Ligne %d : solde d’ouverture illisible.', $lineNo + 1));
                 }
+                if (isset($francSigns[$lineNo])) {
+                    $openingBalance = '-' === $francSigns[$lineNo] ? -abs($openingBalance) : abs($openingBalance);
+                }
                 continue;
             }
             if (str_starts_with($trimmed, 'Total des opérations')) {
@@ -154,7 +171,12 @@ final class PdfStatementParser implements StatementParserInterface
                 if (null === $closingBalance) {
                     throw new ParseException(sprintf('Ligne %d : solde de clôture illisible.', $lineNo + 1));
                 }
-                continue;
+                if (isset($francSigns[$lineNo])) {
+                    $closingBalance = '-' === $francSigns[$lineNo] ? -abs($closingBalance) : abs($closingBalance);
+                }
+                // Fin du compte courant : la suite (livrets, « Comptes d'Épargne »…) a ses propres
+                // soldes et opérations, qui ne doivent pas être mêlés au CCP.
+                break;
             }
             // Ligne d'opération : JJ/MM + libellé + montant en fin de ligne.
             if ($inOperations && null !== $debitEnd

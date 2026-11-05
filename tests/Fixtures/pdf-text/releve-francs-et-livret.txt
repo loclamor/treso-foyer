@@ -1,0 +1,41 @@
+Situation de vos comptes au 21 mai 2016                                                                                Solde
+CCP n° 12 345 67 X 999                                                                                       + 278,32 ¤
+Livret A n° 000 0000000 L                                                                                     + 18,33 ¤
+
+Compte Courant Postal n° 12 345 67X 999
+IBAN : FR00 0000 0000 0012 3456 7X99 900 | BIC : FICTIFXX
+
+
+Date      Opérations                                                        Débit (¤)        Crédit (¤)          Soit en francs
+
+                                        Ancien solde au 21/04/2016                         1 002,54
+22/04     VIREMENT DE EMPLOYEUR FICTIF                                                     1 035,84               + 6 794,64
+          REFERENCE : 0000000000000001
+25/04     ACHAT CB SUPERMARCHE EXEMPLE 23.04.16                               760,06                                -4 985,69
+          CARTE NUMERO 123
+
+
+
+
+                                                                                                                    Page 1/2
+                                                                                                Relevé n° 5 | 23/05/2016
+
+
+Vos opérations CCP n° 12 345 67X 999 (suite)
+Date      Opérations                                                      Débit (¤)    Crédit (¤)          Soit en francs
+02/05 ACHAT CB LIBRAIRIE EXEMPLE 30.04.16                                 2 000,00                              -13 119,14
+          CARTE NUMERO 123
+10/05     REMISE DE CHEQUE N° 0000001                                                 1 000,00                + 6 559,57
+                                                  Total des opérations   2 760,06     2 035,84
+
+                                          Nouveau solde au 20/05/2016                  278,32                 + 1 825,66
+
+
+Comptes d'Épargne
+Date     Opérations                                                                                               Débit (¤)           Crédit (¤)
+
+    Livret A n° 000 0000000 L
+                                                                Ancien solde au 21/04/2016                                          18,33
+05/05 VERSEMENT                                                                                                                    500,00
+                                                              Nouveau solde au 20/05/2016                                          518,33
+                                                                                                                    Page 2/2

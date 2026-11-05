@@ -138,6 +138,23 @@ final class PdfStatementParserTest extends TestCase
         self::assertSame([77500, -2225], array_map(static fn (ParsedOperation $op): int => $op->amount, $statement->operations));
     }
 
+    public function testAncienFormatAvecColonneFrancsEtLivret(): void
+    {
+        // Régression (relevés réels 2016) : colonne « Soit en francs » signée après la colonne Crédit,
+        // nouveau solde mal placé entre les colonnes (son signe vient des francs), puis section livret.
+        $statement = $this->parser()->parseText($this->fixture('releve-francs-et-livret.txt'));
+
+        self::assertSame('1234567X999', $statement->accountNumber);
+        self::assertSame(100254, $statement->openingBalance);
+        self::assertSame(27832, $statement->closingBalance);
+        self::assertSame('2016-05-20', $statement->closingDate?->format('Y-m-d'));
+        self::assertSame(
+            [103584, -76006, -200000, 100000],
+            array_map(static fn (ParsedOperation $op): int => $op->amount, $statement->operations),
+        );
+        self::assertSame('ACHAT CB LIBRAIRIE EXEMPLE 30.04.16 CARTE NUMERO 123', $statement->operations[2]->rawLabel);
+    }
+
     public function testReleveAnnuelDeFrais(): void
     {
         $this->expectException(NotAnAccountStatementException::class);
