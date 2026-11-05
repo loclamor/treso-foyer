@@ -22,6 +22,9 @@ final class CategoryCreateInput
         public readonly ?string $color = null,
         #[Assert\Length(max: 50, maxMessage: 'icon ne doit pas dépasser 50 caractères.')]
         public readonly ?string $icon = null,
+        /** Poste lié à un véhicule (carburant, entretien, assurance auto, péages & parking). */
+        #[Assert\Type(type: 'bool', message: 'vehicleRelated doit être un booléen.')]
+        public readonly ?bool $vehicleRelated = null,
     ) {
     }
 }

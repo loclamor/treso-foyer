@@ -128,4 +128,67 @@ final class RuleApiTest extends ApiTestCase
         self::assertSame(1, $data['stillUncategorized']);
         self::assertSame(50, $data['categorizedPercent']);
     }
+
+    public function testRuleVehicleIdCreatePatchAndSync(): void
+    {
+        $courses = $this->category('Alimentation › Courses');
+        // Véhicule créé via l'API.
+        $response = $this->json($this->client(), 'POST', '/api/vehicles', ['name' => 'Clio', 'type' => 'car']);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $vehicleId = (int) $this->decode($response)['id'];
+        $vehicle = $this->em()->find(\App\Entity\Vehicle::class, $vehicleId);
+
+        // Opération catégorisée par une règle (sans véhicule pour l'instant).
+        $household = $this->em()->find(\App\Entity\Household::class, (int) $this->household->getId());
+        $rule = new CategorizationRule($household, $courses, RuleMatchField::Merchant, RuleMatchType::Exact, 'SHOPV');
+        $this->em()->persist($rule);
+        $op = $this->addOperation($this->account, '2026-03-01', -800, 'ACHAT CB SHOPV 01.03.26', 'SHOPV');
+        $op->categorize($courses, CategorizationSource::Rule, $rule);
+        $this->em()->flush();
+
+        $client = $this->client();
+
+        // Création avec vehicleId ⇒ 201, vehicle exposé.
+        $response = $this->json($client, 'POST', '/api/rules', [
+            'categoryId' => (int) $courses->getId(),
+            'matchField' => 'label',
+            'matchType' => 'contains',
+            'pattern' => 'SHOPV',
+            'vehicleId' => $vehicleId,
+        ]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $created = $this->decode($response);
+        self::assertSame($vehicleId, $created['vehicle']['id']);
+
+        // PATCH avec vehicleId null explicite (clé présente) ⇒ retire le véhicule.
+        $response = $this->json($client, 'PATCH', '/api/rules/'.(int) $created['id'], ['vehicleId' => null]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertNull($this->decode($response)['vehicle']);
+
+        // PATCH sans la clé vehicleId ⇒ inchangé (on le remet d'abord).
+        $response = $this->json($client, 'PATCH', '/api/rules/'.(int) $created['id'], ['vehicleId' => $vehicleId]);
+        self::assertSame($vehicleId, $this->decode($response)['vehicle']['id']);
+        $response = $this->json($client, 'PATCH', '/api/rules/'.(int) $created['id'], ['priority' => 3]);
+        self::assertSame($vehicleId, $this->decode($response)['vehicle']['id']);
+
+        // Véhicule inconnu ⇒ 422 sur vehicleId.
+        $response = $this->json($client, 'POST', '/api/rules', [
+            'categoryId' => (int) $courses->getId(),
+            'matchField' => 'label',
+            'matchType' => 'contains',
+            'pattern' => 'AUTRE',
+            'vehicleId' => 999999,
+        ]);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        self::assertSame('vehicleId', $this->decode($response)['violations'][0]['field']);
+
+        // La règle existante (SHOPV) reçoit le véhicule via PATCH ⇒ sync ⇒ l'opération
+        // catégorisée par cette règle est affectée au véhicule (source « rule »).
+        self::assertNotNull($vehicle);
+        $response = $this->json($client, 'PATCH', '/api/rules/'.(int) $rule->getId(), ['vehicleId' => $vehicleId]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($this->json($client, 'GET', '/api/operations/'.(int) $op->getId()));
+        self::assertSame($vehicleId, $data['vehicle']['id']);
+        self::assertSame('rule', $data['vehicleSource']);
+    }
 }

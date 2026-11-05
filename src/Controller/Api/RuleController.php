@@ -19,6 +19,7 @@ use App\Entity\CategorizationRule;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Operation;
+use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\RuleDirection;
 use App\Enum\RuleMatchField;
@@ -27,6 +28,7 @@ use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
@@ -57,6 +59,7 @@ final class RuleController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         RulePresenter $rulePresenter,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $rule = $this->buildRule($household, $entityManager, $input->categoryId, $input->matchField, $input->matchType, $input->pattern, $input);
@@ -70,6 +73,8 @@ final class RuleController extends AbstractController
         $this->assertValidRegex($rule);
         $entityManager->persist($rule);
         $entityManager->flush();
+        // La règle créée peut désigner un véhicule : resynchronise l'axe véhicule.
+        $vehicleAssigner->sync($household);
 
         return new JsonResponse($rulePresenter->present($rule, 0), Response::HTTP_CREATED);
     }
@@ -77,11 +82,13 @@ final class RuleController extends AbstractController
     #[Route('/api/rules/{id}', name: 'api_rule_patch', requirements: ['id' => '\d+'], methods: ['PATCH'])]
     public function patch(
         int $id,
+        Request $request,
         #[MapRequestPayload] RulePatchInput $input,
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         StatsQuery $statsQuery,
         RulePresenter $rulePresenter,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $rule = $this->findRule($entityManager, $household, $id);
@@ -120,8 +127,14 @@ final class RuleController extends AbstractController
         if (null !== $input->enabled) {
             $rule->setEnabled($input->enabled);
         }
+        // vehicleId : la clé présente dans le corps (même null) est appliquée, absente = inchangé.
+        if (array_key_exists('vehicleId', $request->toArray())) {
+            $rule->setVehicle(null === $input->vehicleId ? null : $this->findVehicle($entityManager, $household, $input->vehicleId));
+        }
         $this->assertValidRegex($rule);
         $entityManager->flush();
+        // La règle modifiée peut désigner un véhicule (ou plus) : resynchronise l'axe véhicule.
+        $vehicleAssigner->sync($household);
 
         $counts = $statsQuery->ruleMatchCounts($household);
 
@@ -255,6 +268,9 @@ final class RuleController extends AbstractController
         if (null !== $input->enabled) {
             $rule->setEnabled($input->enabled);
         }
+        if (null !== $input->vehicleId) {
+            $rule->setVehicle($this->findVehicle($entityManager, $household, $input->vehicleId));
+        }
 
         return $rule;
     }
@@ -289,5 +305,15 @@ final class RuleController extends AbstractController
         }
 
         return $category;
+    }
+
+    private function findVehicle(EntityManagerInterface $entityManager, Household $household, int $vehicleId): Vehicle
+    {
+        $vehicle = $entityManager->getRepository(Vehicle::class)->findOneBy(['id' => $vehicleId, 'household' => $household]);
+        if (!$vehicle instanceof Vehicle) {
+            throw new ValidationException([['field' => 'vehicleId', 'message' => 'Véhicule introuvable dans le foyer.']]);
+        }
+
+        return $vehicle;
     }
 }

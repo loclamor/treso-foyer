@@ -48,6 +48,21 @@ final class StatsQuery
         return $this->intMap($rows, 'category_id', 'cnt');
     }
 
+    /** @return array<int, int> vehicle_id => nombre d'opérations affectées */
+    public function vehicleOperationCounts(Household $household): array
+    {
+        $rows = $this->entityManager->getConnection()->fetchAllAssociative(
+            'SELECT o.vehicle_id, COUNT(*) AS cnt FROM operation o
+             JOIN account a ON a.id = o.account_id
+             WHERE a.household_id = :household AND o.vehicle_id IS NOT NULL
+             GROUP BY o.vehicle_id',
+            ['household' => $household->getId()],
+            ['household' => ParameterType::INTEGER],
+        );
+
+        return $this->intMap($rows, 'vehicle_id', 'cnt');
+    }
+
     /**
      * Statistiques par compte : nombre d'opérations, première/dernière date et solde
      * (dernier relevé + somme des opérations postérieures à sa date de clôture).

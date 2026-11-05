@@ -73,4 +73,55 @@ final class CategoryApiTest extends ApiTestCase
         $response = $this->json($client, 'DELETE', '/api/categories/'.(int) $created['id']);
         self::assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
     }
+
+    public function testVehicleRelatedFlagAndSync(): void
+    {
+        $transport = $this->category('Transport');
+        // Un seul véhicule actif.
+        $response = $this->json($this->client(), 'POST', '/api/vehicles', ['name' => 'Clio', 'type' => 'car', 'acquiredAt' => '2026-01-01']);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $vehicleId = (int) $this->decode($response)['id'];
+
+        $client = $this->client();
+        // Création sans le flag.
+        $response = $this->json($client, 'POST', '/api/categories', ['name' => 'Parking perso', 'kind' => 'expense', 'parentId' => (int) $transport->getId()]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $created = $this->decode($response);
+        self::assertFalse($created['vehicleRelated']);
+
+        // Opération dans cette catégorie : non affectée tant que le flag est à false.
+        $op = $this->addOperation($this->account, '2026-03-05', -1200, 'PARKING CENTRE', 'PARKING', $this->category('Transport › Parking perso'), CategorizationSource::Manual);
+        $data = $this->decode($this->json($client, 'GET', '/api/operations/'.(int) $op->getId()));
+        self::assertNull($data['vehicle']);
+
+        // PATCH vehicleRelated=true ⇒ flag exposé + sync ⇒ affectation auto.
+        $response = $this->json($client, 'PATCH', '/api/categories/'.(int) $created['id'], ['vehicleRelated' => true]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertTrue($this->decode($response)['vehicleRelated']);
+        $data = $this->decode($this->json($client, 'GET', '/api/operations/'.(int) $op->getId()));
+        self::assertSame($vehicleId, $data['vehicle']['id']);
+        self::assertSame('auto', $data['vehicleSource']);
+
+        // PATCH false ⇒ sync ⇒ affectation retirée.
+        $response = $this->json($client, 'PATCH', '/api/categories/'.(int) $created['id'], ['vehicleRelated' => false]);
+        self::assertFalse($this->decode($response)['vehicleRelated']);
+        $data = $this->decode($this->json($client, 'GET', '/api/operations/'.(int) $op->getId()));
+        self::assertNull($data['vehicle']);
+        self::assertNull($data['vehicleSource']);
+
+        // Le flag est exposé dans l'arbre.
+        $tree = $this->decode($this->json($client, 'GET', '/api/categories'));
+        $found = null;
+        foreach ($tree as $root) {
+            if ('Transport' === $root['name']) {
+                foreach ($root['children'] as $child) {
+                    if ('Carburant' === $child['name']) {
+                        $found = $child;
+                    }
+                }
+            }
+        }
+        self::assertNotNull($found);
+        self::assertTrue($found['vehicleRelated']); // Carburant est vehicleRelated par défaut
+    }
 }

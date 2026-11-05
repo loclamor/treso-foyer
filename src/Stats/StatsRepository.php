@@ -513,6 +513,79 @@ final class StatsRepository
         return ['months' => $months, 'values' => $values, 'counts' => $counts];
     }
 
+    /**
+     * Dépenses par véhicule sur la période (même convention de signe que `categories` :
+     * total positif = somme de -amount, kind « expense » uniquement, virements internes exclus)
+     * + non affectées (catégories vehicleRelated sans véhicule).
+     *
+     * @param list<int>|null $accountIds
+     * @return array{vehicles: list<array{vehicleId: int, total: int, count: int, byCategory: list<array{categoryId: ?int, total: int, count: int}>}>, unassigned: array{total: int, count: int}}
+     */
+    public function vehicles(Household $household, ?array $accountIds, StatsPeriod $period): array
+    {
+        [$cte, $params, $types] = $this->base($household, $accountIds, $period);
+        $kind = AmountClassifier::kindExpr();
+        $expense = "AND $kind = '".AmountClassifier::EXPENSE."'";
+
+        // Totaux par véhicule (tri total desc).
+        $vehicleRows = $this->connection()->fetchAllAssociative(
+            $cte."\n"
+            ."SELECT o.vehicle_id AS vehicle_id, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."$expense AND o.vehicle_id IS NOT NULL\n"
+            ."GROUP BY 1\n"
+            ."ORDER BY total DESC, vehicle_id ASC",
+            $params,
+            $types,
+        );
+
+        // Détail par catégorie (catégorie exacte de l'opération, null = non catégorisée).
+        $categoryRows = $this->connection()->fetchAllAssociative(
+            $cte."\n"
+            ."SELECT o.vehicle_id AS vehicle_id, o.category_id AS category_id, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."$expense AND o.vehicle_id IS NOT NULL\n"
+            ."GROUP BY 1, 2",
+            $params,
+            $types,
+        );
+
+        // Non affectées : catégories vehicleRelated sans véhicule.
+        $unassignedRow = $this->connection()->fetchAssociative(
+            $cte."\n"
+            ."SELECT COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."$expense AND o.vehicle_id IS NULL AND c.vehicle_related = true",
+            $params,
+            $types,
+        ) ?: ['cnt' => 0, 'total' => 0];
+
+        $byCategory = [];
+        foreach ($categoryRows as $row) {
+            $byCategory[(int) $row['vehicle_id']][] = [
+                'categoryId' => null !== $row['category_id'] ? (int) $row['category_id'] : null,
+                'total' => (int) $row['total'],
+                'count' => (int) $row['cnt'],
+            ];
+        }
+
+        $vehicles = [];
+        foreach ($vehicleRows as $row) {
+            $vehicleId = (int) $row['vehicle_id'];
+            $vehicles[] = [
+                'vehicleId' => $vehicleId,
+                'total' => (int) $row['total'],
+                'count' => (int) $row['cnt'],
+                'byCategory' => $byCategory[$vehicleId] ?? [],
+            ];
+        }
+
+        return [
+            'vehicles' => $vehicles,
+            'unassigned' => ['total' => (int) $unassignedRow['total'], 'count' => (int) $unassignedRow['cnt']],
+        ];
+    }
+
     private function connection(): Connection
     {
         return $this->entityManager->getConnection();

@@ -27,6 +27,8 @@ final class CategoryPatchInput
         public readonly ?int $position = null,
         #[Assert\Type(type: 'bool', message: 'archived doit être un booléen.')]
         public readonly ?bool $archived = null,
+        #[Assert\Type(type: 'bool', message: 'vehicleRelated doit être un booléen.')]
+        public readonly ?bool $vehicleRelated = null,
         // null explicite = retire l'emplacement (la présence de la clé est détectée
         // sur le corps brut dans CategoryController, absent du corps = non modifié).
         #[Assert\Range(min: 1, max: 8, notInRangeMessage: 'chartSlot doit être compris entre 1 et 8.')]

@@ -9,6 +9,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 /**
  * Corps de PATCH /api/rules/{id} et de POST /api/rules/preview.
  * Les champs absents (null) ne sont pas modifiés (preview : valeurs par défaut appliquées).
+ * Exception : vehicleId null explicite (clé présente dans le corps) retire le véhicule de la règle.
  */
 final class RulePatchInput
 {
@@ -29,6 +30,8 @@ final class RulePatchInput
         public readonly ?int $amountMax = null,
         #[Assert\Positive(message: 'accountId doit être un identifiant positif.')]
         public readonly ?int $accountId = null,
+        #[Assert\Positive(message: 'vehicleId doit être un identifiant positif.')]
+        public readonly ?int $vehicleId = null,
         #[Assert\Type(type: 'int', message: 'priority doit être un entier.')]
         public readonly ?int $priority = null,
         #[Assert\Type(type: 'bool', message: 'enabled doit être un booléen.')]

@@ -8,6 +8,7 @@ use App\Entity\Account;
 use App\Entity\ImportBatch;
 use App\Entity\InternalTransfer;
 use App\Entity\Statement;
+use App\Enum\CategorizationSource;
 use App\Enum\ImportFormat;
 use App\Enum\ImportStatus;
 use App\Enum\TransferStatus;
@@ -488,5 +489,58 @@ final class StatsApiTest extends ApiTestCase
         // 422 : racine de revenu interdite.
         $response = $this->json($client, 'PATCH', '/api/categories/'.(int) $revenus->getId(), ['chartSlot' => 2]);
         self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+    }
+
+    public function testVehicles(): void
+    {
+        $vehicle = new \App\Entity\Vehicle($this->household, 'Clio', \App\Enum\VehicleType::Car);
+        $this->em()->persist($vehicle);
+        $carburant = $this->category('Transport › Carburant');
+        $entretien = $this->category('Transport › Entretien véhicule');
+        $courses = $this->category('Alimentation › Courses');
+        $mouvements = $this->category('Mouvements internes');
+
+        $op1 = $this->addOperation($this->account, '2026-01-05', -5000, 'ESSENCE STATION', 'STATION', $carburant, CategorizationSource::Manual);
+        $op1->assignVehicle($vehicle, \App\Enum\VehicleSource::Manual);
+        $op2 = $this->addOperation($this->account, '2026-01-12', -3000, 'VIDANGE GARAGE', 'GARAGE', $entretien, CategorizationSource::Manual);
+        $op2->assignVehicle($vehicle, \App\Enum\VehicleSource::Manual);
+        // Catégorie non vehicleRelated mais affectée manuellement : comptée, par catégorie.
+        $op4 = $this->addOperation($this->account, '2026-01-25', -700, 'ACHAT CB SHOP', 'SHOP', $courses, CategorizationSource::Manual);
+        $op4->assignVehicle($vehicle, \App\Enum\VehicleSource::Manual);
+        // Non affectée (catégorie vehicleRelated sans véhicule).
+        $this->addOperation($this->account, '2026-01-20', -1000, 'PEAGE AUTOROUTE', 'AUTOROUTE', $carburant, CategorizationSource::Manual);
+        // Virement interne affecté au véhicule ⇒ exclu (kind transfer).
+        $op5 = $this->addOperation($this->account, '2026-01-28', -10000, 'VIR INTERNE', 'VIRIN', $mouvements);
+        $transfer = new InternalTransfer(TransferStatus::Auto);
+        $this->em()->persist($transfer);
+        $op5->setInternalTransfer($transfer);
+        $op5->assignVehicle($vehicle, \App\Enum\VehicleSource::Manual);
+        $this->em()->flush();
+
+        $client = $this->client();
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/vehicles?from=2026-01-01&to=2026-01-31'));
+
+        self::assertCount(1, $data['vehicles']);
+        $row = $data['vehicles'][0];
+        self::assertSame((int) $vehicle->getId(), $row['vehicle']['id']);
+        self::assertSame('Clio', $row['vehicle']['name']);
+        // Dépense positive (somme de -amount), virement interne exclu.
+        self::assertSame(8700, $row['total']);
+        self::assertSame(3, $row['count']);
+        // 1 mois dans la période ⇒ moyenne mensuelle = total.
+        self::assertSame(8700, $row['monthlyAverage']);
+
+        $byCategory = [];
+        foreach ($row['byCategory'] as $entry) {
+            $byCategory[$entry['category']['fullName']] = $entry['total'];
+        }
+        ksort($byCategory);
+        self::assertSame([
+            'Alimentation › Courses' => 700,
+            'Transport › Carburant' => 5000,
+            'Transport › Entretien véhicule' => 3000,
+        ], $byCategory);
+
+        self::assertSame(['total' => 1000, 'count' => 1], $data['unassigned']);
     }
 }

@@ -8,9 +8,11 @@ use App\Api\BadRequestException;
 use App\Api\Filter\OperationFilter;
 use App\Api\HouseholdProvider;
 use App\Api\Input\BulkCategorizeInput;
+use App\Api\Input\BulkVehicleAssignInput;
 use App\Api\Input\CategorizeOperationInput;
 use App\Api\Input\DuplicateInput;
 use App\Api\Input\OperationPatchInput;
+use App\Api\Input\VehicleAssignInput;
 use App\Api\NotFoundException;
 use App\Api\Pagination;
 use App\Api\Presenter\OperationPresenter;
@@ -21,9 +23,11 @@ use App\Categorization\ManualCategorizer;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Operation;
+use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
 use App\Enum\ImportFormat;
+use App\Enum\VehicleSource;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -98,6 +102,65 @@ final class OperationController extends AbstractController
         }
         $entityManager->flush();
         // La catégorie ayant changé, resynchronise l'axe véhicule du foyer.
+        $vehicleAssigner->sync($household);
+
+        return new JsonResponse(['updatedCount' => count($operations)]);
+    }
+
+    #[Route('/api/operations/{id}/vehicle', name: 'api_operation_vehicle', requirements: ['id' => '\\d+'], methods: ['POST'])]
+    public function assignVehicle(
+        int $id,
+        #[MapRequestPayload] VehicleAssignInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        VehicleAssigner $vehicleAssigner,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $operation = $this->findOperation($entityManager, $household, $id);
+
+        if (null === $input->vehicleId) {
+            // Retire l'affectation manuelle puis resynchronise l'axe véhicule.
+            $operation->unassignVehicle();
+            $entityManager->flush();
+            $vehicleAssigner->sync($household);
+        } else {
+            $operation->assignVehicle($this->findVehicle($entityManager, $household, $input->vehicleId), VehicleSource::Manual);
+            $entityManager->flush();
+        }
+        // sync() écrit en DBAL, hors UnitOfWork : on recharge l'opération avant de la présenter.
+        $entityManager->refresh($operation);
+
+        return new JsonResponse($operationPresenter->present($operation));
+    }
+
+    #[Route('/api/operations/bulk-vehicle', name: 'api_operations_bulk_vehicle', methods: ['POST'])]
+    public function bulkAssignVehicle(
+        #[MapRequestPayload] BulkVehicleAssignInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        VehicleAssigner $vehicleAssigner,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $vehicle = null === $input->vehicleId ? null : $this->findVehicle($entityManager, $household, $input->vehicleId);
+
+        $operations = $entityManager->getRepository(Operation::class)->createQueryBuilder('o')
+            ->join('o.account', 'a')
+            ->where('a.household = :household')
+            ->andWhere('o.id IN (:ids)')
+            ->setParameter('household', $household)
+            ->setParameter('ids', $input->ids)
+            ->getQuery()->getResult();
+        foreach ($operations as $operation) {
+            \assert($operation instanceof Operation);
+            if (null === $vehicle) {
+                $operation->unassignVehicle();
+            } else {
+                $operation->assignVehicle($vehicle, VehicleSource::Manual);
+            }
+        }
+        $entityManager->flush();
+        // vehicleId null : les affectations manuelles retirées laissent la place à l'auto.
         $vehicleAssigner->sync($household);
 
         return new JsonResponse(['updatedCount' => count($operations)]);
@@ -227,6 +290,16 @@ final class OperationController extends AbstractController
         }
 
         return $category;
+    }
+
+    private function findVehicle(EntityManagerInterface $entityManager, Household $household, int $vehicleId): Vehicle
+    {
+        $vehicle = $entityManager->getRepository(Vehicle::class)->findOneBy(['id' => $vehicleId, 'household' => $household]);
+        if (!$vehicle instanceof Vehicle) {
+            throw new ValidationException([['field' => 'vehicleId', 'message' => 'Véhicule introuvable dans le foyer.']]);
+        }
+
+        return $vehicle;
     }
 
     private function ruleMatchCount(EntityManagerInterface $entityManager, Household $household, \App\Entity\CategorizationRule $rule): int

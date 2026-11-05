@@ -7,6 +7,7 @@ namespace App\Api\Filter;
 use App\Api\BadRequestException;
 use App\Entity\Category;
 use App\Entity\Household;
+use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
 use App\Util\Text;
@@ -43,6 +44,8 @@ final class OperationFilter
         public readonly ?string $source,
         public readonly string $sort,
         public readonly string $order,
+        public readonly ?int $vehicleId,
+        public readonly bool $vehicleUnassigned,
     ) {
     }
 
@@ -106,6 +109,20 @@ final class OperationFilter
 
         $uncategorized = in_array((string) $request->query->get('uncategorized', '0'), ['1', 'true'], true);
 
+        $vehicleId = null;
+        $rawVehicleId = $request->query->get('vehicleId');
+        if (null !== $rawVehicleId && '' !== $rawVehicleId) {
+            if (!ctype_digit((string) $rawVehicleId)) {
+                throw new BadRequestException('Paramètre vehicleId invalide.', 'invalid_query');
+            }
+            $vehicleId = (int) $rawVehicleId;
+            $exists = $entityManager->getRepository(Vehicle::class)->findOneBy(['id' => $vehicleId, 'household' => $household]);
+            if (!$exists instanceof Vehicle) {
+                throw new BadRequestException('Véhicule introuvable.', 'invalid_query');
+            }
+        }
+        $vehicleUnassigned = in_array((string) $request->query->get('vehicleUnassigned', '0'), ['1', 'true'], true);
+
         return new self(
             accountIds: null, // posé par l'appelant via withAccountIds()
             from: $from,
@@ -122,13 +139,33 @@ final class OperationFilter
             source: $source,
             sort: $sort,
             order: $order,
+            vehicleId: $vehicleId,
+            vehicleUnassigned: $vehicleUnassigned,
         );
     }
 
     /** @param list<int>|null $accountIds */
     public function withAccountIds(?array $accountIds): self
     {
-        return new self($accountIds, $this->from, $this->to, $this->categoryId, $this->categoryIds, $this->uncategorized, $this->q, $this->merchant, $this->direction, $this->minAmount, $this->maxAmount, $this->duplicateStatus, $this->source, $this->sort, $this->order);
+        return new self(
+            accountIds: $accountIds,
+            from: $this->from,
+            to: $this->to,
+            categoryId: $this->categoryId,
+            categoryIds: $this->categoryIds,
+            uncategorized: $this->uncategorized,
+            q: $this->q,
+            merchant: $this->merchant,
+            direction: $this->direction,
+            minAmount: $this->minAmount,
+            maxAmount: $this->maxAmount,
+            duplicateStatus: $this->duplicateStatus,
+            source: $this->source,
+            sort: $this->sort,
+            order: $this->order,
+            vehicleId: $this->vehicleId,
+            vehicleUnassigned: $this->vehicleUnassigned,
+        );
     }
 
     /**
@@ -177,6 +214,16 @@ final class OperationFilter
         }
         if (null !== $this->source) {
             $qb->andWhere('o.categorizationSource = :source')->setParameter('source', $this->source);
+        }
+        if (null !== $this->vehicleId) {
+            $qb->andWhere('o.vehicle = :vehicleId')->setParameter('vehicleId', $this->vehicleId);
+        }
+        if ($this->vehicleUnassigned) {
+            // Opérations de catégorie vehicleRelated sans véhicule (jointure propre : l'alias « c »
+            // est posé par l'appelant sur le select final).
+            $qb->leftJoin('o.category', 'fvc')
+                ->andWhere('o.vehicle IS NULL')
+                ->andWhere('fvc.vehicleRelated = true');
         }
     }
 

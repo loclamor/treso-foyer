@@ -13,6 +13,7 @@ use App\Api\ValidationException;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Enum\CategoryKind;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -48,6 +49,7 @@ final class CategoryController extends AbstractController
         EntityManagerInterface $entityManager,
         StatsQuery $statsQuery,
         CategoryPresenter $categoryPresenter,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $parent = null;
@@ -70,11 +72,16 @@ final class CategoryController extends AbstractController
         $category->setParent($parent);
         $category->setColor($input->color);
         $category->setIcon($input->icon);
+        $category->setVehicleRelated($input->vehicleRelated ?? false);
         // Position : après les frères et sœurs existants.
         $siblings = $entityManager->getRepository(Category::class)->findBy(['household' => $household, 'parent' => $parent]);
         $category->setPosition(array_reduce($siblings, static fn (int $carry, Category $c): int => max($carry, $c->getPosition() + 1), 0));
         $entityManager->persist($category);
         $entityManager->flush();
+        // Un poste vehicleRelated active l'affectation auto des opérations.
+        if ($category->isVehicleRelated()) {
+            $vehicleAssigner->sync($household);
+        }
 
         $counts = $statsQuery->categoryOperationCounts($household);
 
@@ -90,9 +97,11 @@ final class CategoryController extends AbstractController
         EntityManagerInterface $entityManager,
         StatsQuery $statsQuery,
         CategoryPresenter $categoryPresenter,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $category = $this->find($entityManager, $household, $id);
+        $vehicleRelatedChanged = false;
 
         if (null !== $input->name) {
             $category->setName($input->name);
@@ -111,6 +120,10 @@ final class CategoryController extends AbstractController
         }
         if (null !== $input->archived) {
             $category->setArchived($input->archived);
+        }
+        if (null !== $input->vehicleRelated && $input->vehicleRelated !== $category->isVehicleRelated()) {
+            $category->setVehicleRelated($input->vehicleRelated);
+            $vehicleRelatedChanged = true;
         }
         if (null !== $input->parentId) {
             $parent = $this->find($entityManager, $household, $input->parentId);
@@ -148,6 +161,10 @@ final class CategoryController extends AbstractController
         }
 
         $entityManager->flush();
+        // Le poste vehicleRelated a changé : resynchronise l'axe véhicule du foyer.
+        if ($vehicleRelatedChanged) {
+            $vehicleAssigner->sync($household);
+        }
         $counts = $statsQuery->categoryOperationCounts($household);
 
         return new JsonResponse($categoryPresenter->present($category, $counts));

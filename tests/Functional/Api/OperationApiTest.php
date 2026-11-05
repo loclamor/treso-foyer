@@ -255,4 +255,126 @@ final class OperationApiTest extends ApiTestCase
         self::assertNotEmpty($data['violations']);
         self::assertArrayHasKey('field', $data['violations'][0]);
     }
+
+    private function createVehicleViaApi(string $name = 'Clio'): array
+    {
+        $response = $this->json($this->client(), 'POST', '/api/vehicles', ['name' => $name, 'type' => 'car', 'acquiredAt' => '2026-01-01']);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+
+        return $this->decode($response);
+    }
+
+    public function testAssignVehicleManualThenUnassignResyncs(): void
+    {
+        $vehicle = $this->createVehicleViaApi();
+        $op = $this->addOperation($this->account, '2026-03-01', -100, 'ACHAT CB SHOP V', 'SHOPV');
+        $client = $this->client();
+
+        // Affectation manuelle.
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op->getId().'/vehicle', ['vehicleId' => (int) $vehicle['id']]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertSame((int) $vehicle['id'], $data['vehicle']['id']);
+        self::assertSame('manual', $data['vehicleSource']);
+
+        // vehicleId null ⇒ retire l'affectation manuelle puis sync (catégorie non vehicleRelated ⇒ rien).
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op->getId().'/vehicle', ['vehicleId' => null]);
+        $data = $this->decode($response);
+        self::assertNull($data['vehicle']);
+        self::assertNull($data['vehicleSource']);
+
+        // Catégorie vehicleRelated + un seul véhicule actif ⇒ null remet l'affectation auto.
+        $carburant = $this->category('Transport › Carburant');
+        $op2 = $this->addOperation($this->account, '2026-03-02', -5000, 'ESSENCE STATION V', 'STATIONV', $carburant, CategorizationSource::Manual);
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op2->getId().'/vehicle', ['vehicleId' => (int) $vehicle['id']]);
+        self::assertSame('manual', $this->decode($response)['vehicleSource']);
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op2->getId().'/vehicle', ['vehicleId' => null]);
+        $data = $this->decode($response);
+        self::assertSame((int) $vehicle['id'], $data['vehicle']['id']);
+        self::assertSame('auto', $data['vehicleSource']);
+
+        // Véhicule inconnu ⇒ 422 sur vehicleId.
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op->getId().'/vehicle', ['vehicleId' => 999999]);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        self::assertSame('vehicleId', $this->decode($response)['violations'][0]['field']);
+    }
+
+    public function testBulkVehicle(): void
+    {
+        $vehicle = $this->createVehicleViaApi();
+        $op1 = $this->addOperation($this->account, '2026-03-01', -100, 'ACHAT CB B1', 'B1');
+        $op2 = $this->addOperation($this->account, '2026-03-02', -200, 'ACHAT CB B2', 'B2');
+        $client = $this->client();
+
+        $response = $this->json($client, 'POST', '/api/operations/bulk-vehicle', ['ids' => [(int) $op1->getId(), (int) $op2->getId()], 'vehicleId' => (int) $vehicle['id']]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertSame(2, $this->decode($response)['updatedCount']);
+
+        $this->em()->clear();
+        foreach ([$op1, $op2] as $op) {
+            $reloaded = $this->em()->find(Operation::class, $op->getId());
+            self::assertSame((int) $vehicle['id'], (int) $reloaded?->getVehicle()?->getId());
+            self::assertSame('manual', $reloaded?->getVehicleSource()?->value);
+        }
+
+        // vehicleId null ⇒ affectations manuelles retirées puis sync.
+        $response = $this->json($client, 'POST', '/api/operations/bulk-vehicle', ['ids' => [(int) $op1->getId(), (int) $op2->getId()], 'vehicleId' => null]);
+        self::assertSame(2, $this->decode($response)['updatedCount']);
+        $this->em()->clear();
+        foreach ([$op1, $op2] as $op) {
+            $reloaded = $this->em()->find(Operation::class, $op->getId());
+            self::assertNull($reloaded?->getVehicle());
+            self::assertNull($reloaded?->getVehicleSource());
+        }
+    }
+
+    public function testListFiltersVehicleIdAndVehicleUnassigned(): void
+    {
+        $vehicle = $this->createVehicleViaApi();
+        $carburant = $this->category('Transport › Carburant');
+        $assigned = $this->addOperation($this->account, '2026-03-01', -5000, 'ESSENCE STATION F', 'STATIONF', $carburant, CategorizationSource::Manual);
+        $unassigned = $this->addOperation($this->account, '2026-03-02', -3000, 'PEAGE F', 'AUTOROUTEF', $carburant, CategorizationSource::Manual);
+        $this->addOperation($this->account, '2026-03-03', -100, 'ACHAT CB F', 'SHOPF'); // non catégorisé
+        $managed = $this->em()->find(\App\Entity\Vehicle::class, (int) $vehicle['id']);
+        $assigned->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        $this->em()->flush();
+
+        $client = $this->client();
+
+        // vehicleId : l'opération affectée, et les sommes suivent le filtre.
+        $data = $this->decode($this->json($client, 'GET', '/api/operations?vehicleId='.(int) $vehicle['id']));
+        self::assertSame(1, $data['total']);
+        self::assertSame((int) $assigned->getId(), $data['items'][0]['id']);
+        self::assertSame(-5000, $data['sums']['debit']);
+
+        // vehicleUnassigned=1 : catégories vehicleRelated sans véhicule (le non catégorisé exclu).
+        $data = $this->decode($this->json($client, 'GET', '/api/operations?vehicleUnassigned=1'));
+        self::assertSame(1, $data['total']);
+        self::assertSame((int) $unassigned->getId(), $data['items'][0]['id']);
+        self::assertSame(-3000, $data['sums']['debit']);
+
+        // Véhicule inconnu ⇒ 400.
+        $response = $this->json($client, 'GET', '/api/operations?vehicleId=999999');
+        self::assertSame(Response::HTTP_BAD_REQUEST, $response->getStatusCode());
+        self::assertSame('invalid_query', $this->decode($response)['error']);
+    }
+
+    public function testCategorizeManualSetsAutoVehicleAfterSync(): void
+    {
+        // Un seul véhicule actif à la date de l'opération.
+        $vehicle = $this->createVehicleViaApi();
+        $carburant = $this->category('Transport › Carburant');
+        $op = $this->addOperation($this->account, '2026-03-10', -5000, 'ESSENCE STATION C', 'STATIONC');
+        $client = $this->client();
+
+        // Catégorisation manuelle en « Transport › Carburant » : la réponse doit contenir
+        // l'affectation auto (sync() écrit hors UnitOfWork ⇒ refresh avant présentation).
+        $response = $this->json($client, 'POST', '/api/operations/'.(int) $op->getId().'/categorize', ['categoryId' => (int) $carburant->getId(), 'scope' => 'operation']);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertSame('Transport › Carburant', $data['operation']['category']['fullName']);
+        self::assertSame('manual', $data['operation']['categorizationSource']);
+        self::assertSame((int) $vehicle['id'], $data['operation']['vehicle']['id']);
+        self::assertSame('auto', $data['operation']['vehicleSource']);
+    }
 }

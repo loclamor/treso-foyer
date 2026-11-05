@@ -3,3 +3,9 @@
 parameters:
     app.accounts_ini: '%kernel.project_dir%/tests/Fixtures/comptes.ini'
     app.uploads_dir: '%kernel.project_dir%/var/test-uploads'
+
+services:
+    # En test, la recherche par plaque passe par un faux piloté par état statique
+    # (le noyau est reboooté entre les requêtes : l'instance est recréée à chaque boot).
+    App\Tests\Support\FakeVehicleLookup: ~
+    App\Vehicle\Lookup\VehicleLookup: '@App\Tests\Support\FakeVehicleLookup'

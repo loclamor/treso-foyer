@@ -30,6 +30,8 @@ final class RuleCreateInput
         public readonly ?int $amountMax = null,
         #[Assert\Positive(message: 'accountId doit être un identifiant positif.')]
         public readonly ?int $accountId = null,
+        #[Assert\Positive(message: 'vehicleId doit être un identifiant positif.')]
+        public readonly ?int $vehicleId = null,
         #[Assert\Type(type: 'int', message: 'priority doit être un entier.')]
         public readonly ?int $priority = null,
         #[Assert\Type(type: 'bool', message: 'enabled doit être un booléen.')]

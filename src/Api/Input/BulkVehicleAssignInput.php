@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Api\Input;
+
+use Symfony\Component\Validator\Constraints as Assert;
+
+/** Corps de POST /api/operations/bulk-vehicle (affectation manuelle, ou remise à null si vehicleId null). */
+final class BulkVehicleAssignInput
+{
+    public function __construct(
+        #[Assert\NotEmpty(message: 'ids ne doit pas être vide.')]
+        #[Assert\Type(type: 'array', message: 'ids doit être un tableau.')]
+        #[Assert\All([new Assert\Positive(message: 'Chaque id doit être positif.')])]
+        public readonly array $ids = [],
+        #[Assert\Positive(message: 'vehicleId doit être un identifiant positif.')]
+        public readonly ?int $vehicleId = null,
+    ) {
+    }
+}

@@ -24,17 +24,26 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 {"id": 12, "name": "Courses", "fullName": "Alimentation › Courses", "kind": "expense|income|transfer", "color": "#4caf50", "icon": "pi pi-shopping-cart", "chartSlot": 1 | null}  // chartSlot : celui de la racine
 // Category (arbre)
 {"id": 1, "name": "Alimentation", "fullName": "Alimentation", "kind": "expense", "color": "#…", "icon": "…", "position": 0, "archived": false,
- "parentId": null, "operationsCount": 1234, "children": [Category]}
+ "vehicleRelated": false, "parentId": null, "operationsCount": 1234, "children": [Category]}
+// VehicleRef
+{"id": 3, "name": "Clio", "type": "car|motorcycle|bike|other", "archived": false}
+// Vehicle
+{"id": 3, "name": "Clio", "type": "car", "archived": false, "plate": "AB-123-CD" | null, "make": "Renault" | null,
+ "model": "Clio 5" | null, "energy": "petrol|diesel|electric|hybrid|plugin_hybrid|lpg|other" | null, "fiscalPower": 5 | null,
+ "firstRegistrationAt": "2020-05-10" | null, "vin": "…" | null, "acquiredAt": "2020-06-01" | null, "disposedAt": null,
+ "purchasePrice": 1500000 | null, "mainDriver": Member | null, "lookupAt": "…" | null,
+ "operationsCount": 42, "lastOdometer": {"date": "2026-03-15", "km": 48200} | null}  // lookupData (réponse brute) jamais exposé
 // Operation
 {"id": 42, "date": "2026-08-26", "amount": -2756, "rawLabel": "…", "normalizedLabel": "…", "merchant": "…" | null,
  "account": AccountRef, "category": CategoryRef | null,
  "categorizationSource": "manual|rule|similarity|llm|transfer" | null, "appliedRuleId": 7 | null,
  "duplicateStatus": "none|probable|confirmed_distinct", "duplicateOfId": 41 | null,
- "internalTransferId": 5 | null, "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null}
+ "internalTransferId": 5 | null, "vehicle": VehicleRef | null, "vehicleSource": "manual|rule|auto" | null,
+ "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null}
 // Rule
 {"id": 7, "category": CategoryRef, "matchField": "merchant|label", "matchType": "contains|starts_with|exact|regex", "pattern": "…",
  "direction": "any|debit|credit", "amountMin": 4000 | null, "amountMax": 8000 | null, "account": AccountRef | null,
- "priority": 100, "enabled": true, "matchCount": 91}
+ "vehicle": VehicleRef | null, "priority": 100, "enabled": true, "matchCount": 91}
 // MerchantGroup (regroupement par commerçant)
 {"key": "INTERMARCHE", "merchant": "INTERMARCHE" | null, "direction": "debit|credit", "count": 40, "total": -292000,
  "minAmount": -14900, "maxAmount": -800, "firstDate": "2018-03-19", "lastDate": "2026-11-03",
@@ -67,7 +76,7 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 `GET /api/summary` (+ périmètre) ⇒
 ```json
 {"operationsCount": 4546, "categorizedCount": 2089, "uncategorizedCount": 2457, "probableDuplicatesCount": 0,
- "pendingTransfersCount": 0, "lastImportAt": "…", "firstDate": "2018-01-15", "lastDate": "2026-11-03",
+ "pendingTransfersCount": 0, "vehicleUnassignedCount": 12, "lastImportAt": "…", "firstDate": "2018-01-15", "lastDate": "2026-11-03",
  "accounts": [Account]}
 ```
 
@@ -78,16 +87,30 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 | GET | `/api/accounts` | `[Account]` |
 | PATCH | `/api/accounts/{id}` | `{"alias"?, "label"?, "type"?, "holderIds"?: [int]}` ⇒ `Account` (alias unique ⇒ `409`) |
 | GET | `/api/categories` | arbre `[Category]` (racines triées par `position`) |
-| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
-| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?}` |
+| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?,"vehicleRelated"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
+| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?,"vehicleRelated"?,"chartSlot"?}` |
 | DELETE | `/api/categories/{id}` | `204` ; refus `409` si opérations, règles ou budgets rattachés (proposer l'archivage) |
+
+## Véhicules (lot 3)
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/vehicles` | `[Vehicle]` triés par id ; défaut : non archivés uniquement, `?archived=1` les inclut tous |
+| POST | `/api/vehicles` | corps = champs de `Vehicle` (`type` défaut `car`) ⇒ `201 Vehicle`. `plate` normalisée (SIV `AA-123-AA`, FNI sans séparateurs) : format invalide ⇒ `422` sur `plate`, doublon (foyer) ⇒ `409 plate_exists`, nom en doublon ⇒ `409 name_exists`, `mainDriverId` hors foyer ⇒ `422` |
+| PATCH | `/api/vehicles/{id}` | idem partiel ; champ absent = inchangé, chaîne vide = remise à null (dates et textes), `mainDriverId: null` explicite (clé présente) retire le conducteur |
+| DELETE | `/api/vehicles/{id}` | `204` ; refus `409 vehicle_in_use` si des opérations ou des règles y sont rattachées (message proposant l'archivage) |
+| POST | `/api/vehicles/lookup` | `{"plate", "vehicleId"?}` ⇒ `200 {"plate": normalisée, "suggestion": VehicleLookupResult sans « raw »}`. Service désactivé ⇒ `503 lookup_disabled` ; `VehicleLookupException` ⇒ `404 not_found`, `429 quota`, `502 unavailable`/`invalid_response`. `vehicleId` fourni : enregistre `lookupData` (raw) + `lookupAt` sur ce véhicule sans toucher à ses autres champs |
+| GET | `/api/vehicles/lookup/status` | ⇒ `{"enabled": bool}` |
+
+Après création/modification/suppression d'un véhicule, d'une règle (champ `vehicleId`) ou d'une catégorie (champ `vehicleRelated`), l'affectation automatique des opérations est resynchronisée (`VehicleAssigner::sync()`) : les affectations `manual` ne sont jamais modifiées, une règle appliquée avec véhicule prime (source `rule`), sinon catégorie `vehicleRelated` + exactement un véhicule actif à la date de l'opération (source `auto`).
 
 ## Opérations
 | Méthode | Route | Notes |
 |---|---|---|
-| GET | `/api/operations` | Filtres : périmètre, `from`, `to`, `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé de groupe `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc, puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
+| GET | `/api/operations` | Filtres : périmètre, `from`, `to`, `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé de groupe `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource), `vehicleId` (véhicule du foyer, inconnu ⇒ `400`), `vehicleUnassigned=1` (catégories `vehicleRelated` sans véhicule). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc, puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
 | GET | `/api/operations/{id}` | `Operation` |
 | PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` |
+| POST | `/api/operations/{id}/vehicle` | `{"vehicleId": int|null}` : affectation manuelle (`vehicleSource: "manual"`) ; `null` retire l'affectation manuelle puis resynchronise (`sync()` peut remettre une affectation `auto`/`rule`). ⇒ `Operation` |
+| POST | `/api/operations/bulk-vehicle` | `{"ids": [int], "vehicleId": int|null}` (même sémantique) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
 | POST | `/api/operations/bulk-categorize` | `{"ids": [int], "categoryId": int}` (manuel, sans règle) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle et note si elle n'en a pas, supprime l'autre. `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
@@ -102,8 +125,8 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 | Méthode | Route | Notes |
 |---|---|---|
 | GET | `/api/rules` | `[Rule]` triées priorité desc, id asc ; `matchCount` = opérations dont `appliedRule` est cette règle |
-| POST | `/api/rules` | champs de `Rule` avec `categoryId`, `accountId` ⇒ `201 Rule` (regex invalide ⇒ `422`) |
-| PATCH | `/api/rules/{id}` | idem partiel |
+| POST | `/api/rules` | champs de `Rule` avec `categoryId`, `accountId`, `vehicleId` ⇒ `201 Rule` (regex invalide ⇒ `422`) ; `vehicleId` désigne le véhicule affecté aux opérations de la règle |
+| PATCH | `/api/rules/{id}` | idem partiel ; `vehicleId: null` explicite (clé présente) retire le véhicule |
 | DELETE | `/api/rules/{id}` | `204` (les opérations catégorisées par cette règle perdent leur catégorie puis sont recatégorisées) |
 | POST | `/api/rules/preview` | corps = règle (sans id) ⇒ `{"matchCount": n, "conflicts": n, "sample": [Operation]}` (10 max ; `conflicts` = opérations correspondantes déjà catégorisées autrement, hors manuelles comptées à part dans `"manualCount"`) |
 | POST | `/api/categorization/run` | `{"all": bool}` ⇒ `{"processed","byRule","bySimilarity","stillUncategorized","categorizedPercent","vehicles":{"processed","byRule","auto","cleared","unchanged"}}` |
@@ -143,6 +166,7 @@ Tous les endpoints acceptent le **périmètre** (`accountId[]` / `memberId`) et 
 | GET | `/api/stats/sankey` | `{"nodes": [{"id","name","kind": "income\|expense\|hub\|savings\|deficit", "category": CategoryRef \| null}], "links": [{"source","target","value"}]}` — racines de revenu → nœud `hub` « Budget » → racines de dépense ; nœud `savings` « Épargne / excédent » si revenus > dépenses, sinon nœud source `deficit` « Déficit ». Non catégorisé = nœud dédié de chaque côté. |
 | GET | `/api/stats/calendar` | `[{"date": "2026-03-14", "expense": n, "count": n}]` — dépenses par jour (jours sans dépense omis). |
 | GET | `/api/stats/category-trend` | `?categoryId=` (racine ou feuille, sous-catégories incluses) ⇒ `{"category": CategoryRef, "months": [...], "values": [...], "counts": [...]}` |
+| GET | `/api/stats/vehicles` | ⇒ `{"vehicles": [{"vehicle": VehicleRef, "total", "count", "monthlyAverage", "byCategory": [{"category": CategoryRef \| null, "total"}]}], "unassigned": {"total", "count"}}` — véhicules ayant au moins une dépense sur la période, triés par `total` desc ; `total` positif (somme de `-amount`, kind `expense` uniquement, virements internes exclus, même convention que `/api/stats/categories`) ; `monthlyAverage` = total / nombre de mois de la période ; `unassigned` = opérations de catégories `vehicleRelated` sans véhicule |
 
 `Category` (référentiel, `/api/categories`) gagne aussi `chartSlot` ; `PATCH /api/categories/{id}` accepte `chartSlot` (1-8 ou null, **racines de dépense uniquement**, unique dans le foyer ⇒ `409` si déjà pris, `422` sinon).
 
@@ -180,3 +204,20 @@ Choix et écarts par rapport au contrat :
 - `monthly.byRoot` ne contient que les racines catégorisées (le non catégorisé est dans `uncategorized`) ; `calendar` inclut les remboursements (valeurs négatives possibles, même classification que partout).
 - `balance` : point `null` avant la première donnée du compte (pas de relevé ⇒ `null` partout ; avant l'opening du premier relevé ⇒ `null`) ; granularité `month` = fins de mois + `to` en dernier point.
 - `merchants` (stats) groupe par clé seule (sans le sens, contrairement à `/api/merchants`), `total` positif en dépense, tri `total` desc ; catégorie = catégorie majoritaire des opérations du groupe (la catégorie exacte, pas forcément une racine).
+
+## Notes d'implémentation (lot 3, véhicules)
+
+Fichiers clés :
+- `src/Controller/Api/VehicleController.php` : CRUD + `POST /api/vehicles/lookup` + `GET /api/vehicles/lookup/status`. Plaque normalisée via `App\Util\PlateNormalizer` (invalide ⇒ `422` sur `plate`, le message ne contient jamais la plaque) ; unicité nom/plaque vérifiée avant flush ⇒ `409` (`name_exists`/`plate_exists`). `DELETE` ⇒ `409 vehicle_in_use` si opérations ou règles rattachées. `lookup` : `lookupData` (raw) enregistré uniquement si `vehicleId` fourni ; `lookupData` n'est jamais exposé par l'API (seul `lookupAt` l'est). Erreurs lookup : `ServiceUnavailableException` (503 `lookup_disabled`, 502 `unavailable`/`invalid_response`), `TooManyRequestsException` (429 `quota`), `NotFoundException` (404 `not_found`).
+- Entrées `src/Api/Input/VehicleCreateInput|VehiclePatchInput|VehicleLookupInput|VehicleAssignInput|BulkVehicleAssignInput.php` ; présentation `src/Api/Presenter/VehiclePresenter.php` (`present()` complet + `presentRef()` = `{id, name, type, archived}`).
+- `OperationController` : `POST /api/operations/{id}/vehicle` et `POST /api/operations/bulk-vehicle` (affectation manuelle, `vehicleId: null` ⇒ retrait + `sync()`). **Piège UnitOfWork** : `VehicleAssigner::sync()` écrit en DBAL hors UnitOfWork ⇒ `$entityManager->refresh($operation)` avant de présenter l'opération après un `sync()` (déjà en place dans `categorize`, couvert par un test).
+- `OperationFilter` : filtres `vehicleId` et `vehicleUnassigned=1` (jointure propre `fvc` sur la catégorie pour ne pas heurter l'alias `c` du select), appliqués aussi aux `sums`.
+- `RuleCreateInput`/`RulePatchInput`/`RulePresenter` : `vehicleId` (`null` explicite en PATCH = retirer, détecté sur le corps brut comme `chartSlot`) ; `sync()` après création/modification de règle. Idem `CategoryCreateInput`/`CategoryPatchInput`/`CategoryPresenter` pour `vehicleRelated`.
+- `src/Stats/StatsRepository::vehicles()` (3 requêtes agrégées DBAL sur la base commune `base()`/`fromWhere()`, kind `expense` via `AmountClassifier`, virements internes exclus) + route `GET /api/stats/vehicles` dans `StatsController` ; `monthlyAverage` calculé côté contrôleur (total / mois de la période). Compteurs liste véhicules : `StatsQuery::vehicleOperationCounts()`, dernier relevé `OdometerReadingRepository::latestByVehicleIds()` (DISTINCT ON). `GET /api/summary` gagne `vehicleUnassignedCount`.
+- Tests : `tests/Functional/Api/VehicleApiTest.php` + compléments dans `OperationApiTest`, `RuleApiTest`, `CategoryApiTest`, `StatsApiTest`. Le service `App\Vehicle\Lookup\VehicleLookup` est remplacé en test par `App\Tests\Support\FakeVehicleLookup` (lié dans `config/services_test.yaml`, état statique car le noyau est reboooté entre les requêtes).
+
+Choix et écarts par rapport au contrat :
+- `GET /api/stats/vehicles` ne liste que les véhicules ayant au moins une dépense (kind `expense`) sur la période, comme `/api/stats/categories` ne liste que les catégories ayant des opérations.
+- `monthlyAverage` = `round(total / nombre de mois de la période)` (0 si période sans mois, impossible en pratique).
+- Pas de `GET /api/vehicles/{id}` (non demandé) ; le véhicule complet est renvoyé par `POST`/`PATCH` et la liste.
+- Aucune migration : le schéma véhicules existe déjà (`Version20261105170000`), `doctrine:schema:validate` est vert.

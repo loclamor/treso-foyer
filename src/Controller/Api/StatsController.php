@@ -8,10 +8,12 @@ use App\Api\BadRequestException;
 use App\Api\HouseholdProvider;
 use App\Api\Presenter\AccountPresenter;
 use App\Api\Presenter\CategoryPresenter;
+use App\Api\Presenter\VehiclePresenter;
 use App\Api\Scope;
 use App\Entity\Account;
 use App\Entity\Category;
 use App\Entity\Household;
+use App\Entity\Vehicle;
 use App\Repository\CategoryRepository;
 use App\Stats\StatsPeriod;
 use App\Stats\StatsRepository;
@@ -314,6 +316,56 @@ final class StatsController extends AbstractController
         $period = StatsPeriod::fromRequest($request);
 
         return new JsonResponse($statsRepository->calendar($household, $accountIds, $period));
+    }
+
+    #[Route('/api/stats/vehicles', name: 'api_stats_vehicles', methods: ['GET'])]
+    public function vehicles(
+        Request $request,
+        HouseholdProvider $householdProvider,
+        Scope $scope,
+        StatsRepository $statsRepository,
+        VehiclePresenter $vehiclePresenter,
+        CategoryPresenter $categoryPresenter,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $accountIds = $scope->accountIds($request, $household);
+        $period = StatsPeriod::fromRequest($request);
+
+        $data = $statsRepository->vehicles($household, $accountIds, $period);
+
+        $vehicleMap = [];
+        foreach ($entityManager->getRepository(Vehicle::class)->findBy(['household' => $household]) as $vehicle) {
+            $vehicleMap[(int) $vehicle->getId()] = $vehicle;
+        }
+        $categories = $this->categoryMap($entityManager, $household);
+        $monthCount = count($period->months());
+
+        return new JsonResponse([
+            'vehicles' => array_map(
+                static function (array $row) use ($vehicleMap, $categories, $categoryPresenter, $vehiclePresenter, $monthCount): array {
+                    $vehicle = $vehicleMap[$row['vehicleId']] ?? null;
+
+                    return [
+                        'vehicle' => null !== $vehicle ? $vehiclePresenter->presentRef($vehicle) : null,
+                        'total' => $row['total'],
+                        'count' => $row['count'],
+                        'monthlyAverage' => $monthCount > 0 ? (int) round($row['total'] / $monthCount) : 0,
+                        'byCategory' => array_map(
+                            static fn (array $entry): array => [
+                                'category' => null !== $entry['categoryId'] && isset($categories[$entry['categoryId']])
+                                    ? $categoryPresenter->presentRef($categories[$entry['categoryId']])
+                                    : null,
+                                'total' => $entry['total'],
+                            ],
+                            $row['byCategory'],
+                        ),
+                    ];
+                },
+                $data['vehicles'],
+            ),
+            'unassigned' => $data['unassigned'],
+        ]);
     }
 
     #[Route('/api/stats/category-trend', name: 'api_stats_category_trend', methods: ['GET'])]

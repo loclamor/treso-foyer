@@ -11,6 +11,7 @@ final class RulePresenter
     public function __construct(
         private readonly CategoryPresenter $categoryPresenter,
         private readonly AccountPresenter $accountPresenter,
+        private readonly VehiclePresenter $vehiclePresenter,
     ) {
     }
 
@@ -27,6 +28,7 @@ final class RulePresenter
             'amountMin' => $rule->getAmountMin(),
             'amountMax' => $rule->getAmountMax(),
             'account' => null !== $rule->getAccount() ? $this->accountPresenter->presentRef($rule->getAccount()) : null,
+            'vehicle' => null !== $rule->getVehicle() ? $this->vehiclePresenter->presentRef($rule->getVehicle()) : null,
             'priority' => $rule->getPriority(),
             'enabled' => $rule->isEnabled(),
             'matchCount' => $matchCount,

@@ -56,6 +56,16 @@ final class SummaryController extends AbstractController
             $types,
         ) ?: ['total' => 0, 'categorized' => 0, 'probable' => 0, 'first_date' => null, 'last_date' => null];
 
+        // Opérations de catégories vehicleRelated sans véhicule affecté (« à traiter » véhicule).
+        $vehicleUnassigned = (int) $connection->fetchOne(
+            "SELECT COUNT(*) FROM operation o
+             JOIN account a ON a.id = o.account_id
+             JOIN category c ON c.id = o.category_id
+             WHERE a.household_id = :household$scopeSql AND c.vehicle_related = true AND o.vehicle_id IS NULL",
+            $params,
+            $types,
+        );
+
         $pendingTransfers = (int) $connection->fetchOne(
             "SELECT COUNT(DISTINCT t.id) FROM internal_transfer t
              JOIN operation o ON o.internal_transfer_id = t.id
@@ -107,6 +117,7 @@ final class SummaryController extends AbstractController
             'uncategorizedCount' => $total - $categorized,
             'probableDuplicatesCount' => (int) $row['probable'],
             'pendingTransfersCount' => $pendingTransfers,
+            'vehicleUnassignedCount' => $vehicleUnassigned,
             'missingStatements' => $missingStatements,
             'lastImportAt' => null !== $lastImportAt ? (new \DateTimeImmutable((string) $lastImportAt))->format('c') : null,
             'firstDate' => null !== $row['first_date'] ? (new \DateTimeImmutable((string) $row['first_date']))->format('Y-m-d') : null,
