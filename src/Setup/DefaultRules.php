@@ -71,6 +71,8 @@ final class DefaultRules
     public const BANK_RULES = [
         ['Banque & assurances › Frais bancaires', '^(COTISATION|FRAIS|COMMISSION|MINIMUM|AVANTAGE)\b', RuleDirection::Any, 80],
         ['Banque & assurances › Intérêts & agios', '^(INTERETS|AGIOS)\b', RuleDirection::Any, 80],
+        // Intérêts annuels d'un livret (« INTERETS ACQUIS POUR 2015 ») : un revenu, pas des agios.
+        ['Revenus › Intérêts d’épargne', '^INTERETS ACQUIS\b', RuleDirection::Credit, 85],
         // Catégorie racine : un prélèvement de la DGFiP / DRFiP / DDFiP peut être l'impôt sur le revenu, la taxe foncière…
         // « FINANCES PUBL\w* » : le libellé est souvent tronqué (« DIRECTION GENERALE D ES FINANCES PUBL »).
         ['Impôts & taxes', '^PRELEVEMENT DE .*\b(DGFIP|DRFIP|DDFIP|IMPOTS?|FINANCES PUBL\w*)\b', RuleDirection::Any, 80],

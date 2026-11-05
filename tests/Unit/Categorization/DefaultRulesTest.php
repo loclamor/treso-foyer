@@ -154,6 +154,7 @@ final class DefaultRulesTest extends TestCase
 
     public function testEnseignesAjoutees(): void
     {
+        self::assertSame('Revenus › Intérêts d’épargne', $this->resolve('INTERETS ACQUIS POUR 2015', 1147));
         self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB H&M067 12.03.19 CARTE NUMERO 152'));
         self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB JustFab SLU 23.05.19 EUR 9,95 CARTE NO 152'));
         self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB SHOP.ORCHESTRA 02.02.20 CARTE NUMERO 642'));
