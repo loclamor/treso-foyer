@@ -39,8 +39,8 @@ DATA = ROOT / "data"
 CONFIG = DATA / "comptes.ini"
 LOG = DATA / "_rangement.log"
 
-RE_PDF_ACCOUNT = re.compile(r"Situation de votre (?:CCP|compte)[^\n]*?n°\s*([0-9][0-9 ]*R\s?[0-9]{3})", re.I)
-RE_PDF_ACCOUNT_FALLBACK = re.compile(r"(?:CCP|Compte Courant Postal)[^\n]*?n°\s*([0-9]{2} ?[0-9]{3} ?[0-9]{2} ?R ?[0-9]{3})", re.I)
+RE_PDF_ACCOUNT = re.compile(r"Situation de votre (?:CCP|compte)[^\n]*?n°\s*([0-9][0-9 ]*[A-Z]\s?[0-9]{3})", re.I)
+RE_PDF_ACCOUNT_FALLBACK = re.compile(r"(?:CCP|Compte Courant Postal)[^\n]*?n°\s*([0-9]{2} ?[0-9]{3} ?[0-9]{2} ?[A-Z] ?[0-9]{3})", re.I)
 RE_PDF_CLOSING = re.compile(r"nouveau solde au\s*([0-9]{2})/([0-9]{2})/([0-9]{4})", re.I)
 RE_PDF_IBAN = re.compile(r"IBAN\s*:\s*(FR[0-9A-Z ]{23,32})", re.I)
 # Relevé annuel de frais : "Décompte des frais" + "Période Du jj/mm/aaaa au jj/mm/aaaa"
@@ -114,9 +114,13 @@ def classify(path: Path, book: AccountBook) -> tuple[Path | None, str]:
     if head.startswith(b"%PDF"):
         text = pdf_text(path)
         fees = None
-        if not RE_PDF_CLOSING.search(text):
+        c = RE_PDF_CLOSING.search(text)
+        if not c:
+            # Relevés anciens (2016-2018) : le nouveau solde n'est qu'en page 2 ou suivantes.
             full = pdf_text(path, first_page_only=False)
-            if "compte des frais" in full:
+            c = RE_PDF_CLOSING.search(full)
+            # Relevé annuel de frais seul : pas de nouveau solde (un relevé mensuel peut l'avoir en annexe).
+            if not c and "compte des frais" in full:
                 fees = RE_PDF_FEES.search(full)
         m = RE_PDF_ACCOUNT.search(text) or RE_PDF_ACCOUNT_FALLBACK.search(text)
         if m:
@@ -130,7 +134,6 @@ def classify(path: Path, book: AccountBook) -> tuple[Path | None, str]:
         alias = book.alias(account)
         if fees:
             return Path("releves", alias, "frais", f"{fees.group(1)}_frais-annuels.pdf"), f"frais annuels {fees.group(1)} [{alias} {mask(account)}]"
-        c = RE_PDF_CLOSING.search(text)
         if not c:
             return None, f"PDF : date de relevé introuvable [{alias}]"
         d, mth, y = c.groups()
