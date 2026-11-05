@@ -1,0 +1,5 @@
+# En test, l'INI des alias pointe vers une fixture fictive (data/ n'est jamais lu).
+# Les uploads de test partent dans var/ (jamais dans data/).
+parameters:
+    app.accounts_ini: '%kernel.project_dir%/tests/Fixtures/comptes.ini'
+    app.uploads_dir: '%kernel.project_dir%/var/test-uploads'

@@ -1,0 +1,7 @@
+pentatrion_vite:
+    # Le build Vite sort dans public/build (cf. assets/vite.config.js).
+    public_directory: public
+    build_directory: build
+    crossorigin: false
+    # En dev, le serveur Vite tourne dans le conteneur node (réseau compose).
+    proxy_origin: 'http://node:5173'

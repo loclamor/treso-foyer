@@ -1,0 +1,7 @@
+Relevé annuel de frais
+Compte                      CCP M. CLIENT FICTIF
+Identification du compte BIC : PSSTFRPPXXX
+                         IBAN : FR0020041000011234567R99999
+Période                     Du 01/01/2026 au 31/12/2026
+Décompte des frais prélevés sur le compte
+Services de compte généraux                                                     12,00 ¤

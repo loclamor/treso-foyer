@@ -1,0 +1,10 @@
+Numéro Compte   ;1234567R999
+Type         ;CCP
+Compte tenu en  ;euros
+Date            ;28/08/2026
+Solde (EUROS)   ;-50,00
+
+Date;Libellé;Montant(EUROS)
+27/08/2026;"CHEQUE N 1234567";-100,00
+26/08/2026;"ACHAT CB SUPERMARCHE EXEMPLE 25.08.26 CARTE NUMERO                123  ";-27,56
+26/08/2026;"ACHAT CB SUPERMARCHE EXEMPLE 25.08.26 CARTE NUMERO                123  ";-27,56

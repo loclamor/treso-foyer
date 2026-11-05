@@ -1,0 +1,182 @@
+# API JSON — contrat (v1)
+
+Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (Vue, `assets/src/api/`).
+
+## Conventions
+- Préfixe `/api`, JSON uniquement (`Content-Type: application/json` exigé sur `POST`/`PATCH`/`PUT`/`DELETE` avec corps, sauf upload `multipart/form-data` de `/api/imports`). Une requête d'écriture sans ce type ⇒ `415`.
+- **Montants en centimes** (entiers signés, négatif = débit). **Dates** `YYYY-MM-DD`, horodatages ISO 8601.
+- Authentification par **session/cookie** (même origine, `SameSite=Lax`). Non connecté ⇒ `401 {"error":"unauthenticated"}`.
+- Erreurs : `{"error": "<code>", "message": "<texte FR>", "violations"?: [{"field","message"}]}` avec `400` (requête invalide), `404`, `409` (conflit), `422` (validation).
+- Pagination : `?page=1&perPage=50` (max 200) ⇒ `{"items": [...], "total": n, "page": p, "perPage": pp}`.
+- **Périmètre** (filtre commun aux listes et agrégats) : `accountId` (répétable `accountId[]=1&accountId[]=2`) ou `memberId` (comptes dont la personne est titulaire). Absent ⇒ tout le foyer.
+
+## Objets
+```jsonc
+// Member
+{"id": 1, "username": "alice", "displayName": "Alice"}
+// AccountRef
+{"id": 3, "alias": "perso-a", "label": "Compte ****R999", "numberMasked": "****R999"}
+// Account
+{"id": 3, "alias": "perso-a", "label": "…", "numberMasked": "****R999", "type": "personal|joint", "bank": "La Banque Postale",
+ "holders": [Member], "operationsCount": 4546, "firstDate": "2018-01-15", "lastDate": "2026-11-03",
+ "balance": {"amount": 136514, "date": "2026-11-04"} | null}  // dernier solde connu (relevé ou export)
+// CategoryRef
+{"id": 12, "name": "Courses", "fullName": "Alimentation › Courses", "kind": "expense|income|transfer", "color": "#4caf50", "icon": "pi pi-shopping-cart", "chartSlot": 1 | null}  // chartSlot : celui de la racine
+// Category (arbre)
+{"id": 1, "name": "Alimentation", "fullName": "Alimentation", "kind": "expense", "color": "#…", "icon": "…", "position": 0, "archived": false,
+ "parentId": null, "operationsCount": 1234, "children": [Category]}
+// Operation
+{"id": 42, "date": "2026-08-26", "amount": -2756, "rawLabel": "…", "normalizedLabel": "…", "merchant": "…" | null,
+ "account": AccountRef, "category": CategoryRef | null,
+ "categorizationSource": "manual|rule|similarity|llm|transfer" | null, "appliedRuleId": 7 | null,
+ "duplicateStatus": "none|probable|confirmed_distinct", "duplicateOfId": 41 | null,
+ "internalTransferId": 5 | null, "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null}
+// Rule
+{"id": 7, "category": CategoryRef, "matchField": "merchant|label", "matchType": "contains|starts_with|exact|regex", "pattern": "…",
+ "direction": "any|debit|credit", "amountMin": 4000 | null, "amountMax": 8000 | null, "account": AccountRef | null,
+ "priority": 100, "enabled": true, "matchCount": 91}
+// MerchantGroup (regroupement par commerçant)
+{"key": "INTERMARCHE", "merchant": "INTERMARCHE" | null, "direction": "debit|credit", "count": 40, "total": -292000,
+ "minAmount": -14900, "maxAmount": -800, "firstDate": "2018-03-19", "lastDate": "2026-11-03",
+ "categories": [{"category": CategoryRef | null, "count": 38}],     // répartition actuelle
+ "suggestion": {"category": CategoryRef, "source": "similarity"} | null,
+ "sampleLabel": "…"}
+// ImportBatch
+{"id": 9, "filename": "2026-10_releve.pdf", "format": "pdf|csv", "status": "completed|failed", "account": AccountRef | null,
+ "periodStart": "…", "periodEnd": "…", "added": 35, "skipped": 0, "enriched": 0, "probableDuplicates": 0,
+ "error": null, "importedAt": "…", "importedBy": Member | null}
+// ImportReport (résultat d'un fichier envoyé)
+{"filename": "…", "status": "imported|already_imported|failed|ignored", "account": AccountRef | null,
+ "periodStart": "…", "periodEnd": "…", "added": 0, "skipped": 0, "enriched": 0, "probableDuplicates": 0, "error": null}
+// InternalTransfer
+{"id": 5, "status": "auto|confirmed", "operations": [Operation, Operation]}
+// Budget
+{"id": 2, "category": CategoryRef, "monthlyAmount": 40000, "scope": "household|member|account",
+ "member": Member | null, "account": AccountRef | null, "startMonth": "2026-01-01", "endMonth": null}
+```
+
+## Authentification
+| Méthode | Route | Corps / réponse |
+|---|---|---|
+| POST | `/api/login` | `{"username","password"}` ⇒ `200 Member` ; échec `401 {"error":"invalid_credentials"}` |
+| POST | `/api/logout` | ⇒ `204` |
+| GET | `/api/me` | ⇒ `200 Member` ou `401` |
+| GET | `/api/health` | public ⇒ `{"status":"ok","database":true}` |
+
+## Tableau de bord minimal
+`GET /api/summary` (+ périmètre) ⇒
+```json
+{"operationsCount": 4546, "categorizedCount": 2089, "uncategorizedCount": 2457, "probableDuplicatesCount": 0,
+ "pendingTransfersCount": 0, "lastImportAt": "…", "firstDate": "2018-01-15", "lastDate": "2026-11-03",
+ "accounts": [Account]}
+```
+
+## Référentiels
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/members` | `[Member]` |
+| GET | `/api/accounts` | `[Account]` |
+| PATCH | `/api/accounts/{id}` | `{"alias"?, "label"?, "type"?, "holderIds"?: [int]}` ⇒ `Account` (alias unique ⇒ `409`) |
+| GET | `/api/categories` | arbre `[Category]` (racines triées par `position`) |
+| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
+| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?}` |
+| DELETE | `/api/categories/{id}` | `204` ; refus `409` si opérations, règles ou budgets rattachés (proposer l'archivage) |
+
+## Opérations
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/operations` | Filtres : périmètre, `from`, `to`, `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé de groupe `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc, puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
+| GET | `/api/operations/{id}` | `Operation` |
+| PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` |
+| POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
+| POST | `/api/operations/bulk-categorize` | `{"ids": [int], "categoryId": int}` (manuel, sans règle) ⇒ `{"updatedCount": n}` |
+| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle et note si elle n'en a pas, supprime l'autre. `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
+
+## Commerçants (écran « à catégoriser »)
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/merchants` | `[MerchantGroup]` paginé. Regroupement par `coalesce(merchant, normalizedLabel)` + sens. Filtres : périmètre, `uncategorized=1` (groupes ayant au moins une opération non catégorisée ; compteurs alors limités aux non catégorisées), `q`, `from`/`to`. Tri `count` desc (défaut) ou `total`. `suggestion` : catégorie de l'opération manuelle la plus similaire (même logique que le Categorizer, seuil 0.6), sinon null. |
+| POST | `/api/merchants/categorize` | `{"key","direction","categoryId","createRule": true}` : toutes les opérations non manuelles du groupe (périmètre ignoré) prennent la catégorie (source `manual` pour celles du groupe) ; si `createRule`, règle apprise (commerçant exact, sens, priorité 100). ⇒ `{"updatedCount": n, "rule": Rule|null}` |
+
+## Règles et catégorisation
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/rules` | `[Rule]` triées priorité desc, id asc ; `matchCount` = opérations dont `appliedRule` est cette règle |
+| POST | `/api/rules` | champs de `Rule` avec `categoryId`, `accountId` ⇒ `201 Rule` (regex invalide ⇒ `422`) |
+| PATCH | `/api/rules/{id}` | idem partiel |
+| DELETE | `/api/rules/{id}` | `204` (les opérations catégorisées par cette règle perdent leur catégorie puis sont recatégorisées) |
+| POST | `/api/rules/preview` | corps = règle (sans id) ⇒ `{"matchCount": n, "conflicts": n, "sample": [Operation]}` (10 max ; `conflicts` = opérations correspondantes déjà catégorisées autrement, hors manuelles comptées à part dans `"manualCount"`) |
+| POST | `/api/categorization/run` | `{"all": bool}` ⇒ `{"processed","byRule","bySimilarity","stillUncategorized","categorizedPercent"}` |
+
+## Imports
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/imports` | `[ImportBatch]` paginé, plus récent d'abord |
+| POST | `/api/imports` | `multipart/form-data`, champ `files[]` (PDF/CSV, 20 Mo max chacun). Chaque fichier est conservé sous `data/uploads/<sha256>.<ext>`, importé (création automatique du compte si inconnu), puis post-traitement (virements internes + catégorisation). ⇒ `{"reports": [ImportReport], "postProcessing": {"transfersMatched": n, "categorized": n}}` |
+
+## Virements internes
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/transfers` | `[InternalTransfer]` paginé |
+| POST | `/api/transfers/match` | ⇒ `{"matched": n, "ambiguous": n}` |
+| DELETE | `/api/transfers/{id}` | défait l'appariement ⇒ `204` |
+
+## Budgets (utilisés à l'étape 9)
+`GET/POST /api/budgets`, `PATCH/DELETE /api/budgets/{id}` (corps : champs de `Budget` avec `categoryId`, `memberId`, `accountId`).
+
+## Statistiques (étape 8)
+Tous les endpoints acceptent le **périmètre** (`accountId[]` / `memberId`) et `from` / `to` (inclus ; défaut : 12 derniers mois complets + mois en cours).
+
+**Règles de calcul communes** (implémentées une seule fois côté back, `src/Stats/`) :
+- **Dépense** = opération catégorisée dans une catégorie `kind=expense`, ou non catégorisée de montant < 0. **Revenu** = catégorie `kind=income`, ou non catégorisée de montant > 0. Les montants de dépense sont renvoyés **positifs** (somme de `-amount` : un remboursement dans une catégorie de dépense la diminue).
+- **Exclus** des dépenses/revenus : catégories `kind=transfer` (mouvements internes, épargne) et opérations liées à un virement interne. En périmètre compte/personne, ces montants sont renvoyés à part dans `transfersIn` / `transfersOut` quand l'objet le prévoit.
+- Agrégation par **catégorie racine** (une opération d'une sous-catégorie compte pour sa racine) sauf mention contraire.
+- `CategoryRef` des statistiques inclut `chartSlot` (1-8 ou null) : le front colore par emplacement et regroupe en « Autres » les racines sans emplacement.
+
+| Méthode | Route | Réponse |
+|---|---|---|
+| GET | `/api/stats/overview` | `{"from","to","income","expense","net","savingsRate": 0.18 \| null, "operationsCount","uncategorizedExpense","transfersIn","transfersOut", "previous": {"from","to","income","expense","net"}, "average12": {"income","expense"}}` — `previous` = période de même durée qui précède ; `average12` = moyenne mensuelle des 12 mois complets précédant `to`. |
+| GET | `/api/stats/monthly` | `{"months": ["2026-01", …], "income": [n…], "expense": [n…], "net": [n…], "byRoot": [{"category": CategoryRef, "values": [n…]}], "uncategorized": [n…]}` — `byRoot` : toutes les racines de dépense ayant au moins une valeur non nulle, valeurs = dépense du mois ; `uncategorized` = dépenses non catégorisées. Mois sans opération = 0. |
+| GET | `/api/stats/categories` | `?direction=expense\|income&parentId=&compare=previous\|year` ⇒ `[{"category": CategoryRef \| null, "total", "count", "share", "compareTotal"}]` triés par total desc. Sans `parentId` : racines (+ ligne `category: null` = non catégorisé) ; avec `parentId` : sous-catégories de cette racine (+ la racine elle-même si des opérations y sont directement rattachées). `compare=previous` : période précédente de même durée ; `year` : même période un an plus tôt. `share` ∈ [0,1]. |
+| GET | `/api/stats/merchants` | `?direction=expense\|income&limit=10` (max 50) ⇒ `[{"key","merchant","total","count","category": CategoryRef \| null}]` (clé de groupe `coalesce(merchant, normalized_label)` ; catégorie majoritaire). |
+| GET | `/api/stats/balance` | `?granularity=month\|day` ⇒ `{"dates": ["2026-01-31", …], "total": [n \| null…], "accounts": [{"account": AccountRef, "values": [n \| null…]}]}` — solde de fin de période **reconstitué** : ancrage sur les soldes des relevés (`Statement`) + opérations ; `null` avant la première donnée d'un compte ; `total` = somme des comptes du périmètre (null si aucun). |
+| GET | `/api/stats/sankey` | `{"nodes": [{"id","name","kind": "income\|expense\|hub\|savings\|deficit", "category": CategoryRef \| null}], "links": [{"source","target","value"}]}` — racines de revenu → nœud `hub` « Budget » → racines de dépense ; nœud `savings` « Épargne / excédent » si revenus > dépenses, sinon nœud source `deficit` « Déficit ». Non catégorisé = nœud dédié de chaque côté. |
+| GET | `/api/stats/calendar` | `[{"date": "2026-03-14", "expense": n, "count": n}]` — dépenses par jour (jours sans dépense omis). |
+| GET | `/api/stats/category-trend` | `?categoryId=` (racine ou feuille, sous-catégories incluses) ⇒ `{"category": CategoryRef, "months": [...], "values": [...], "counts": [...]}` |
+
+`Category` (référentiel, `/api/categories`) gagne aussi `chartSlot` ; `PATCH /api/categories/{id}` accepte `chartSlot` (1-8 ou null, **racines de dépense uniquement**, unique dans le foyer ⇒ `409` si déjà pris, `422` sinon).
+
+## Notes d'implémentation (étape 7, back)
+
+Fichiers clés :
+- Contrôleurs : `src/Controller/Api/` (un par ressource ; `AuthController` déclare aussi les routes `api_login`/`api_logout` interceptées par le firewall).
+- Sérialisation explicite : `src/Api/Presenter/*Presenter.php` (`present(Entity): array`).
+- Entrées validées : `src/Api/Input/*` (`#[MapRequestPayload]` + contraintes Validator ⇒ `422` avec `violations`).
+- Filtres/périmètre : `src/Api/Filter/OperationFilter.php`, `src/Api/Scope.php` (`accountId[]`/`memberId`), pagination `src/Api/Pagination.php`, compteurs agrégés `src/Api/Query/StatsQuery.php` (GROUP BY, aucun N+1).
+- Sécurité : `config/packages/security.yaml` (`json_login` sur `/api/login` avec handlers `App\Security\JsonLogin*Handler`, `logout` sur `/api/logout` + `App\Security\ApiLogoutListener` (LogoutEvent ⇒ 204), `login_throttling` 5/min, entry point `App\Security\ApiAuthenticationEntryPoint` ⇒ 401 JSON, `access_control` `^/api/(login|health)` public puis `^/api` `ROLE_USER`, cookie `SameSite=Lax`/`HttpOnly` dans `framework.yaml`). Listener `App\EventListener\JsonContentTypeListener` (415) et `App\EventListener\ApiExceptionSubscriber` (404/422/400/409/500 contrat).
+- Réutilisations : `App\Categorization\SimilarityFinder` (extrait de `Categorizer`, comportement inchangé — tests verts) pour les suggestions commerçants ; `App\Import\PostImportProcessor` (extrait de `ImportCommand`) pour le post-traitement commun commande/API.
+- Uploads : paramètre `app.uploads_dir` (`data/uploads`, surchargé en `var/test-uploads` en test), stockage `<sha256>.<ext>`. Paquets ajoutés : `symfony/serializer` (MapRequestPayload) et `symfony/rate-limiter` (login_throttling).
+
+Choix et écarts par rapport au contrat :
+- `PATCH` : un champ absent ou `null` ne modifie pas la ressource, sauf `note` sur opération où `null` efface la note. Conséquence : `parentId: null` ne remonte pas une catégorie à la racine (on archive plutôt).
+- `POST /api/merchants/categorize` : `updatedCount` inclut toutes les opérations non manuelles du groupe (y compris l'opération représentative utilisée pour apprendre la règle) ; groupe sans commerçant (clé = libellé normalisé) ⇒ règle apprise sur `label` exact au lieu de `merchant`.
+- `POST /api/operations/{id}/duplicate` avec `merge` sur une opération sans `duplicateOf` et sans libellé PDF ⇒ `400 not_a_duplicate`.
+- `POST /api/categorization/run` : `categorizedPercent` = pourcentage des opérations traitées ayant reçu une catégorie (règle + similarité).
+- `POST /api/imports` : un fichier invalide (format, > 20 Mo, erreur de parse) produit un rapport `failed` avec `error`, sans empêcher les autres fichiers ; `postProcessing` n'est lancé que si `added + enriched > 0`.
+- Erreur `500` : message détaillé uniquement si `kernel.debug`, sinon « Une erreur interne est survenue. ».
+- `DELETE /api/transfers/{id}` : dissocie les opérations et retire leur catégorie « virement interne » (elles seront recatégorisées au prochain `run`/import).
+
+## Notes d'implémentation (étape 8, back)
+
+Fichiers clés :
+- `src/Stats/StatsPeriod.php` (from/to, défauts « 12 derniers mois complets + mois en cours », `previous()`, `sameLastYear()` — 29 février → 28 février, `last12FullMonths()`, `months()`), `src/Stats/AmountClassifier.php` (expression CASE unique de classification : `internal_transfer_id` puis `coalesce(root.kind, cat.kind)`, non catégorisé ⇒ signe), `src/Stats/StatsRepository.php` (une méthode par endpoint, 1 à 3 requêtes agrégées DBAL : CTE `params`, `generate_series` pour les mois/jours, CTE pour le solde reconstitué `balance` ancré sur les `Statement`).
+- Contrôleur `src/Controller/Api/StatsController.php` (8 routes `/api/stats/*`, périmètre `Scope` + période `StatsPeriod::fromRequest` ⇒ 400 `invalid_query` si dates invalides, `from > to`, `direction`/`compare`/`granularity`/`limit` hors bornes, `categoryId` absent/introuvable).
+- `chartSlot` : colonne `category.chart_slot` + contrainte unique **partielle** déclarée dans le mapping via `#[ORM\UniqueConstraint(..., options: ['where' => '(chart_slot IS NOT NULL)'])]` (ORM 3.7 ; parenthèses reprises telles quelles depuis `pg_indexes`) ⇒ `doctrine:migrations:diff` reste vide. Migration `Version20261104190000` : crée l'index partiel et initialise les 8 racines de dépense existantes par nom (slots 1-8 + palette). `DefaultCategories` porte les mêmes slots/couleurs (autres racines : `#898781`, slot null) appliqués par `app:setup` à la création. `PATCH /api/categories/{id}` : clé `chartSlot` présente dans le corps (même `null` = retire) ⇒ racine `expense` sinon 422, unicité foyer ⇒ 409 `chart_slot_taken` ; `CategoryPresenter` expose `chartSlot` sur `Category` et `CategoryRef` (hérité de la racine via `Category::getRootChartSlot()`).
+
+Choix et écarts par rapport au contrat :
+- `savingsRate` = `round(net / income, 4)`, `null` si income = 0 ; `share` = `round(total / totalDirection, 4)` ; `average12` = moyennes arrondies en centimes entiers (`round(sum / 12)`).
+- Défaut de période : `to` = dernier jour du mois en cours, `from` = premier jour du mois de `to` moins 12 mois (12 mois complets + mois en cours).
+- `transfersIn`/`transfersOut` = montants exclus des dépenses/revenus (virement interne apparié ou catégorie `transfer`), par sens, positifs. Au foyer un virement apparié donne in = out ; en périmètre compte/personne seul le sens du compte apparaît.
+- `monthly.byRoot` ne contient que les racines catégorisées (le non catégorisé est dans `uncategorized`) ; `calendar` inclut les remboursements (valeurs négatives possibles, même classification que partout).
+- `balance` : point `null` avant la première donnée du compte (pas de relevé ⇒ `null` partout ; avant l'opening du premier relevé ⇒ `null`) ; granularité `month` = fins de mois + `to` en dernier point.
+- `merchants` (stats) groupe par clé seule (sans le sens, contrairement à `/api/merchants`), `total` positif en dépense, tri `total` desc ; catégorie = catégorie majoritaire des opérations du groupe (la catégorie exacte, pas forcément une racine).

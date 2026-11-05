@@ -1,0 +1,49 @@
+---
+# Development environment override
+services:
+  php:
+    image: ${IMAGES_PREFIX:-}app-php-dev
+    build:
+      context: .
+      target: frankenphp_dev
+    volumes:
+      - ./:/app
+      - ./frankenphp/Caddyfile:/etc/frankenphp/Caddyfile:ro
+      - ./frankenphp/conf.d/20-app.dev.ini:/usr/local/etc/php/app.conf.d/20-app.dev.ini:ro
+      # Keep var/ off the bind-mount for faster I/O on Mac/Windows; comment to inspect from the host.
+      - /app/var
+      # If you develop on Mac or Windows you can remove the vendor/ directory
+      #  from the bind-mount for better performance by enabling the next line:
+      #- /app/vendor
+    environment:
+      FRANKENPHP_WORKER_CONFIG: watch
+      FRANKENPHP_SITE_CONFIG: hot_reload
+      MERCURE_EXTRA_DIRECTIVES: playground
+      # See https://xdebug.org/docs/all_settings#mode
+      XDEBUG_MODE: "${XDEBUG_MODE:-develop}"
+      APP_ENV: "${APP_ENV:-dev}"
+    extra_hosts:
+      # Ensure that host.docker.internal is correctly defined on Linux
+      - host.docker.internal:host-gateway
+    tty: true
+###> symfony/mercure-bundle ###
+###< symfony/mercure-bundle ###
+
+  # Serveur de dev Vite (HMR) ; front servi depuis http://localhost:5173 pour la page https://localhost:8543
+  node:
+    image: node:24-alpine
+    working_dir: /app/assets
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      npm_config_cache: /tmp/npm
+    volumes:
+      - ./:/app
+    ports:
+      - "127.0.0.1:5173:5173"
+    command: sh -c "npm install --no-fund --no-audit && npx vite"
+###> doctrine/doctrine-bundle ###
+  database:
+    ports:
+      # port hôte aléatoire, uniquement en local (docker compose port database 5432)
+      - "127.0.0.1::5432"
+###< doctrine/doctrine-bundle ###

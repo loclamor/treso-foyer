@@ -1,0 +1,46 @@
+Relevé de votre CCP - n° 1                                                          Relevé édité le 13 janvier 2027
+> Périodicité mensuelle
+
+           M. CLIENT FICTIF
+           1 RUE DE L'EXEMPLE
+           00000 VILLE FICTIVE
+
+  Situation de votre CCP n° 12 345 67 R 999
+   IBAN : FR00 2004 1000 0112 3456 7R99 999 | BIC : PSSTFRPPXXX
+   Votre nouveau solde au 12/01/2027                                                   + 2 071,02 ¤
+
+  Vos opérations
+   Date        Opération                                                                                                Débit (¤)            Crédit (¤)
+
+                                                                    Ancien solde au 12/12/2026                              73,91
+   28/12       ACHAT CB SUPERMARCHE EXEMPLE 27.12.26                                                                        27,56
+               CARTE NUMERO 123
+   30/12       PRELEVEMENT DE FOURNISSEUR ENERGIE                                                                           85,10
+               SA REF : ABC-0000000001
+               IDENT : FR00ZZZ000000 MANDAT : MDT-FICTIF-42
+   31/12       ACHAT CB LIBRAIRIE DU MONDE ENTIER ET D'AILLEURS 30.12.26                                                    11,50
+               USD 12,34 CARTE NUMERO 123
+   02/01       4FRAIS TENUE DE COMPTE                                                                                        3,00
+   02/01       ACHAT CB BOULANGERIE 02.01.27                                                                                12,00
+               CARTE NUMERO 123
+   02/01       ACHAT CB BOULANGERIE 02.01.27                                                                                12,00
+               CARTE NUMERO 123
+La Banque Postale - S.A. à Directoire et Conseil de Surveillance. Capital social 0 000 000 000 ¤. 115 rue de Sèvres 75275 Paris Cedex 06.
+RCS Paris 000 000 000. ORIAS n° 00 000 000.
+                                                                                                                                          Page 1/2
+
+
+Vos opérations CCP n° 12 345 67 R 999 (suite)
+Date    Opération                                                                          Débit (¤)         Crédit (¤)
+05/01   VIREMENT DE EMPLOYEUR FICTIF SA                                                                        2 350,00
+        SALAIRE DECEMBRE REFERENCE : 0000000000000000
+08/01   CHEQUE N° 1234567                                                                      45,00
+10/01   4COTISATION TRIMESTRIELLE DE VOTRE                                                     18,90
+        FORMULE DE COMPTE
+12/01   AVOIR CARTE SUPERMARCHE EXEMPLE 11.01.27                                                                   9,99
+        CARTE NUMERO 123
+
+                                                                Total des opérations          215,06           2 359,99
+                                                   Nouveau solde au 12/01/2027                                 2 071,02
+
+Il vous est conseillé de conserver ce relevé.                                                     Page 2/2

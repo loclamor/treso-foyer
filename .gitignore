@@ -1,0 +1,27 @@
+# Données bancaires personnelles : jamais versionnées
+/data/
+# Fichiers bruts déposés à la racine avant rangement
+/*.pdf
+/*.csv
+/*.zip
+/*.ods
+/releve_*
+
+###> symfony/framework-bundle ###
+/.env.local
+/.env.local.php
+/.env.*.local
+/config/secrets/prod/prod.decrypt.private.php
+/public/bundles/
+/var/
+/vendor/
+###< symfony/framework-bundle ###
+
+###> phpunit/phpunit ###
+/phpunit.xml
+/.phpunit.cache/
+###< phpunit/phpunit ###
+
+# Front Vue (Vite)
+/assets/node_modules/
+/public/build/

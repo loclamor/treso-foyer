@@ -1,0 +1,80 @@
+:root {
+    font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+body {
+    margin: 0;
+    background: var(--p-surface-50);
+    color: var(--p-text-color);
+}
+.app-dark body {
+    background: var(--p-surface-950);
+}
+.app-main {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+}
+
+/* Montants : débit en rouge, crédit en vert */
+.money {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.amount-debit {
+    color: var(--p-red-500);
+}
+.amount-credit {
+    color: var(--p-green-500);
+}
+
+/* Utilitaires */
+.w-full {
+    width: 100%;
+}
+.text-right {
+    text-align: right;
+}
+.text-muted {
+    color: var(--p-text-muted-color);
+}
+.nowrap {
+    white-space: nowrap;
+}
+
+/* Pastille de catégorie */
+.cat-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--p-content-border-color);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem 0.1rem 0.45rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.cat-tag.clickable {
+    cursor: pointer;
+}
+.cat-tag.clickable:hover {
+    background: var(--p-highlight-background);
+}
+.cat-dot {
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    flex: none;
+}
+.cat-none {
+    color: var(--p-text-muted-color);
+    border-style: dashed;
+}
+
+/* Badge de source de catégorisation */
+.src-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--p-text-muted-color);
+    white-space: nowrap;
+}
