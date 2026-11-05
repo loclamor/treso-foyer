@@ -79,7 +79,8 @@ final class DefaultRules
         ['Scolarité › Frais de scolarité', '\b(OGEC|APEL)\b', RuleDirection::Debit, 80],
         ['Scolarité › Cantine & garderie', '\b(CANTINE|RESTAURATION SCOLAIRE|PERISCOLAIRE|GARDERIE)\b', RuleDirection::Debit, 80],
         ['Revenus › Allocations & aides', '\b(CAF|CAISSE D ALLOCATIONS|FRANCE TRAVAIL|POLE EMPLOI)\b', RuleDirection::Credit, 80],
-        ['Revenus › Remboursements', '\b(CPAM|AMELI|ASSURANCE MALADIE)\b', RuleDirection::Credit, 80],
+        // « C\.?P\.?A\.?M » : aussi la forme pointée « C.P.A.M. TOULOUSE ».
+        ['Revenus › Remboursements', '\b(C\.?P\.?A\.?M|AMELI|ASSURANCE MALADIE)\b', RuleDirection::Credit, 80],
     ];
 
     /**

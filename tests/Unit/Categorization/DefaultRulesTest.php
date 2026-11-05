@@ -126,6 +126,13 @@ final class DefaultRulesTest extends TestCase
         self::assertNotSame('Abonnements & télécoms › Courrier & colis', $this->resolve('PRELEVEMENT DE LA BANQUE POSTALE ASSURANCE'));
     }
 
+    public function testAssuranceMaladieRefundWithOrWithoutDots(): void
+    {
+        // Remboursement (crédit) : sigle pointé « C.P.A.M. » ou non.
+        self::assertSame('Revenus › Remboursements', $this->resolve('VIREMENT DE C.P.A.M. TOULOUSE REMBOURSEMENT SOINS', 1550));
+        self::assertSame('Revenus › Remboursements', $this->resolve('VIREMENT DE CPAM HAUTE-GARONNE', 600));
+    }
+
     public function testFlorenceIsNotAFlorist(): void
     {
         self::assertNotSame('Shopping › Fleuriste', $this->resolve('ACHAT CB LE FLORENCE 01.03.21 CARTE NUMERO 275'));
