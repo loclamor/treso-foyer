@@ -9,6 +9,7 @@ use App\Api\Presenter\AccountPresenter;
 use App\Api\Query\StatsQuery;
 use App\Api\Scope;
 use App\Entity\Account;
+use App\Import\MissingStatementFinder;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
@@ -27,6 +28,7 @@ final class SummaryController extends AbstractController
         EntityManagerInterface $entityManager,
         StatsQuery $statsQuery,
         AccountPresenter $accountPresenter,
+        MissingStatementFinder $missingStatementFinder,
     ): JsonResponse {
         $household = $householdProvider->get();
         $accountIds = $scope->accountIds($request, $household);
@@ -74,6 +76,28 @@ final class SummaryController extends AbstractController
         $accounts = $entityManager->getRepository(Account::class)->findBy(['household' => $household], ['id' => 'ASC']);
         $stats = $statsQuery->accountStats($household, $accountIds);
 
+        // Relevés mensuels (avec solde d'ouverture ; les exports CSV n'en ont pas), mois de l'arrêté.
+        $statementMonths = $connection->fetchAllAssociative(
+            "SELECT s.account_id, TO_CHAR(s.closing_date, 'YYYY-MM') AS month
+             FROM statement s
+             JOIN account a ON a.id = s.account_id
+             WHERE a.household_id = :household AND s.opening_date IS NOT NULL$scopeSql",
+            $params,
+            $types,
+        );
+        $monthsByAccount = [];
+        foreach ($statementMonths as $statementMonth) {
+            $monthsByAccount[(int) $statementMonth['account_id']][] = (string) $statementMonth['month'];
+        }
+        $today = new \DateTimeImmutable('today');
+        $missingStatements = [];
+        foreach ($accounts as $account) {
+            $months = $monthsByAccount[(int) $account->getId()] ?? [];
+            foreach ($missingStatementFinder->find($months, $today) as $missing) {
+                $missingStatements[] = ['account' => $accountPresenter->presentRef($account)] + $missing;
+            }
+        }
+
         $total = (int) $row['total'];
         $categorized = (int) $row['categorized'];
 
@@ -83,6 +107,7 @@ final class SummaryController extends AbstractController
             'uncategorizedCount' => $total - $categorized,
             'probableDuplicatesCount' => (int) $row['probable'],
             'pendingTransfersCount' => $pendingTransfers,
+            'missingStatements' => $missingStatements,
             'lastImportAt' => null !== $lastImportAt ? (new \DateTimeImmutable((string) $lastImportAt))->format('c') : null,
             'firstDate' => null !== $row['first_date'] ? (new \DateTimeImmutable((string) $row['first_date']))->format('Y-m-d') : null,
             'lastDate' => null !== $row['last_date'] ? (new \DateTimeImmutable((string) $row['last_date']))->format('Y-m-d') : null,

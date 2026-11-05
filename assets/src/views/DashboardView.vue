@@ -7,6 +7,7 @@ import ProgressBar from 'primevue/progressbar';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
+import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
 import { useScopeStore } from '@/stores/scope';
 import { usePeriodStore } from '@/stores/period';
@@ -50,6 +51,16 @@ async function loadSummary() {
         loadingSummary.value = false;
     }
 }
+
+// Relevés mensuels manquants (trous dans la série ou relevés échus non importés).
+const MISSING_SHOWN = 6;
+const MISSING_REASON = {
+    gap: { label: 'manquant', severity: 'danger' },
+    overdue: { label: 'en retard', severity: 'warn' },
+};
+const missingStatements = computed(() => summary.value?.missingStatements ?? []);
+// Alias affiché seulement si le périmètre contient plusieurs comptes.
+const missingShowAccount = computed(() => (summary.value?.accounts?.length ?? 0) > 1);
 
 // ---------- KPI (stats/overview) ----------
 const overview = ref(null);
@@ -544,6 +555,28 @@ onMounted(() => {
                         <p><RouterLink :to="{ name: 'transfers' }">Voir les virements internes</RouterLink></p>
                     </template>
                 </Card>
+                <Card>
+                    <template #title>Relevés manquants</template>
+                    <template #content>
+                        <p class="big-number">{{ missingStatements.length }}</p>
+                        <p v-if="!missingStatements.length" class="text-muted">
+                            <i class="pi pi-check-circle missing-ok" aria-hidden="true" /> Série de relevés complète
+                        </p>
+                        <template v-else>
+                            <ul class="missing-list" aria-label="Relevés mensuels manquants">
+                                <li v-for="m in missingStatements.slice(0, MISSING_SHOWN)" :key="`${m.account.id}-${m.month}`">
+                                    <span class="missing-month">{{ formatMonth(m.month) }}</span>
+                                    <span v-if="missingShowAccount" class="text-muted"> · {{ m.account.alias }}</span>
+                                    <Tag :value="MISSING_REASON[m.reason]?.label ?? m.reason" :severity="MISSING_REASON[m.reason]?.severity ?? 'secondary'" class="missing-tag" />
+                                </li>
+                            </ul>
+                            <p v-if="missingStatements.length > MISSING_SHOWN" class="text-muted">
+                                et {{ missingStatements.length - MISSING_SHOWN }} autre(s)
+                            </p>
+                            <p class="text-muted missing-hint">À déposer dans <code>data/inbox/</code>, puis ranger et importer.</p>
+                        </template>
+                    </template>
+                </Card>
             </div>
 
             <Card class="section">
@@ -593,7 +626,8 @@ onMounted(() => {
 }
 .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    /* 12rem : les 5 cartes tiennent sur une ligne en 1280 px. */
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     gap: 1rem;
 }
 .section {
@@ -606,6 +640,30 @@ onMounted(() => {
 }
 .solde-date {
     margin-left: 0.4rem;
+    font-size: 0.8rem;
+}
+.missing-ok {
+    color: var(--p-green-500);
+}
+.missing-list {
+    list-style: none;
+    margin: 0 0 0.5rem;
+    padding: 0;
+}
+.missing-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0;
+}
+.missing-month::first-letter {
+    text-transform: uppercase;
+}
+.missing-tag {
+    margin-left: auto;
+    font-size: 0.7rem;
+}
+.missing-hint {
     font-size: 0.8rem;
 }
 .breadcrumb {
