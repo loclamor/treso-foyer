@@ -66,3 +66,10 @@ export async function getCategoryTrend(scopeParams, range, categoryId) {
     });
     return data;
 }
+
+// {vehicles: [{vehicle, total, count, monthlyAverage, byCategory, distance, costPerKm}], unassigned: {total, count}}
+// (lot 4) — véhicules ayant au moins une dépense sur la période, triés par total desc.
+export async function getVehiclesStats(scopeParams, range) {
+    const { data } = await http.get('/stats/vehicles', { params: buildParams(scopeParams, range) });
+    return data;
+}

@@ -12,6 +12,7 @@ import Checkbox from 'primevue/checkbox';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import { useAccountsStore } from '@/stores/accounts';
+import { useVehiclesStore } from '@/stores/vehicles';
 import { createRule, deleteRule, listRules, previewRule, runCategorization, updateRule } from '@/api/rules';
 import { apiMessage } from '@/api/http';
 import { centsToEuros, formatDate, parseEuros } from '@/utils/format';
@@ -22,6 +23,7 @@ import MoneyAmount from '@/components/MoneyAmount.vue';
 const toast = useToast();
 const confirm = useConfirm();
 const accountsStore = useAccountsStore();
+const vehiclesStore = useVehiclesStore();
 
 const rules = ref([]);
 const loading = ref(false);
@@ -100,6 +102,7 @@ const form = reactive({
     amountMinEuros: '',
     amountMaxEuros: '',
     accountId: null,
+    vehicleId: null,
     priority: 100,
     enabled: true,
 });
@@ -121,6 +124,8 @@ function formPayload() {
         amountMin: min === null ? null : Math.abs(min),
         amountMax: max === null ? null : Math.abs(max),
         accountId: form.accountId,
+        // vehicleId null explicite (clé toujours présente) = retrait du véhicule en PATCH.
+        vehicleId: form.vehicleId,
         priority: form.priority,
         enabled: form.enabled,
     };
@@ -131,7 +136,7 @@ function canPreview() {
 }
 
 watch(
-    () => [form.categoryId, form.matchField, form.matchType, form.pattern, form.direction, form.amountMinEuros, form.amountMaxEuros, form.accountId],
+    () => [form.categoryId, form.matchField, form.matchType, form.pattern, form.direction, form.amountMinEuros, form.amountMaxEuros, form.accountId, form.vehicleId],
     () => {
         if (!dialogVisible.value || !canPreview()) {
             preview.value = null;
@@ -156,7 +161,7 @@ function openCreate() {
     editingId.value = null;
     Object.assign(form, {
         categoryId: null, matchField: 'merchant', matchType: 'contains', pattern: '',
-        direction: 'any', amountMinEuros: '', amountMaxEuros: '', accountId: null, priority: 100, enabled: true,
+        direction: 'any', amountMinEuros: '', amountMaxEuros: '', accountId: null, vehicleId: null, priority: 100, enabled: true,
     });
     preview.value = null;
     dialogVisible.value = true;
@@ -174,6 +179,7 @@ function openEdit(rule) {
         amountMinEuros: rule.amountMin != null ? centsToEuros(rule.amountMin) : '',
         amountMaxEuros: rule.amountMax != null ? centsToEuros(rule.amountMax) : '',
         accountId: rule.account?.id ?? null,
+        vehicleId: rule.vehicle?.id ?? null,
         priority: rule.priority,
         enabled: rule.enabled,
     });
@@ -225,10 +231,15 @@ async function run() {
 }
 
 const accountOptions = computed(() => accountsStore.list.map((a) => ({ label: `${a.alias} — ${a.numberMasked}`, value: a.id })));
+const vehicleOptions = computed(() => [
+    { label: 'Aucun véhicule', value: null },
+    ...vehiclesStore.list.map((v) => ({ label: v.archived ? `${v.name} (archivé)` : v.name, value: v.id })),
+]);
 
 onMounted(async () => {
     load();
     if (!accountsStore.loaded) await accountsStore.refresh().catch(() => {});
+    if (!vehiclesStore.loaded) await vehiclesStore.refresh().catch(() => {});
 });
 </script>
 
@@ -267,6 +278,9 @@ onMounted(async () => {
             </Column>
             <Column header="Compte" style="width: 9rem">
                 <template #body="{ data }">{{ data.account?.numberMasked ?? '—' }}</template>
+            </Column>
+            <Column header="Véhicule" style="width: 9rem">
+                <template #body="{ data }">{{ data.vehicle?.name ?? '—' }}</template>
             </Column>
             <Column header="Activée" style="width: 6rem">
                 <template #body="{ data }">
@@ -340,6 +354,19 @@ onMounted(async () => {
                         placeholder="Tous les comptes"
                         class="w-full"
                     />
+                </div>
+                <div class="field">
+                    <label for="rule-vehicle">Véhicule (optionnel)</label>
+                    <Select
+                        id="rule-vehicle"
+                        v-model="form.vehicleId"
+                        :options="vehicleOptions"
+                        option-label="label"
+                        option-value="value"
+                        placeholder="Aucun véhicule"
+                        class="w-full"
+                    />
+                    <small class="text-muted">Les opérations de cette règle seront aussi affectées à ce véhicule.</small>
                 </div>
                 <div class="field field-check">
                     <ToggleSwitch id="rule-enabled" v-model="form.enabled" />

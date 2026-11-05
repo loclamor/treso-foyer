@@ -8,6 +8,7 @@ import SelectButton from 'primevue/selectbutton';
 import { useToast } from 'primevue/usetoast';
 import { useScopeStore } from '@/stores/scope';
 import { usePeriodStore } from '@/stores/period';
+import { useVehiclesStore } from '@/stores/vehicles';
 import {
     getBalance,
     getCalendar,
@@ -15,6 +16,7 @@ import {
     getCategoryTrend,
     getMerchantsStats,
     getSankey,
+    getVehiclesStats,
 } from '@/api/stats';
 import { apiMessage } from '@/api/http';
 import { formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent } from '@/utils/format';
@@ -39,6 +41,7 @@ import CategoryPicker from '@/components/CategoryPicker.vue';
 const router = useRouter();
 const scope = useScopeStore();
 const period = usePeriodStore();
+const vehiclesStore = useVehiclesStore();
 const toast = useToast();
 const theme = useChartTheme();
 
@@ -470,6 +473,78 @@ const balanceDayOption = computed(() => {
 
 const balanceDayEmpty = computed(() => !balanceDay.value || !balanceDay.value.dates?.length);
 
+// ---------- 7. véhicules (lot 5) ----------
+const vehiclesStats = ref(null);
+const loadingVehicles = ref(false);
+const vehiclesError = ref('');
+
+// Carte affichée seulement si au moins un véhicule existe dans le foyer.
+async function loadVehicles() {
+    if (!vehiclesStore.list.length) {
+        vehiclesStats.value = null;
+        return;
+    }
+    loadingVehicles.value = true;
+    vehiclesError.value = '';
+    try {
+        vehiclesStats.value = await getVehiclesStats(scope.params, period.params);
+    } catch (e) {
+        vehiclesError.value = apiMessage(e, 'Graphique indisponible');
+    } finally {
+        loadingVehicles.value = false;
+    }
+}
+
+const vehicleRows = computed(() =>
+    (vehiclesStats.value?.vehicles ?? []).map((v) => ({
+        vehicle: v.vehicle,
+        total: v.total,
+        count: v.count,
+        monthlyAverage: v.monthlyAverage,
+        km: v.distance ? Math.round(v.distance.km) : null,
+        costPerKm: v.costPerKm,
+    })),
+);
+
+const unassignedCount = computed(() => vehiclesStats.value?.unassigned?.count ?? 0);
+
+const vehiclesOption = computed(() => {
+    const rows = vehicleRows.value;
+    if (!rows.length) return {};
+    const c = chartColors(theme.mode.value);
+    return {
+        tooltip: {
+            ...baseTooltip(c),
+            formatter: (params) => {
+                const p = Array.isArray(params) ? params[0] : params;
+                const row = rows[p.dataIndex];
+                const cost = row?.costPerKm != null ? `<br/>Coût au km : <strong>${formatMoney(row.costPerKm)}/km</strong>` : '';
+                return `${p.name}<br/>Total : <strong>${formatMoney(p.value)}</strong> (${row?.count ?? 0} op.)${cost}`;
+            },
+        },
+        grid: baseGrid({ left: 8, right: 16, top: 8, bottom: 8 }),
+        xAxis: categoryAxis(c, rows.map((r) => r.vehicle.name)),
+        yAxis: valueAxis(c),
+        series: [
+            {
+                name: 'Dépenses',
+                type: 'bar',
+                data: rows.map((r) => ({ value: r.total, vehicleId: r.vehicle.id })),
+                barMaxWidth: 40,
+                itemStyle: barItemStyle(slotColor(1, theme.mode.value), c.surface),
+            },
+        ],
+    };
+});
+
+const vehiclesEmpty = computed(() => !vehiclesStats.value || !vehiclesStats.value.vehicles?.length);
+
+// Clic sur une barre ⇒ fiche du véhicule.
+function onVehicleClick(e) {
+    const id = e.data?.vehicleId;
+    if (id) router.push({ name: 'vehicle', params: { id } });
+}
+
 // ---------- chargement global ----------
 function loadAll() {
     loadCompare();
@@ -478,6 +553,7 @@ function loadAll() {
     loadCalendar();
     loadTrend();
     loadBalanceDay();
+    loadVehicles();
 }
 
 watch(() => [scope.params, period.params], loadAll, { deep: true });
@@ -486,10 +562,13 @@ watch([direction, compare], () => {
     loadMerchants();
 });
 watch(trendCategoryId, loadTrend);
-onMounted(loadAll);
+onMounted(async () => {
+    if (!vehiclesStore.loaded) await vehiclesStore.refresh().catch(() => {});
+    loadAll();
+});
 
 // Toast en cas d'erreur silencieuse de fond (les cartes affichent déjà leur état d'erreur).
-watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError], (errs) => {
+watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError, vehiclesError], (errs) => {
     const first = errs.find(Boolean);
     if (first) toast.add({ severity: 'error', summary: 'Statistiques indisponibles', detail: first, life: 6000 });
 });
@@ -539,6 +618,47 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                         </Column>
                         <Column field="pct" header="Écart %" class="text-right">
                             <template #body="{ data }">{{ data.pct === null ? '—' : formatPercent(data.pct / 100, 0) }}</template>
+                        </Column>
+                    </DataTable>
+                </template>
+            </ChartCard>
+
+            <ChartCard
+                v-if="vehiclesStore.list.length"
+                title="Véhicules"
+                :subtitle="unassignedCount
+                    ? `Dépenses totales par véhicule sur la période — ${unassignedCount.toLocaleString('fr-FR')} opération(s) de catégorie véhicule non affectée(s)`
+                    : 'Dépenses totales par véhicule sur la période — clic sur une barre pour ouvrir la fiche du véhicule'"
+                aria-label="Barres du total des dépenses par véhicule sur la période, coût au km en infobulle"
+                :loading="loadingVehicles"
+                :error="vehiclesError"
+                :empty="vehiclesEmpty"
+                empty-text="Aucune dépense véhicule sur la période."
+                :height="300"
+                @retry="loadVehicles"
+            >
+                <VChart :option="vehiclesOption" aria-label="Dépenses par véhicule" @click="onVehicleClick" />
+                <template #table>
+                    <DataTable :value="vehicleRows" size="small" scrollable scroll-height="280px" :empty-message="'Aucune donnée'">
+                        <Column header="Véhicule">
+                            <template #body="{ data }">
+                                <RouterLink :to="{ name: 'vehicle', params: { id: data.vehicle.id } }">{{ data.vehicle.name }}</RouterLink>
+                            </template>
+                        </Column>
+                        <Column field="total" header="Total" class="text-right">
+                            <template #body="{ data }">{{ formatMoney(data.total) }}</template>
+                        </Column>
+                        <Column field="monthlyAverage" header="Moy. mensuelle" class="text-right">
+                            <template #body="{ data }">{{ formatMoney(data.monthlyAverage) }}</template>
+                        </Column>
+                        <Column field="km" header="Km" class="text-right">
+                            <template #body="{ data }">{{ data.km != null ? data.km.toLocaleString('fr-FR') : '—' }}</template>
+                        </Column>
+                        <Column field="costPerKm" header="Coût/km" class="text-right">
+                            <template #body="{ data }">{{ data.costPerKm != null ? `${formatMoney(data.costPerKm)}/km` : '—' }}</template>
+                        </Column>
+                        <Column field="count" header="Nb opérations" class="text-right">
+                            <template #body="{ data }">{{ data.count.toLocaleString('fr-FR') }}</template>
                         </Column>
                     </DataTable>
                 </template>

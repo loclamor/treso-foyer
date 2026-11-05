@@ -13,18 +13,23 @@ import Dialog from 'primevue/dialog';
 import Card from 'primevue/card';
 import { useToast } from 'primevue/usetoast';
 import { useScopeStore } from '@/stores/scope';
+import { useVehiclesStore } from '@/stores/vehicles';
 import { bulkCategorize, listOperations, patchOperation } from '@/api/operations';
+import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { centsToEuros, dateToIso, formatDate, formatDateTime, parseEuros } from '@/utils/format';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import CategoryTag from '@/components/CategoryTag.vue';
 import CategoryPicker from '@/components/CategoryPicker.vue';
 import SourceBadge from '@/components/SourceBadge.vue';
+import VehicleTag from '@/components/VehicleTag.vue';
+import VehiclePicker from '@/components/VehiclePicker.vue';
 import CategorizeDialog from '@/components/CategorizeDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
 const scope = useScopeStore();
+const vehiclesStore = useVehiclesStore();
 const toast = useToast();
 
 // ---------- état ----------
@@ -40,6 +45,8 @@ const selection = ref([]);
 const expandedRows = ref([]);
 const notes = reactive({});
 const savingNote = reactive({});
+const vehicleEdits = reactive({}); // id opération → véhicule choisi (null = aucun)
+const savingVehicle = reactive({});
 
 // filtres (synchronisés avec la query string)
 // Filtres repliés par défaut sur petit écran.
@@ -58,6 +65,7 @@ const filters = reactive({
     maxEuros: '',
     source: null,
     duplicateStatus: null,
+    vehicle: null, // null | 'unassigned' | id de véhicule
 });
 
 const directionOptions = [
@@ -78,6 +86,11 @@ const duplicateOptions = [
     { label: 'Probables', value: 'probable' },
     { label: 'Confirmés distincts', value: 'confirmed_distinct' },
 ];
+const vehicleFilterOptions = computed(() => [
+    { label: 'Tous les véhicules', value: null },
+    { label: 'Non affectées (catégories véhicule)', value: 'unassigned' },
+    ...vehiclesStore.list.map((v) => ({ label: v.archived ? `${v.name} (archivé)` : v.name, value: v.id })),
+]);
 
 // ---------- init depuis la query string ----------
 function initFromQuery() {
@@ -98,6 +111,8 @@ function initFromQuery() {
     if (q.maxAmount) filters.maxEuros = centsToEuros(Number(q.maxAmount));
     if (q.source) filters.source = String(q.source);
     if (q.duplicateStatus) filters.duplicateStatus = String(q.duplicateStatus);
+    if (q.vehicleId) filters.vehicle = Number(q.vehicleId);
+    if (q.vehicleUnassigned === '1' || q.vehicleUnassigned === 'true') filters.vehicle = 'unassigned';
     if (q.page) first.value = (Number(q.page) - 1) * rows.value;
     if (q.perPage) rows.value = Number(q.perPage);
     if (q.sort) sortField.value = String(q.sort);
@@ -119,6 +134,8 @@ function buildQuery() {
     if (max !== null) query.maxAmount = Math.abs(max);
     if (filters.source) query.source = filters.source;
     if (filters.duplicateStatus) query.duplicateStatus = filters.duplicateStatus;
+    if (filters.vehicle === 'unassigned') query.vehicleUnassigned = '1';
+    else if (filters.vehicle) query.vehicleId = filters.vehicle;
     const page = Math.floor(first.value / rows.value) + 1;
     if (page > 1) query.page = page;
     if (rows.value !== 25) query.perPage = rows.value;
@@ -148,6 +165,8 @@ function buildParams() {
     if (max !== null) params.maxAmount = Math.abs(max);
     if (filters.source) params.source = filters.source;
     if (filters.duplicateStatus) params.duplicateStatus = filters.duplicateStatus;
+    if (filters.vehicle === 'unassigned') params.vehicleUnassigned = 1;
+    else if (filters.vehicle) params.vehicleId = filters.vehicle;
     return params;
 }
 
@@ -160,7 +179,10 @@ async function load() {
         items.value = res.items;
         total.value = res.total;
         sums.value = res.sums ?? { debit: 0, credit: 0 };
-        for (const op of res.items) notes[op.id] = op.note ?? '';
+        for (const op of res.items) {
+            notes[op.id] = op.note ?? '';
+            vehicleEdits[op.id] = op.vehicle?.id ?? null;
+        }
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Chargement impossible', detail: apiMessage(e, 'Les opérations n’ont pas pu être chargées.'), life: 6000 });
     } finally {
@@ -217,6 +239,7 @@ function resetFilters() {
     filters.maxEuros = '';
     filters.source = null;
     filters.duplicateStatus = null;
+    filters.vehicle = null;
     onFilterChange();
 }
 
@@ -265,6 +288,47 @@ async function applyBulk() {
     }
 }
 
+// ---------- affectation véhicule (unitaire) ----------
+async function saveVehicle(op) {
+    savingVehicle[op.id] = true;
+    try {
+        // vehicleId null = retrait de l'affectation manuelle (resync auto ensuite).
+        const updated = await assignOperationVehicle(op.id, vehicleEdits[op.id] ?? null);
+        Object.assign(op, updated);
+        toast.add({ severity: 'success', summary: 'Véhicule mis à jour', detail: updated.vehicle ? `Affectée à « ${updated.vehicle.name} ».` : 'Affectation retirée.', life: 3000 });
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Affectation impossible', detail: apiMessage(e), life: 6000 });
+    } finally {
+        savingVehicle[op.id] = false;
+    }
+}
+
+// ---------- affectation véhicule en masse ----------
+const bulkVehicleVisible = ref(false);
+const bulkVehicleId = ref(null);
+const bulkVehicleLoading = ref(false);
+
+function openBulkVehicle() {
+    bulkVehicleId.value = null;
+    bulkVehicleVisible.value = true;
+}
+
+async function applyBulkVehicle() {
+    if (!selection.value.length) return;
+    bulkVehicleLoading.value = true;
+    try {
+        const res = await bulkAssignVehicle(selection.value.map((o) => o.id), bulkVehicleId.value);
+        toast.add({ severity: 'success', summary: 'Affectation en masse', detail: `${res.updatedCount} opération(s) mises à jour.`, life: 5000 });
+        bulkVehicleVisible.value = false;
+        selection.value = [];
+        load();
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Affectation en masse impossible', detail: apiMessage(e), life: 6000 });
+    } finally {
+        bulkVehicleLoading.value = false;
+    }
+}
+
 // ---------- note ----------
 async function saveNote(op) {
     savingNote[op.id] = true;
@@ -284,6 +348,7 @@ const showAccountColumn = computed(() => scope.current.type !== 'account');
 
 onMounted(() => {
     initFromQuery();
+    if (!vehiclesStore.loaded) vehiclesStore.refresh().catch(() => {});
     load();
 });
 </script>
@@ -307,6 +372,14 @@ onMounted(() => {
                 icon="pi pi-tags"
                 severity="secondary"
                 @click="openBulk"
+            />
+            <Button
+                v-if="selectionCount"
+                :label="`Affecter à un véhicule (${selectionCount})`"
+                icon="pi pi-car"
+                severity="secondary"
+                outlined
+                @click="openBulkVehicle"
             />
         </div>
 
@@ -382,6 +455,18 @@ onMounted(() => {
                             @update:model-value="onFilterChange"
                         />
                     </div>
+                    <div class="field">
+                        <label for="f-vehicle">Véhicule</label>
+                        <Select
+                            id="f-vehicle"
+                            v-model="filters.vehicle"
+                            :options="vehicleFilterOptions"
+                            option-label="label"
+                            option-value="value"
+                            class="w-full"
+                            @update:model-value="onFilterChange"
+                        />
+                    </div>
                     <div class="field field-reset">
                         <Button label="Réinitialiser" icon="pi pi-filter-slash" text severity="secondary" @click="resetFilters" />
                     </div>
@@ -443,6 +528,11 @@ onMounted(() => {
                     <CategoryTag :category="data.category" clickable @click="openCategorize(data)" />
                 </template>
             </Column>
+            <Column field="vehicle" header="Véhicule" style="width: 10rem">
+                <template #body="{ data }">
+                    <VehicleTag :vehicle="data.vehicle" :source="data.vehicleSource" />
+                </template>
+            </Column>
             <Column field="categorizationSource" header="Source" style="width: 8.5rem">
                 <template #body="{ data }"><SourceBadge :source="data.categorizationSource" /></template>
             </Column>
@@ -467,6 +557,19 @@ onMounted(() => {
                             :loading="!!savingNote[data.id]"
                             @click="saveNote(data)"
                         />
+                    </div>
+                    <div class="note-block">
+                        <label :for="'vehicle-' + data.id">Véhicule (« Aucun » retire l'affectation)</label>
+                        <div class="vehicle-row">
+                            <VehiclePicker :id="'vehicle-' + data.id" v-model="vehicleEdits[data.id]" />
+                            <Button
+                                size="small"
+                                label="Affecter"
+                                icon="pi pi-car"
+                                :loading="!!savingVehicle[data.id]"
+                                @click="saveVehicle(data)"
+                            />
+                        </div>
                     </div>
                     <p v-if="data.duplicateStatus && data.duplicateStatus !== 'none'">
                         <i class="pi pi-clone" aria-hidden="true" />
@@ -498,6 +601,22 @@ onMounted(() => {
         </DataTable>
 
         <CategorizeDialog v-model:visible="catVisible" :operation="catOperation" @done="onCategorized" />
+
+        <Dialog v-model:visible="bulkVehicleVisible" modal header="Affecter la sélection à un véhicule" :style="{ width: '30rem' }" :draggable="false">
+            <div class="field">
+                <label for="bulk-vehicle-picker">Véhicule pour les {{ selectionCount }} opérations sélectionnées (« Aucun » retire l'affectation)</label>
+                <VehiclePicker id="bulk-vehicle-picker" v-model="bulkVehicleId" />
+            </div>
+            <template #footer>
+                <Button label="Annuler" severity="secondary" text @click="bulkVehicleVisible = false" />
+                <Button
+                    label="Appliquer"
+                    icon="pi pi-check"
+                    :loading="bulkVehicleLoading"
+                    @click="applyBulkVehicle"
+                />
+            </template>
+        </Dialog>
 
         <Dialog v-model:visible="bulkVisible" modal header="Catégoriser la sélection" :style="{ width: '30rem' }" :draggable="false">
             <div class="field">
@@ -585,6 +704,16 @@ onMounted(() => {
 .note-block label {
     font-weight: 600;
     font-size: 0.9rem;
+}
+.vehicle-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.3rem;
+}
+.vehicle-row .p-select {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 .sums {
     display: flex;

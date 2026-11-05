@@ -6,6 +6,7 @@ import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
+import Checkbox from 'primevue/checkbox';
 import ColorPicker from 'primevue/colorpicker';
 import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
@@ -59,7 +60,7 @@ const ICON_SUGGESTIONS = [
 const dialogVisible = ref(false);
 const dialogMode = ref('create'); // 'create' | 'edit'
 const editingId = ref(null);
-const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '' });
+const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '', vehicleRelated: false });
 const saving = ref(false);
 
 function openCreate(parentId = null) {
@@ -70,6 +71,7 @@ function openCreate(parentId = null) {
     form.kind = 'expense';
     form.color = '#4caf50';
     form.icon = '';
+    form.vehicleRelated = false;
     dialogVisible.value = true;
 }
 
@@ -81,13 +83,14 @@ function openEdit(cat) {
     form.kind = cat.kind;
     form.color = cat.color || '#4caf50';
     form.icon = cat.icon || '';
+    form.vehicleRelated = !!cat.vehicleRelated;
     dialogVisible.value = true;
 }
 
 async function submit() {
     if (!form.name.trim()) return;
     saving.value = true;
-    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null };
+    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null, vehicleRelated: form.vehicleRelated };
     try {
         if (dialogMode.value === 'create') {
             await createCategory({ ...payload, parentId: form.parentId });
@@ -205,6 +208,7 @@ async function setChartSlot(cat, slot) {
                         <span class="cat-dot" :style="{ background: node.data.color || 'var(--p-text-muted-color)' }" aria-hidden="true" />
                         <i v-if="node.data.icon" :class="node.data.icon" aria-hidden="true" />
                         {{ node.data.name }}
+                        <i v-if="node.data.vehicleRelated" class="pi pi-car vehicle-icon" v-tooltip.top="'Catégorie liée à un véhicule'" aria-label="Catégorie liée à un véhicule" />
                         <Tag v-if="node.data.archived" value="Archivée" severity="secondary" class="archived-tag" />
                     </span>
                 </template>
@@ -294,6 +298,10 @@ async function setChartSlot(cat, slot) {
                         <span class="text-muted">{{ form.color }}</span>
                     </div>
                 </div>
+                <div class="field field-check">
+                    <Checkbox id="cat-vehicle" v-model="form.vehicleRelated" binary />
+                    <label for="cat-vehicle">Liée à un véhicule (affectation auto quand un seul véhicule est actif à la date de l'opération)</label>
+                </div>
                 <div class="field">
                     <label for="cat-icon">Icône (classe PrimeIcons)</label>
                     <InputText id="cat-icon" v-model="form.icon" placeholder="pi pi-shopping-cart" class="w-full" />
@@ -340,6 +348,19 @@ async function setChartSlot(cat, slot) {
 .archived-tag {
     margin-left: 0.4rem;
     font-size: 0.75rem;
+}
+.vehicle-icon {
+    color: var(--p-text-muted-color);
+    font-size: 0.8rem;
+}
+.field-check {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.field-check label {
+    margin-bottom: 0;
+    font-weight: 400;
 }
 .row-actions {
     display: flex;

@@ -541,6 +541,17 @@ onMounted(() => {
                         </p>
                     </template>
                 </Card>
+                <Card v-if="(summary.vehicleUnassignedCount ?? 0) > 0">
+                    <template #title>Véhicules à affecter</template>
+                    <template #content>
+                        <p class="big-number">{{ summary.vehicleUnassignedCount.toLocaleString('fr-FR') }}</p>
+                        <p>
+                            <RouterLink :to="{ name: 'operations', query: { vehicleUnassigned: '1' } }">
+                                opération(s) de catégorie véhicule sans véhicule
+                            </RouterLink>
+                        </p>
+                    </template>
+                </Card>
                 <Card>
                     <template #title>Doublons probables</template>
                     <template #content>

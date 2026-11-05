@@ -1,6 +1,6 @@
 // Enregistrement tree-shaké d'ECharts 6 : uniquement les charts et composants utilisés par l'app.
 import { use } from 'echarts/core';
-import { BarChart, LineChart, SankeyChart, HeatmapChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, SankeyChart, HeatmapChart } from 'echarts/charts';
 import {
     TooltipComponent,
     LegendComponent,
@@ -14,6 +14,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 use([
     BarChart,
     LineChart,
+    PieChart,
     SankeyChart,
     HeatmapChart,
     TooltipComponent,

@@ -1,13 +1,17 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
 import RadioButton from 'primevue/radiobutton';
 import { useToast } from 'primevue/usetoast';
 import CategoryPicker from '@/components/CategoryPicker.vue';
+import VehiclePicker from '@/components/VehiclePicker.vue';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import { categorizeOperation } from '@/api/operations';
+import { assignOperationVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
+import { useCategoriesStore } from '@/stores/categories';
+import { useVehiclesStore } from '@/stores/vehicles';
 import { formatDate } from '@/utils/format';
 
 const props = defineProps({
@@ -18,11 +22,20 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'done']);
 
 const toast = useToast();
+const categoriesStore = useCategoriesStore();
+const vehiclesStore = useVehiclesStore();
 
 const categoryId = ref(null);
 const scopeChoice = ref('operation');
 const loading = ref(false);
 const result = ref(null);
+// Affectation manuelle du véhicule après catégorisation (catégorie « liée à un véhicule »).
+const vehicleId = ref(null);
+
+// Proposition de véhicule seulement si la catégorie choisie est vehicleRelated et qu'au moins
+// 2 véhicules sont actifs (avec un seul véhicule actif, l'affectation auto suffit).
+const selectedCategory = computed(() => categoriesStore.byId.get(categoryId.value));
+const showVehiclePicker = computed(() => !!selectedCategory.value?.vehicleRelated && vehiclesStore.active.length >= 2);
 
 const visible = computed({
     get: () => props.visible,
@@ -37,11 +50,16 @@ watch(
         if (op) {
             categoryId.value = op.category?.id ?? null;
             scopeChoice.value = props.defaultScope ?? (op.merchant ? 'merchant' : 'operation');
+            vehicleId.value = op.vehicle?.id ?? null;
             result.value = null;
         }
     },
     { immediate: true },
 );
+
+onMounted(() => {
+    if (!vehiclesStore.loaded) vehiclesStore.refresh().catch(() => {});
+});
 
 function detailOf(res) {
     const parts = [`${res.updatedCount} opération(s) mise(s) à jour`];
@@ -54,6 +72,10 @@ async function submit() {
     loading.value = true;
     try {
         const res = await categorizeOperation(props.operation.id, { categoryId: categoryId.value, scope: scopeChoice.value });
+        // Catégorie liée à un véhicule + choix explicite ⇒ affectation manuelle de l'opération.
+        if (showVehiclePicker.value && vehicleId.value != null && res.operation?.vehicle?.id !== vehicleId.value) {
+            res.operation = await assignOperationVehicle(props.operation.id, vehicleId.value);
+        }
         result.value = res;
         toast.add({ severity: 'success', summary: 'Catégorisation appliquée', detail: detailOf(res), life: 5000 });
         emit('done', res);
@@ -85,6 +107,11 @@ async function removeCategory() {
             <div class="field">
                 <label for="categorize-picker">Catégorie</label>
                 <CategoryPicker id="categorize-picker" v-model="categoryId" />
+            </div>
+
+            <div v-if="showVehiclePicker" class="field">
+                <label for="categorize-vehicle">Véhicule (catégorie liée à un véhicule)</label>
+                <VehiclePicker id="categorize-vehicle" v-model="vehicleId" />
             </div>
 
             <div v-if="hasMerchant" class="field">

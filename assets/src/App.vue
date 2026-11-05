@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useMembersStore } from '@/stores/members';
 import { useAccountsStore } from '@/stores/accounts';
 import { useCategoriesStore } from '@/stores/categories';
+import { useVehiclesStore } from '@/stores/vehicles';
 import ScopeSelector from '@/components/ScopeSelector.vue';
 
 const router = useRouter();
@@ -20,6 +21,7 @@ const auth = useAuthStore();
 const members = useMembersStore();
 const accounts = useAccountsStore();
 const categories = useCategoriesStore();
+const vehicles = useVehiclesStore();
 
 const userMenu = ref(null);
 const dark = ref(false);
@@ -38,6 +40,7 @@ const items = [
             { label: 'Catégories', icon: 'pi pi-sitemap', command: () => router.push({ name: 'categories' }) },
             { label: 'Règles', icon: 'pi pi-filter', command: () => router.push({ name: 'rules' }) },
             { label: 'Comptes', icon: 'pi pi-credit-card', command: () => router.push({ name: 'accounts' }) },
+            { label: 'Véhicules', icon: 'pi pi-car', command: () => router.push({ name: 'vehicles' }) },
             { separator: true },
             { label: 'Doublons', icon: 'pi pi-clone', command: () => router.push({ name: 'duplicates' }) },
             { label: 'Virements internes', icon: 'pi pi-arrow-right-arrow-left', command: () => router.push({ name: 'transfers' }) },
@@ -75,7 +78,7 @@ watch(
     () => auth.isAuthenticated,
     (authenticated) => {
         if (authenticated) {
-            Promise.allSettled([members.refresh(), accounts.refresh(), categories.refresh()]);
+            Promise.allSettled([members.refresh(), accounts.refresh(), categories.refresh(), vehicles.refresh()]);
         }
     },
     { immediate: true },
