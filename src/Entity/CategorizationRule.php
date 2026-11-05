@@ -52,6 +52,11 @@ class CategorizationRule
     #[ORM\JoinColumn(nullable: true)]
     private ?Account $account = null;
 
+    /** Véhicule auquel la règle affecte les opérations (null = règle générique). */
+    #[ORM\ManyToOne(targetEntity: Vehicle::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Vehicle $vehicle = null;
+
     /** Le plus grand priority gagne. */
     #[ORM\Column]
     private int $priority = 0;
@@ -233,6 +238,18 @@ class CategorizationRule
     public function setAccount(?Account $account): static
     {
         $this->account = $account;
+
+        return $this;
+    }
+
+    public function getVehicle(): ?Vehicle
+    {
+        return $this->vehicle;
+    }
+
+    public function setVehicle(?Vehicle $vehicle): static
+    {
+        $this->vehicle = $vehicle;
 
         return $this;
     }

@@ -73,6 +73,7 @@ final class SetupCommand extends Command
                     $child = new Category($household, $childName, $rootData['kind']);
                     $child->setParent($root);
                     $child->setPosition($childPosition);
+                    $child->setVehicleRelated(DefaultCategories::isVehicleRelated($rootData['name'], $childName));
                     $this->entityManager->persist($child);
                     ++$createdCount;
                 }

@@ -56,6 +56,31 @@ final class SetupCommandTest extends KernelTestCase
         self::assertCount($this->expectedCategoryCount(), $entityManager->getRepository(Category::class)->findAll());
     }
 
+    public function testTransportVehicleCategoriesAreFlaggedVehicleRelated(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+
+        $setup = $container->get(SetupCommand::class);
+        (new CommandTester($setup))->execute([]);
+
+        $entityManager = $container->get(EntityManagerInterface::class);
+        $flagged = [];
+        foreach ($entityManager->getRepository(Category::class)->findAll() as $category) {
+            if ($category->isVehicleRelated()) {
+                $flagged[] = $category->getFullName();
+            }
+        }
+        sort($flagged);
+
+        self::assertSame([
+            'Transport › Assurance auto',
+            'Transport › Carburant',
+            'Transport › Entretien véhicule',
+            'Transport › Péages & parking',
+        ], $flagged);
+    }
+
     public function testMemberAddCreatesMemberAndRejectsDuplicateUsername(): void
     {
         self::bootKernel();

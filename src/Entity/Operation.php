@@ -7,6 +7,7 @@ namespace App\Entity;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
 use App\Enum\ImportFormat;
+use App\Enum\VehicleSource;
 use App\Repository\OperationRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -20,6 +21,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_operation_account_date', columns: ['account_id', 'date'])]
 #[ORM\Index(name: 'idx_operation_category', columns: ['category_id'])]
 #[ORM\Index(name: 'idx_operation_merchant', columns: ['merchant'])]
+#[ORM\Index(name: 'idx_operation_vehicle', columns: ['vehicle_id'])]
 #[ORM\Index(name: 'idx_operation_normalized_label_trgm', columns: ['normalized_label'])]
 class Operation
 {
@@ -89,6 +91,14 @@ class Operation
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?RecurringSeries $recurringSeries = null;
 
+    #[ORM\ManyToOne(targetEntity: Vehicle::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Vehicle $vehicle = null;
+
+    /** Origine de l'affectation au véhicule. */
+    #[ORM\Column(type: Types::STRING, enumType: VehicleSource::class, nullable: true)]
+    private ?VehicleSource $vehicleSource = null;
+
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $note = null;
 
@@ -146,6 +156,22 @@ class Operation
         $this->categorizationSource = null;
         $this->appliedRule = null;
         $this->categorizedAt = null;
+
+        return $this;
+    }
+
+    public function assignVehicle(Vehicle $vehicle, VehicleSource $source): static
+    {
+        $this->vehicle = $vehicle;
+        $this->vehicleSource = $source;
+
+        return $this;
+    }
+
+    public function unassignVehicle(): static
+    {
+        $this->vehicle = null;
+        $this->vehicleSource = null;
 
         return $this;
     }
@@ -367,6 +393,30 @@ class Operation
     public function setRecurringSeries(?RecurringSeries $recurringSeries): static
     {
         $this->recurringSeries = $recurringSeries;
+
+        return $this;
+    }
+
+    public function getVehicle(): ?Vehicle
+    {
+        return $this->vehicle;
+    }
+
+    public function setVehicle(?Vehicle $vehicle): static
+    {
+        $this->vehicle = $vehicle;
+
+        return $this;
+    }
+
+    public function getVehicleSource(): ?VehicleSource
+    {
+        return $this->vehicleSource;
+    }
+
+    public function setVehicleSource(?VehicleSource $vehicleSource): static
+    {
+        $this->vehicleSource = $vehicleSource;
 
         return $this;
     }

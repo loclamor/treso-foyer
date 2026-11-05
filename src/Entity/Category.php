@@ -55,6 +55,10 @@ class Category
     #[ORM\Column]
     private bool $archived = false;
 
+    /** Poste lié à un véhicule (carburant, entretien, assurance auto, péages & parking). */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $vehicleRelated = false;
+
     /** Emplacement 1-8 sur le graphique (racines de dépense uniquement, unique par foyer). */
     #[ORM\Column(nullable: true)]
     private ?int $chartSlot = null;
@@ -205,6 +209,18 @@ class Category
     public function setArchived(bool $archived): static
     {
         $this->archived = $archived;
+
+        return $this;
+    }
+
+    public function isVehicleRelated(): bool
+    {
+        return $this->vehicleRelated;
+    }
+
+    public function setVehicleRelated(bool $vehicleRelated): static
+    {
+        $this->vehicleRelated = $vehicleRelated;
 
         return $this;
     }

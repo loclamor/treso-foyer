@@ -8,10 +8,14 @@ use App\Entity\Account;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Member;
+use App\Entity\OdometerReading;
 use App\Entity\Operation;
+use App\Entity\Vehicle;
 use App\Enum\AccountType;
 use App\Enum\CategorizationSource;
 use App\Enum\CategoryKind;
+use App\Enum\VehicleSource;
+use App\Enum\VehicleType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -101,6 +105,57 @@ final class SchemaTest extends KernelTestCase
         $entityManager->flush();
 
         $entityManager->persist(new Category($household, 'Logement', CategoryKind::Expense));
+        $this->expectException(UniqueConstraintViolationException::class);
+        $entityManager->flush();
+    }
+
+    public function testVehicleOdometerReadingAndOperationAssignmentPersist(): void
+    {
+        self::bootKernel();
+        $entityManager = self::getContainer()->get(EntityManagerInterface::class);
+
+        $household = new Household('Foyer test');
+        $account = $this->makeAccount($household, 'perso');
+        $vehicle = new Vehicle($household, 'Clio', VehicleType::Car);
+        $vehicle->setPlate('ab-123-cd'); // fixture fictive, normalisée au stockage
+        $reading = new OdometerReading($vehicle, new \DateTimeImmutable('2026-11-01'), 45000);
+        $operation = $this->makeOperation($account, hash('sha256', 'FIXTURE-OP-VEHICLE'));
+        $operation->assignVehicle($vehicle, VehicleSource::Manual);
+
+        $entityManager->persist($household);
+        $entityManager->persist($account);
+        $entityManager->persist($vehicle);
+        $entityManager->persist($reading);
+        $entityManager->persist($operation);
+        $entityManager->flush();
+
+        self::assertNotNull($vehicle->getId());
+        self::assertNotNull($reading->getId());
+        self::assertSame('AB-123-CD', $vehicle->getPlate());
+        self::assertSame($vehicle, $operation->getVehicle());
+        self::assertSame(VehicleSource::Manual, $operation->getVehicleSource());
+        self::assertTrue($vehicle->isActiveOn(new \DateTimeImmutable('2026-11-05')));
+
+        $operation->unassignVehicle();
+        self::assertNull($operation->getVehicle());
+        self::assertNull($operation->getVehicleSource());
+    }
+
+    public function testTwoVehiclesWithSamePlateInOneHouseholdAreRejected(): void
+    {
+        self::bootKernel();
+        $entityManager = self::getContainer()->get(EntityManagerInterface::class);
+
+        $household = new Household('Foyer test');
+        $entityManager->persist($household);
+        $first = new Vehicle($household, 'Clio');
+        $first->setPlate('AB-123-CD'); // fixture fictive
+        $entityManager->persist($first);
+        $entityManager->flush();
+
+        $second = new Vehicle($household, '308');
+        $second->setPlate('ab 123 cd'); // même plaque normalisée
+        $entityManager->persist($second);
         $this->expectException(UniqueConstraintViolationException::class);
         $entityManager->flush();
     }

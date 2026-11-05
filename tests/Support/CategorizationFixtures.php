@@ -36,6 +36,7 @@ final class CategorizationFixtures
                 $child = new Category($household, $childName, $rootData['kind']);
                 $root->addChild($child); // renseigne aussi la collection inverse (getChildren())
                 $child->setPosition($childPosition);
+                $child->setVehicleRelated(DefaultCategories::isVehicleRelated($rootData['name'], $childName));
                 $entityManager->persist($child);
             }
         }

@@ -16,6 +16,17 @@ use App\Enum\CategoryKind;
  */
 final class DefaultCategories
 {
+    /** Racine des postes liés à un véhicule. */
+    public const TRANSPORT_ROOT = 'Transport';
+
+    /** Sous-catégories de « Transport » liées à un véhicule. */
+    public const VEHICLE_RELATED_CHILDREN = [
+        'Carburant',
+        'Entretien véhicule',
+        'Assurance auto',
+        'Péages & parking',
+    ];
+
     /**
      * @var list<array{name: string, kind: CategoryKind, icon: string, color: string, chartSlot: ?int, children: list<string>}>
      */
@@ -225,4 +236,10 @@ final class DefaultCategories
             ],
         ],
     ];
+
+    /** Vrai si la sous-catégorie appartient à l'arbre « Transport » et est liée à un véhicule. */
+    public static function isVehicleRelated(string $rootName, string $childName): bool
+    {
+        return self::TRANSPORT_ROOT === $rootName && \in_array($childName, self::VEHICLE_RELATED_CHILDREN, true);
+    }
 }
