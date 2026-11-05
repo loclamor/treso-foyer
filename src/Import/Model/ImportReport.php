@@ -27,4 +27,13 @@ final readonly class ImportReport
         public int $enriched = 0,
     ) {
     }
+
+    /**
+     * Fichier déjà importé : ses compteurs sont ceux de l'import d'origine,
+     * rien n'a été ajouté ni enrichi lors de cet appel.
+     */
+    public function isAlreadyImported(): bool
+    {
+        return 'already_imported' === $this->status;
+    }
 }

@@ -108,6 +108,10 @@ final class ImportCommand extends Command
                 $report->probableDuplicates,
                 $report->status,
             ];
+            if ($report->isAlreadyImported()) {
+                // Compteurs de l'import d'origine : affichés sur la ligne, jamais cumulés.
+                continue;
+            }
             $totalAdded += $report->added;
             $totalSkipped += $report->skipped;
             $totalProbable += $report->probableDuplicates;

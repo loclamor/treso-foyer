@@ -159,9 +159,10 @@ final class ImportController extends AbstractController
 
         $batch = $entityManager->getRepository(ImportBatch::class)->findOneBy(['sha256' => $sha256]);
 
+        // Fichier déjà importé : compteurs d'origine affichés, mais rien de nouveau à post-traiter.
         return [
-            'added' => $report->added,
-            'enriched' => $report->enriched,
+            'added' => $report->isAlreadyImported() ? 0 : $report->added,
+            'enriched' => $report->isAlreadyImported() ? 0 : $report->enriched,
             'payload' => $this->reportPayload(
                 filename: $report->filename,
                 status: $report->status,

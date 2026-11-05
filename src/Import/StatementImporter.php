@@ -269,6 +269,10 @@ final class StatementImporter
                 $this->recordFailedBatch($path, $sha256, $resolvedAccount, $exception);
             }
             throw $exception;
+        } finally {
+            // Un rollback (dry-run, relevé de frais, erreur) ferme l'EntityManager (ORM 3) :
+            // on le rouvre pour que l'appelant (post-traitement) ne reçoive jamais un EM fermé.
+            $this->entityManager = $this->openEntityManager();
         }
     }
 
