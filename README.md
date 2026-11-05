@@ -111,6 +111,11 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 - `app:import` enchaîne automatiquement l'appariement des virements internes puis la catégorisation des opérations non catégorisées (et des opérations enrichies non manuelles) après un import réel ; `--no-post-process` désactive ce post-traitement.
 - Les virements internes appariés (montants opposés, ±3 jours, deux comptes du foyer) sont catégorisés « Mouvements internes › Virements entre comptes du foyer » (source « Virement interne détecté »), voir [ADR 0009](docs/adr/0009-multi-comptes-foyer.md).
 
+## Véhicules
+- Réglages › Véhicules : créer les véhicules du foyer (dates d'acquisition / de cession, plaque, caractéristiques) et saisir les relevés kilométriques depuis la fiche du véhicule.
+- Les opérations des catégories « liées à un véhicule » (par défaut Transport › Carburant, Entretien véhicule, Assurance auto, Péages & parking) sont affectées automatiquement au véhicule s'il est le seul actif à leur date ; sinon via une règle désignant un véhicule, ou à la main (Opérations, unitaire ou en masse). Détails : [ADR 0011](docs/adr/0011-vehicules.md).
+- Pré-remplissage depuis la plaque (optionnel, service externe) : dans `.env.local`, `VEHICLE_LOOKUP_PROVIDER=rapidapi` et `VEHICLE_LOOKUP_TOKEN=<clé RapidAPI « API Plaque Immatriculation France »>`, puis `make cc`. Désactivé par défaut.
+
 ## Tests
 ```bash
 make test

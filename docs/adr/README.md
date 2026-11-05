@@ -14,3 +14,4 @@ Chaque décision technique structurante est consignée ici (format court : conte
 | [0008](0008-front-vue-primevue.md) | Front SPA Vue 3 + PrimeVue + ECharts, API JSON | Acceptée |
 | [0009](0009-multi-comptes-foyer.md) | Modèle foyer multi-comptes, virements internes | Acceptée |
 | [0010](0010-visualisation.md) | Visualisation : ECharts, couleurs par catégorie (8 emplacements validés), vue tableau | Acceptée |
+| [0011](0011-vehicules.md) | Véhicules : axe d'analyse indépendant, plaque, recherche externe optionnelle | Acceptée |
