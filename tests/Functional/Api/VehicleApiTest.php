@@ -154,6 +154,34 @@ final class VehicleApiTest extends ApiTestCase
         self::assertSame('Clio', $data['name']); // absent = inchangé
     }
 
+    public function testPatchExplicitNullClearsEnergyFiscalPowerAndPrice(): void
+    {
+        $vehicle = $this->createVehicle([
+            'name' => 'Clio',
+            'energy' => 'petrol',
+            'fiscalPower' => 5,
+            'purchasePrice' => 1500000,
+        ]);
+
+        $client = $this->client();
+        $response = $this->json($client, 'PATCH', '/api/vehicles/'.(int) $vehicle['id'], [
+            'energy' => null,
+            'fiscalPower' => null,
+            'purchasePrice' => null,
+        ]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertNull($data['energy']);
+        self::assertNull($data['fiscalPower']);
+        self::assertNull($data['purchasePrice']);
+
+        // Clés absentes = inchangées.
+        $response = $this->json($client, 'PATCH', '/api/vehicles/'.(int) $vehicle['id'], ['fiscalPower' => 6]);
+        $data = $this->decode($response);
+        self::assertSame(6, $data['fiscalPower']);
+        self::assertNull($data['energy']);
+    }
+
     public function testDelete204Or409WhenUsed(): void
     {
         $free = $this->createVehicle(['name' => 'Libre']);

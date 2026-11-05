@@ -98,7 +98,7 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 |---|---|---|
 | GET | `/api/vehicles` | `[Vehicle]` triés par id ; défaut : non archivés uniquement, `?archived=1` les inclut tous |
 | POST | `/api/vehicles` | corps = champs de `Vehicle` (`type` défaut `car`) ⇒ `201 Vehicle`. `plate` normalisée (SIV `AA-123-AA`, FNI sans séparateurs) : format invalide ⇒ `422` sur `plate`, doublon (foyer) ⇒ `409 plate_exists`, nom en doublon ⇒ `409 name_exists`, `mainDriverId` hors foyer ⇒ `422` |
-| PATCH | `/api/vehicles/{id}` | idem partiel ; champ absent = inchangé, chaîne vide = remise à null (dates et textes), `mainDriverId: null` explicite (clé présente) retire le conducteur |
+| PATCH | `/api/vehicles/{id}` | idem partiel ; champ absent = inchangé, chaîne vide = remise à null (dates et textes), `energy`, `fiscalPower`, `purchasePrice`, `mainDriverId` à `null` explicite (clé présente) = remise à null ; `plate: ""` retire la plaque |
 | DELETE | `/api/vehicles/{id}` | `204` ; refus `409 vehicle_in_use` si des opérations ou des règles y sont rattachées (message proposant l'archivage) |
 | POST | `/api/vehicles/lookup` | `{"plate", "vehicleId"?}` ⇒ `200 {"plate": normalisée, "suggestion": VehicleLookupResult sans « raw »}`. Service désactivé ⇒ `503 lookup_disabled` ; `VehicleLookupException` ⇒ `404 not_found`, `429 quota`, `502 unavailable`/`invalid_response`. `vehicleId` fourni : enregistre `lookupData` (raw) + `lookupAt` sur ce véhicule sans toucher à ses autres champs |
 | GET | `/api/vehicles/lookup/status` | ⇒ `{"enabled": bool}` |

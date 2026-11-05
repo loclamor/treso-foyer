@@ -184,7 +184,9 @@ final class VehicleController extends AbstractController
         $household = $householdProvider->get();
         $vehicle = $this->find($entityManager, $household, $id);
 
-        // Absent (null) = inchangé ; chaîne vide = remise à null (dates et textes).
+        // Absent (null) = inchangé ; chaîne vide = remise à null (dates et textes) ;
+        // energy, fiscalPower, purchasePrice, mainDriverId : null explicite (clé présente) = remise à null.
+        $body = $request->toArray();
         if (null !== $input->name) {
             $this->assertNameAvailable($entityManager, $household, $input->name, (int) $vehicle->getId());
             $vehicle->setName($input->name);
@@ -193,9 +195,13 @@ final class VehicleController extends AbstractController
             $vehicle->setType(VehicleType::from($input->type));
         }
         if (null !== $input->plate) {
-            $plate = $this->normalizePlate($input->plate);
-            $this->assertPlateAvailable($entityManager, $household, $plate, (int) $vehicle->getId());
-            $vehicle->setPlate($plate);
+            if ('' === trim($input->plate)) {
+                $vehicle->setPlate(null);
+            } else {
+                $plate = $this->normalizePlate($input->plate);
+                $this->assertPlateAvailable($entityManager, $household, $plate, (int) $vehicle->getId());
+                $vehicle->setPlate($plate);
+            }
         }
         if (null !== $input->make) {
             $vehicle->setMake(self::nullIfEmpty($input->make));
@@ -203,11 +209,11 @@ final class VehicleController extends AbstractController
         if (null !== $input->model) {
             $vehicle->setModel(self::nullIfEmpty($input->model));
         }
-        if (null !== $input->energy) {
-            $vehicle->setEnergy(VehicleEnergy::from($input->energy));
+        if (array_key_exists('energy', $body)) {
+            $vehicle->setEnergy(null === $input->energy ? null : VehicleEnergy::from($input->energy));
         }
-        if (null !== $input->fiscalPower) {
-            $vehicle->setFiscalPower($input->fiscalPower);
+        if (array_key_exists('fiscalPower', $body)) {
+            $vehicle->setFiscalPower(null === $input->fiscalPower ? null : $input->fiscalPower);
         }
         if (null !== $input->firstRegistrationAt) {
             $vehicle->setFirstRegistrationAt(self::date($input->firstRegistrationAt));
@@ -221,11 +227,11 @@ final class VehicleController extends AbstractController
         if (null !== $input->disposedAt) {
             $vehicle->setDisposedAt(self::date($input->disposedAt));
         }
-        if (null !== $input->purchasePrice) {
-            $vehicle->setPurchasePrice($input->purchasePrice);
+        if (array_key_exists('purchasePrice', $body)) {
+            $vehicle->setPurchasePrice(null === $input->purchasePrice ? null : $input->purchasePrice);
         }
         // mainDriverId : la clé présente dans le corps (même null) est appliquée, absente = inchangé.
-        if (array_key_exists('mainDriverId', $request->toArray())) {
+        if (array_key_exists('mainDriverId', $body)) {
             $vehicle->setMainDriver(null === $input->mainDriverId ? null : $this->findMember($entityManager, $household, $input->mainDriverId));
         }
         if (null !== $input->archived) {

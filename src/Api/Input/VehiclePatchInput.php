@@ -9,7 +9,8 @@ use Symfony\Component\Validator\Constraints as Assert;
 /**
  * Corps de PATCH /api/vehicles/{id}. Champ absent (null) = inchangé ;
  * chaîne vide = remise à null pour les champs date et texte.
- * Exception : mainDriverId null explicite (clé présente) retire le conducteur principal.
+ * Exceptions : energy, fiscalPower, purchasePrice et mainDriverId à null explicite (clé présente)
+ * sont remis à null ; plate vide retire la plaque.
  */
 final class VehiclePatchInput
 {
