@@ -79,19 +79,50 @@ async function loadOverview() {
     }
 }
 
-// Variation en % vs période précédente : {text, up} ou null.
-function deltaInfo(current, previous) {
+// Variation en % vs période de comparaison : {text, up} ou null.
+function deltaInfo(current, previous, label) {
     if (current == null || previous == null || previous === 0) return null;
     const pct = ((current - previous) / Math.abs(previous)) * 100;
-    return { text: `${pct >= 0 ? '+' : ''}${Math.round(pct)} % vs période précédente`, up: current >= previous };
+    return { text: `${pct >= 0 ? '+' : ''}${Math.round(pct)} % ${label}`, up: current >= previous };
+}
+
+// Libellé de comparaison selon la nature de comparison.current (lu côté back) :
+// mois calendaires complets, « mois à date » (mêmes jours du mois en cours), ou autre.
+function comparisonLabel(current) {
+    if (!current?.from || !current?.to) return 'vs période précédente';
+    const d1 = new Date(`${current.from}T00:00:00`);
+    const d2 = new Date(`${current.to}T00:00:00`);
+    const lastDayOfTo = new Date(d2.getFullYear(), d2.getMonth() + 1, 0).getDate();
+    if (d1.getDate() === 1 && d2.getDate() === lastDayOfTo) return 'vs mois complets précédents';
+    if (d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth()) return 'vs mêmes jours du mois précédent';
+    return 'vs période précédente';
+}
+
+// Sous-texte du taux d'épargne : plage des mois complets réellement utilisée.
+function savingsSubtext(o) {
+    if (!o.savingsRateFrom || !o.savingsRateTo) return "Part des revenus non dépensée";
+    const fromMonth = o.savingsRateFrom.slice(0, 7);
+    const toMonth = o.savingsRateTo.slice(0, 7);
+    if (fromMonth === toMonth) return `Mois complet : ${formatMonth(fromMonth)}`;
+    return `Mois complets : ${formatMonth(fromMonth)} → ${formatMonth(toMonth)}`;
 }
 
 const kpis = computed(() => {
     const o = overview.value;
     if (!o) return [];
-    const dExpense = deltaInfo(o.expense, o.previous?.expense);
-    const dIncome = deltaInfo(o.income, o.previous?.income);
-    const dNet = deltaInfo(o.net, o.previous?.net);
+    // Deltas sur comparison (comparable vs previousAligned) : le mois en cours incomplet
+    // n'y entre pas, contrairement à « previous » (déprécié).
+    const cmp = o.comparison ?? null;
+    const label = comparisonLabel(cmp?.current);
+    const dExpense = cmp
+        ? deltaInfo(cmp.current.expense, cmp.previous.expense, label)
+        : deltaInfo(o.expense, o.previous?.expense, 'vs période précédente');
+    const dIncome = cmp
+        ? deltaInfo(cmp.current.income, cmp.previous.income, label)
+        : deltaInfo(o.income, o.previous?.income, 'vs période précédente');
+    const dNet = cmp
+        ? deltaInfo(cmp.current.net, cmp.previous.net, label)
+        : deltaInfo(o.net, o.previous?.net, 'vs période précédente');
     return [
         {
             label: 'Dépenses',
@@ -119,7 +150,7 @@ const kpis = computed(() => {
             value: formatPercent(o.savingsRate),
             delta: null,
             favorable: null,
-            subtext: "Part des revenus non dépensée",
+            subtext: savingsSubtext(o),
         },
     ];
 });
@@ -149,6 +180,54 @@ const monthlyRoots = computed(() => {
     return foldToOthers(series, theme.mode.value);
 });
 
+// Série « Estimation fin de mois » : pointillés neutres, valeurs null partout sauf au mois
+// précédent (dépense réelle) et au mois en cours (estimate.expense) pour tracer un segment.
+const ESTIMATE_NAME = 'Estimation fin de mois';
+
+function estimateSeries(m, c) {
+    const est = m.estimate;
+    if (!est) return null;
+    const idx = m.months.indexOf(est.month);
+    if (idx === -1) return null;
+    const prevIdx = idx - 1;
+    const data = m.months.map((mo, i) => {
+        if (i === idx) return { value: est.expense, symbolSize: 8 }; // symbole sur le mois en cours
+        if (i === prevIdx) return { value: m.expense[prevIdx], symbolSize: 0 };
+        return null;
+    });
+    return {
+        name: ESTIMATE_NAME,
+        type: 'line',
+        data,
+        connectNulls: false,
+        lineStyle: { width: 2, type: 'dashed', color: c.muted }, // neutre, pas une couleur de catégorie
+        itemStyle: { color: c.muted },
+    };
+}
+
+// Infobulle du graphe mensuel : ajoute la ligne d'explication de l'estimation.
+function monthlyTooltip(c, estimate) {
+    const t = baseTooltip(c);
+    if (!estimate) return t;
+    t.formatter = (params) => {
+        const list = (Array.isArray(params) ? params : [params]).filter((p) => {
+            const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
+            return v !== null && v !== undefined;
+        });
+        if (!list.length) return '';
+        const head = list[0].axisValueLabel ?? String(list[0].name ?? '');
+        const lines = list.map((p) => {
+            const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
+            if (p.seriesName === ESTIMATE_NAME) {
+                return `${p.marker} Estimation : <strong>${formatMoney(v)}</strong> (moyenne des ${estimate.basisMonths} derniers mois complets ; dépensé à date : ${formatMoney(estimate.spent)})`;
+            }
+            return `${p.marker} ${p.seriesName} : <strong>${formatMoney(v)}</strong>`;
+        });
+        return [head, ...lines].join('<br/>');
+    };
+    return t;
+}
+
 const monthlyOption = computed(() => {
     const m = monthly.value;
     if (!m) return {};
@@ -173,8 +252,10 @@ const monthlyOption = computed(() => {
         lineStyle: { width: 2, color: c.inkSecondary },
         itemStyle: { color: c.inkSecondary },
     });
+    const estimate = estimateSeries(m, c);
+    if (estimate) series.push(estimate);
     return {
-        tooltip: baseTooltip(c),
+        tooltip: monthlyTooltip(c, m.estimate),
         legend: baseLegend(c),
         grid: baseGrid(),
         xAxis: categoryAxis(c, labels),
@@ -217,10 +298,11 @@ async function loadCategories() {
     loadingCats.value = true;
     catsError.value = '';
     try {
-        cats.value = await getCategoriesStats(scope.params, period.params, {
+        const res = await getCategoriesStats(scope.params, period.params, {
             direction: 'expense',
             parentId: drillParent.value,
         });
+        cats.value = res.rows;
     } catch (e) {
         catsError.value = apiMessage(e, 'Graphique indisponible');
     } finally {

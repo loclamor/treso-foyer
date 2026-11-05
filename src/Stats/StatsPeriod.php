@@ -37,6 +37,96 @@ final class StatsPeriod
         return new self($from, $to);
     }
 
+    /** Premier jour du mois de $date. */
+    public static function firstOfMonth(\DateTimeImmutable $date): \DateTimeImmutable
+    {
+        return $date->modify('first day of this month')->setTime(0, 0);
+    }
+
+    /** Dernier jour du mois de $date. */
+    public static function lastOfMonth(\DateTimeImmutable $date): \DateTimeImmutable
+    {
+        return $date->modify('last day of this month')->setTime(0, 0);
+    }
+
+    /**
+     * Période « incomplète » : elle touche au mois en cours (to >= premier jour du mois de $now).
+     * Le mois en cours est toujours incomplet (salaires vers le 26-29, relevés importés
+     * vers le 8 du mois suivant) : l'inclure fausse le taux d'épargne et les comparaisons.
+     */
+    public function isIncomplete(\DateTimeImmutable $now): bool
+    {
+        return $this->to >= self::firstOfMonth($now);
+    }
+
+    /**
+     * Partie « mois complets » de la période : la période elle-même si elle est complète ;
+     * sinon [from, dernier jour du mois précédent] si from déborde avant le mois en cours ;
+     * sinon null (période entièrement dans le mois en cours).
+     */
+    public function completeMonths(\DateTimeImmutable $now): ?self
+    {
+        if (!$this->isIncomplete($now)) {
+            return $this;
+        }
+        $firstCurrent = self::firstOfMonth($now);
+        if ($this->from < $firstCurrent) {
+            return new self($this->from, $firstCurrent->modify('-1 day'));
+        }
+
+        return null;
+    }
+
+    /**
+     * Période comparable : completeMonths(now) si non null, sinon « mois à date »
+     * [from, min(to, aujourd'hui)].
+     */
+    public function comparable(\DateTimeImmutable $now): self
+    {
+        // Comparaison à la date du jour (sans l'heure : les bornes from/to sont des dates).
+        $today = $now->setTime(0, 0);
+
+        return $this->completeMonths($now)
+            ?? new self($this->from, $this->to < $today ? $this->to : $today);
+    }
+
+    /**
+     * Période de comparaison alignée sur comparable(now) :
+     * - comparable = mois calendaires complets (from au 1er, to en fin de mois, N mois)
+     *   ⇒ les N mois calendaires précédents ;
+     * - comparable = « mois à date » (jours j1..j2 du mois en cours)
+     *   ⇒ mêmes jours du mois précédent, bornés au dernier jour de ce mois ;
+     * - sinon (période personnalisée non alignée) ⇒ comparable->previous() (même durée).
+     */
+    public function previousAligned(\DateTimeImmutable $now): self
+    {
+        $comparable = $this->comparable($now);
+
+        if (self::isFullCalendarMonths($comparable)) {
+            $n = count($comparable->months());
+
+            return new self(
+                $comparable->from->modify(sprintf('-%d months', $n)),
+                $comparable->from->modify('-1 day'),
+            );
+        }
+
+        $firstCurrent = self::firstOfMonth($now);
+        if ($comparable->from >= $firstCurrent && $comparable->to >= $firstCurrent) {
+            $prevMonth = $firstCurrent->modify('-1 month');
+            $lastDayPrev = (int) self::lastOfMonth($prevMonth)->format('t');
+            $fromDay = min((int) $comparable->from->format('j'), $lastDayPrev);
+            $toDay = min((int) $comparable->to->format('j'), $lastDayPrev);
+
+            return new self(
+                new \DateTimeImmutable(sprintf('%04d-%02d-%02d', (int) $prevMonth->format('Y'), (int) $prevMonth->format('n'), $fromDay)),
+                new \DateTimeImmutable(sprintf('%04d-%02d-%02d', (int) $prevMonth->format('Y'), (int) $prevMonth->format('n'), $toDay)),
+            );
+        }
+
+        return $comparable->previous();
+    }
+
     /** Période de même durée qui précède immédiatement celle-ci. */
     public function previous(): self
     {
@@ -89,6 +179,13 @@ final class StatsPeriod
             'from' => $this->from->format('Y-m-d'),
             'to' => $this->to->format('Y-m-d'),
         ];
+    }
+
+    /** Vrai si la période couvre des mois calendaires entiers (from au 1er, to en fin de mois). */
+    private static function isFullCalendarMonths(self $period): bool
+    {
+        return $period->from->format('Y-m-d') === self::firstOfMonth($period->from)->format('Y-m-d')
+            && $period->to->format('Y-m-d') === self::lastOfMonth($period->to)->format('Y-m-d');
     }
 
     private static function minusOneYear(\DateTimeImmutable $date): \DateTimeImmutable

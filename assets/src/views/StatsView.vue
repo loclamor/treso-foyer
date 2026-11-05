@@ -59,6 +59,9 @@ const compareOptions = [
 
 // ---------- 1. comparaison par poste ----------
 const compareCats = ref(null);
+// Plages réellement comparées (en-têtes X-Comparable-* / X-Compare-* de l'API) :
+// le mois en cours incomplet en est exclu (comparable = mois complets ou « mois à date »).
+const compareMeta = ref({ comparableFrom: null, comparableTo: null, compareFrom: null, compareTo: null });
 const loadingCompare = ref(true);
 const compareError = ref('');
 
@@ -66,16 +69,29 @@ async function loadCompare() {
     loadingCompare.value = true;
     compareError.value = '';
     try {
-        compareCats.value = await getCategoriesStats(scope.params, period.params, {
+        const res = await getCategoriesStats(scope.params, period.params, {
             direction: direction.value,
             compare: compare.value,
         });
+        compareCats.value = res.rows;
+        compareMeta.value = res.meta;
     } catch (e) {
         compareError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
         loadingCompare.value = false;
     }
 }
+
+// Libellé de la comparaison avec les plages : « 01/11/2026 → 05/11/2026 vs 01/10/2026 → 05/10/2026 ».
+const compareSubtitle = computed(() => {
+    const meta = compareMeta.value;
+    const sens = direction.value === 'expense' ? 'dépenses' : 'revenus';
+    if (!meta.comparableFrom) {
+        return `Période vs ${compare.value === 'year' ? 'année précédente' : 'période précédente'} — ${sens}`;
+    }
+    const compareLabel = compare.value === 'year' ? 'année précédente' : 'période précédente';
+    return `${formatDate(meta.comparableFrom)} → ${formatDate(meta.comparableTo)} vs ${compareLabel} ${formatDate(meta.compareFrom)} → ${formatDate(meta.compareTo)} — ${sens}`;
+});
 
 const compareOption = computed(() => {
     const items = compareCats.value;
@@ -92,7 +108,8 @@ const compareOption = computed(() => {
             {
                 name: 'Période',
                 type: 'bar',
-                data: items.map((it) => it.total).reverse(),
+                // comparableTotal (pas total) : la barre « Période » est sur la même plage que la comparaison.
+                data: items.map((it) => it.comparableTotal ?? it.total).reverse(),
                 barMaxWidth: 24,
                 itemStyle: barItemStyle(slotColor(1, theme.mode.value), c.surface),
             },
@@ -111,9 +128,11 @@ const compareEmpty = computed(() => !compareCats.value || !compareCats.value.len
 
 const compareTableRows = computed(() =>
     (compareCats.value ?? []).map((it) => {
-        const diff = it.total - (it.compareTotal ?? 0);
+        // Écart calculé sur comparableTotal vs compareTotal (pas sur total, qui inclut le mois en cours).
+        const current = it.comparableTotal ?? it.total;
+        const diff = current - (it.compareTotal ?? 0);
         const pct = it.compareTotal ? (diff / Math.abs(it.compareTotal)) * 100 : null;
-        return { name: it.category?.name ?? 'Non catégorisé', total: it.total, compareTotal: it.compareTotal ?? 0, diff, pct };
+        return { name: it.category?.name ?? 'Non catégorisé', total: current, compareTotal: it.compareTotal ?? 0, diff, pct };
     }),
 );
 
@@ -595,8 +614,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
             <ChartCard
                 class="span-2"
                 title="Comparaison par poste"
-                :subtitle="`Période vs ${compare === 'year' ? 'année précédente' : 'période précédente'} — ${direction === 'expense' ? 'dépenses' : 'revenus'}`"
-                aria-label="Barres groupées comparant chaque poste de dépense entre la période et la période de comparaison"
+                :subtitle="compareSubtitle"
+                aria-label="Barres groupées comparant chaque poste de dépense entre la période comparable et la période de comparaison"
                 :loading="loadingCompare"
                 :error="compareError"
                 :empty="compareEmpty"
@@ -607,10 +626,10 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                 <template #table>
                     <DataTable :value="compareTableRows" size="small" scrollable scroll-height="320px" :empty-message="'Aucune donnée'">
                         <Column field="name" header="Poste" />
-                        <Column field="total" header="Période" class="text-right">
+                        <Column field="total" :header="compareMeta.comparableFrom ? `Période (${formatDate(compareMeta.comparableFrom)} → ${formatDate(compareMeta.comparableTo)})` : 'Période'" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data.total) }}</template>
                         </Column>
-                        <Column field="compareTotal" :header="compare === 'year' ? 'Année précédente' : 'Période précédente'" class="text-right">
+                        <Column field="compareTotal" :header="(compare === 'year' ? 'Année précédente' : 'Période précédente') + (compareMeta.compareFrom ? ` (${formatDate(compareMeta.compareFrom)} → ${formatDate(compareMeta.compareTo)})` : '')" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data.compareTotal) }}</template>
                         </Column>
                         <Column field="diff" header="Écart" class="text-right">

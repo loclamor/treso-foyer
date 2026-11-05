@@ -9,3 +9,8 @@ services:
     # (le noyau est reboooté entre les requêtes : l'instance est recréée à chaque boot).
     App\Tests\Support\FakeVehicleLookup: ~
     App\Vehicle\Lookup\VehicleLookup: '@App\Tests\Support\FakeVehicleLookup'
+
+    # Horloge pilotable : TestClock::freeze('2026-11-05') fige « maintenant » dans les stats.
+    App\Tests\Support\TestClock: ~
+    Symfony\Component\Clock\ClockInterface: '@App\Tests\Support\TestClock'
+    Psr\Clock\ClockInterface: '@App\Tests\Support\TestClock'

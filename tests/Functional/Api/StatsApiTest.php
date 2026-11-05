@@ -12,6 +12,7 @@ use App\Enum\CategorizationSource;
 use App\Enum\ImportFormat;
 use App\Enum\ImportStatus;
 use App\Enum\TransferStatus;
+use App\Tests\Support\TestClock;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -39,6 +40,13 @@ final class StatsApiTest extends ApiTestCase
 {
     private const string FROM = '2026-01-01';
     private const string TO = '2026-03-31';
+
+    protected function tearDown(): void
+    {
+        // Libère l'horloge gelée pour ne pas polluer les autres tests du process.
+        TestClock::reset();
+        parent::tearDown();
+    }
 
     private function seedStatsData(): void
     {
@@ -632,5 +640,217 @@ final class StatsApiTest extends ApiTestCase
         self::assertSame(1500, $rowB['total']);
         self::assertNull($rowB['distance']);
         self::assertNull($rowB['costPerKm']);
+    }
+
+    // ---------- mois en cours incomplet (horloge gelée au 2026-11-05) ----------
+
+    private function seedCurrentMonthData(): void
+    {
+        $courses = $this->category('Alimentation › Courses');
+        $salaires = $this->category('Revenus › Salaires');
+        $energie = $this->category('Logement › Énergie');
+
+        // Mois complets août-octobre 2026.
+        $this->addOperation($this->account, '2026-08-10', 100000, 'VIREMENT EMPLOYEUR AOUT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-08-15', -1000, 'ACHAT CB AOUT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-09-10', 100000, 'VIREMENT EMPLOYEUR SEPT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-09-15', -2000, 'ACHAT CB SEPT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-10-10', 100000, 'VIREMENT EMPLOYEUR OCT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-10-15', -3000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        // Mois en cours (incomplet au 05/11).
+        $this->addOperation($this->account, '2026-11-03', 50000, 'VIREMENT EMPLOYEUR NOV', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-11-04', -500, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        // Fenêtre alignée précédente : 2026-05-01..2026-07-31 (3 mois calendaires avant août-octobre).
+        $this->addOperation($this->account, '2026-06-10', 80000, 'VIREMENT EMPLOYEUR JUIN', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-06-20', -4000, 'ACHAT CB JUIN', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-07-05', -1500, 'PRELEVEMENT EDF JUILLET', 'EDF', $energie);
+    }
+
+    public function testOverviewSavingsRateOnCompleteMonthsAndComparison(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $this->seedCurrentMonthData();
+        $client = $this->client();
+
+        // Période demandée : août..fin novembre (inclut le mois en cours incomplet).
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/overview?from=2026-08-01&to=2026-11-30'));
+
+        // Totaux inchangés : toute la période demandée.
+        self::assertSame('2026-08-01', $data['from']);
+        self::assertSame('2026-11-30', $data['to']);
+        self::assertSame(350000, $data['income']);            // 100k x3 + 50k
+        self::assertSame(6500, $data['expense']);             // 1000+2000+3000+500
+        self::assertSame(343500, $data['net']);
+        self::assertSame(8, $data['operationsCount']);
+        // Taux d'épargne sur les mois complets [2026-08-01, 2026-10-31] : 294000/300000.
+        self::assertEqualsWithDelta(0.98, $data['savingsRate'], 1e-9);
+        self::assertSame('2026-08-01', $data['savingsRateFrom']);
+        self::assertSame('2026-10-31', $data['savingsRateTo']);
+        // comparison : comparable (mois complets août-octobre) vs previousAligned (mai-juillet).
+        self::assertSame(
+            ['from' => '2026-08-01', 'to' => '2026-10-31', 'income' => 300000, 'expense' => 6000, 'net' => 294000],
+            $data['comparison']['current'],
+        );
+        self::assertSame(
+            ['from' => '2026-05-01', 'to' => '2026-07-31', 'income' => 80000, 'expense' => 5500, 'net' => 74500],
+            $data['comparison']['previous'],
+        );
+        // previous (déprécié, ancienne sémantique) : même durée 122 jours avant le 2026-08-01.
+        self::assertSame(
+            ['from' => '2026-04-01', 'to' => '2026-07-31', 'income' => 80000, 'expense' => 5500, 'net' => 74500],
+            $data['previous'],
+        );
+        // average12 inchangé : 12 mois complets avant novembre 2026 (inclut juin-juillet).
+        self::assertSame(['income' => 31667, 'expense' => 958], $data['average12']); // round(380000/12), round(11500/12)
+    }
+
+    public function testOverviewSavingsRateFallbackOnLastCompleteMonth(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $salaires = $this->category('Revenus › Salaires');
+        // Octobre (dernier mois complet) : salaire le 02, dépense le 04 (dans la fenêtre 01..05).
+        $this->addOperation($this->account, '2026-10-02', 100000, 'VIREMENT EMPLOYEUR OCT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-10-04', -3000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        // Novembre (mois en cours, à date au 05).
+        $this->addOperation($this->account, '2026-11-03', 50000, 'VIREMENT EMPLOYEUR NOV', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-11-04', -500, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        $client = $this->client();
+
+        // Période entièrement dans le mois en cours ⇒ repli sur octobre pour le taux.
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/overview?from=2026-11-01&to=2026-11-30'));
+
+        self::assertSame(50000, $data['income']);
+        self::assertSame(500, $data['expense']);
+        self::assertSame(49500, $data['net']);
+        self::assertSame(2, $data['operationsCount']);
+        self::assertEqualsWithDelta(0.97, $data['savingsRate'], 1e-9); // (100000-3000)/100000 sur octobre
+        self::assertSame('2026-10-01', $data['savingsRateFrom']);
+        self::assertSame('2026-10-31', $data['savingsRateTo']);
+        // comparison « mois à date » : 01..05 novembre vs mêmes jours d'octobre.
+        self::assertSame(
+            ['from' => '2026-11-01', 'to' => '2026-11-05', 'income' => 50000, 'expense' => 500, 'net' => 49500],
+            $data['comparison']['current'],
+        );
+        self::assertSame(
+            ['from' => '2026-10-01', 'to' => '2026-10-05', 'income' => 100000, 'expense' => 3000, 'net' => 97000],
+            $data['comparison']['previous'],
+        );
+    }
+
+    public function testCategoriesComparableTotalCompareTotalAndHeaders(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $energie = $this->category('Logement › Énergie');
+        // Mois en cours (comparable = 01..05/11) : 600 + 400 courses.
+        $this->addOperation($this->account, '2026-11-02', -600, 'ACHAT CB NOV 02', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-04', -400, 'ACHAT CB NOV 04', 'MONSHOP', $courses);
+        // Octobre : 2000 courses le 02 (dans previousAligned 01..05/10), 500 énergie le 20 (hors fenêtre).
+        $this->addOperation($this->account, '2026-10-02', -2000, 'ACHAT CB OCT 02', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-10-20', -500, 'PRELEVEMENT EDF OCT', 'EDF', $energie);
+        // Année précédente : 700 courses le 03/11/2025 (dans comparable->sameLastYear 01..05/11/2025).
+        $this->addOperation($this->account, '2025-11-03', -700, 'ACHAT CB NOV 2025', 'MONSHOP', $courses);
+        $client = $this->client();
+
+        // compare=previous : comparable 2026-11-01..05 vs previousAligned 2026-10-01..05.
+        $response = $this->json($client, 'GET', '/api/stats/categories?from=2026-11-01&to=2026-11-30&compare=previous');
+        $rows = $this->decode($response);
+        self::assertSame('2026-11-01', $response->headers->get('X-Comparable-From'));
+        self::assertSame('2026-11-05', $response->headers->get('X-Comparable-To'));
+        self::assertSame('2026-10-01', $response->headers->get('X-Compare-From'));
+        self::assertSame('2026-10-05', $response->headers->get('X-Compare-To'));
+        self::assertCount(1, $rows);
+        $alimentationId = (int) $this->category('Alimentation')->getId();
+        self::assertSame($alimentationId, $rows[0]['category']['id']);
+        self::assertSame(1000, $rows[0]['total']);          // période demandée (novembre)
+        self::assertSame(1000, $rows[0]['comparableTotal']); // 01..05/11
+        self::assertSame(2000, $rows[0]['compareTotal']);    // 01..05/10 (le 20/10 est hors fenêtre)
+
+        // compare=year : compareTotal sur comparable->sameLastYear (2025-11-01..05).
+        $response = $this->json($client, 'GET', '/api/stats/categories?from=2026-11-01&to=2026-11-30&compare=year');
+        $rows = $this->decode($response);
+        self::assertSame('2026-11-01', $response->headers->get('X-Comparable-From'));
+        self::assertSame('2026-11-05', $response->headers->get('X-Comparable-To'));
+        self::assertSame('2025-11-01', $response->headers->get('X-Compare-From'));
+        self::assertSame('2025-11-05', $response->headers->get('X-Compare-To'));
+        self::assertSame(1000, $rows[0]['comparableTotal']);
+        self::assertSame(700, $rows[0]['compareTotal']);
+
+        // Sans compare : pas d'en-têtes, totaux de comparaison null.
+        $response = $this->json($client, 'GET', '/api/stats/categories?from=2026-11-01&to=2026-11-30');
+        $rows = $this->decode($response);
+        self::assertNull($response->headers->get('X-Comparable-From'));
+        self::assertNull($response->headers->get('X-Compare-From'));
+        self::assertNull($rows[0]['compareTotal']);
+        self::assertNull($rows[0]['comparableTotal']);
+        self::assertSame(1000, $rows[0]['total']);
+    }
+
+    public function testMonthlyEstimateCurrentMonth(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $salaires = $this->category('Revenus › Salaires');
+        $this->addOperation($this->account, '2026-09-10', -1000, 'ACHAT CB SEPT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-10-10', -3000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-03', -500, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-04', 50000, 'VIREMENT EMPLOYEUR NOV', 'EMPLOYEUR', $salaires);
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/monthly?from=2026-09-01&to=2026-11-30'));
+
+        self::assertSame(['2026-09', '2026-10', '2026-11'], $data['months']);
+        self::assertSame([1000, 3000, 500], $data['expense']);
+        // k = 2 mois complets (sept, oct) avec opérations ⇒ moyenne (1000+3000)/2 = 2000.
+        self::assertSame(
+            ['month' => '2026-11', 'spent' => 500, 'average' => 2000, 'expense' => 2000, 'basisMonths' => 2],
+            $data['estimate'],
+        );
+    }
+
+    public function testMonthlyEstimateSpentAboveAverage(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $this->addOperation($this->account, '2026-10-05', -1000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-03', -5000, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/monthly?from=2026-10-01&to=2026-11-30'));
+
+        // k = 1 (octobre) ⇒ moyenne 1000, mais dépensé à date 5000 > moyenne ⇒ expense = 5000.
+        self::assertSame(
+            ['month' => '2026-11', 'spent' => 5000, 'average' => 1000, 'expense' => 5000, 'basisMonths' => 1],
+            $data['estimate'],
+        );
+    }
+
+    public function testMonthlyEstimateAbsentWithoutCurrentMonth(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $this->addOperation($this->account, '2026-10-10', -1000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-03', -500, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        $client = $this->client();
+
+        // Le mois en cours (novembre) n'est pas dans la période ⇒ estimate null.
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/monthly?from=2026-09-01&to=2026-10-31'));
+        self::assertSame(['2026-09', '2026-10'], $data['months']);
+        self::assertNull($data['estimate']);
+    }
+
+    public function testMonthlyEstimateNullWhenNoOperationBeforeCurrentMonth(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        // Uniquement une opération dans le mois en cours : aucune base de moyenne (k = 0).
+        $this->addOperation($this->account, '2026-11-03', -500, 'ACHAT CB NOV', 'MONSHOP', $courses);
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/monthly?from=2026-11-01&to=2026-11-30'));
+        self::assertSame(['2026-11'], $data['months']);
+        self::assertSame([500], $data['expense']);
+        self::assertNull($data['estimate']);
     }
 }

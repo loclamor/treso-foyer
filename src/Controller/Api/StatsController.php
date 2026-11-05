@@ -21,6 +21,7 @@ use App\Stats\StatsRepository;
 use App\Vehicle\OdometerCalculator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -37,22 +38,42 @@ final class StatsController extends AbstractController
         HouseholdProvider $householdProvider,
         Scope $scope,
         StatsRepository $statsRepository,
+        ClockInterface $clock,
     ): JsonResponse {
         $household = $householdProvider->get();
         $accountIds = $scope->accountIds($request, $household);
-        $period = StatsPeriod::fromRequest($request);
+        $now = $clock->now();
+        $period = StatsPeriod::fromRequest($request, $now);
 
-        $current = $statsRepository->overview($household, $accountIds, $period);
+        // Taux d'épargne sur les mois complets (hors mois en cours incomplet) ; si la période
+        // demandée est entièrement dans le mois en cours, repli sur le dernier mois complet.
+        $firstCurrentMonth = StatsPeriod::firstOfMonth($now);
+        $ratePeriod = $period->completeMonths($now)
+            ?? new StatsPeriod($firstCurrentMonth->modify('-1 month'), $firstCurrentMonth->modify('-1 day'));
+
+        $current = $statsRepository->overview($household, $accountIds, $period, $ratePeriod);
+        // « previous » conservé pour compatibilité (ancienne sémantique, déprécié) : le front
+        // utilise « comparison » (comparable vs previousAligned, mois en cours exclu).
         $previous = $statsRepository->overview($household, $accountIds, $period->previous());
         $average12 = $statsRepository->average12($household, $accountIds, $period->to);
 
+        $comparable = $period->comparable($now);
+        $previousAligned = $period->previousAligned($now);
+        $comparisonCurrent = $statsRepository->overview($household, $accountIds, $comparable);
+        $comparisonPrevious = $statsRepository->overview($household, $accountIds, $previousAligned);
+        $pick = static fn (array $o): array => [
+            'from' => $o['from'],
+            'to' => $o['to'],
+            'income' => $o['income'],
+            'expense' => $o['expense'],
+            'net' => $o['net'],
+        ];
+
         return new JsonResponse($current + [
-            'previous' => [
-                'from' => $previous['from'],
-                'to' => $previous['to'],
-                'income' => $previous['income'],
-                'expense' => $previous['expense'],
-                'net' => $previous['net'],
+            'previous' => $pick($previous),
+            'comparison' => [
+                'current' => $pick($comparisonCurrent),
+                'previous' => $pick($comparisonPrevious),
             ],
             'average12' => $average12,
         ]);
@@ -66,13 +87,35 @@ final class StatsController extends AbstractController
         StatsRepository $statsRepository,
         CategoryPresenter $categoryPresenter,
         EntityManagerInterface $entityManager,
+        ClockInterface $clock,
     ): JsonResponse {
         $household = $householdProvider->get();
         $accountIds = $scope->accountIds($request, $household);
-        $period = StatsPeriod::fromRequest($request);
+        $now = $clock->now();
+        $period = StatsPeriod::fromRequest($request, $now);
         $categories = $this->categoryMap($entityManager, $household);
 
         $data = $statsRepository->monthly($household, $accountIds, $period);
+
+        // Estimation du mois en cours (présent seulement s'il fait partie de la série) :
+        // spent = dépense à date, average = moyenne des k derniers mois complets (k ≤ 12),
+        // expense = max(spent, average) ; null si aucune opération avant le mois en cours.
+        $estimate = null;
+        $currentMonth = $now->format('Y-m');
+        $currentIndex = array_search($currentMonth, $data['months'], true);
+        if (false !== $currentIndex) {
+            $average = $statsRepository->monthlyExpenseAverage($household, $accountIds, StatsPeriod::firstOfMonth($now));
+            if (null !== $average) {
+                $spent = $data['expense'][$currentIndex];
+                $estimate = [
+                    'month' => $currentMonth,
+                    'spent' => $spent,
+                    'average' => $average['average'],
+                    'expense' => max($spent, $average['average']),
+                    'basisMonths' => $average['basisMonths'],
+                ];
+            }
+        }
 
         return new JsonResponse([
             'months' => $data['months'],
@@ -87,6 +130,7 @@ final class StatsController extends AbstractController
                 $data['byRoot'],
             ),
             'uncategorized' => $data['uncategorized'],
+            'estimate' => $estimate,
         ]);
     }
 
@@ -98,10 +142,12 @@ final class StatsController extends AbstractController
         StatsRepository $statsRepository,
         CategoryPresenter $categoryPresenter,
         EntityManagerInterface $entityManager,
+        ClockInterface $clock,
     ): JsonResponse {
         $household = $householdProvider->get();
         $accountIds = $scope->accountIds($request, $household);
-        $period = StatsPeriod::fromRequest($request);
+        $now = $clock->now();
+        $period = StatsPeriod::fromRequest($request, $now);
         $direction = $this->directionParam($request);
 
         $parentId = null;
@@ -117,32 +163,47 @@ final class StatsController extends AbstractController
             }
         }
 
+        // Quand compare est fourni, le mois en cours incomplet est exclu des deux côtés :
+        // comparableTotal = total sur comparable(now), compareTotal = total sur
+        // previousAligned(now) (« previous ») ou comparable(now)->sameLastYear() (« year »).
+        // Les plages réellement utilisées sont exposées dans les en-têtes X-Comparable-*/X-Compare-*.
         $comparePeriod = null;
+        $comparablePeriod = null;
         $compare = $request->query->get('compare');
         if (null !== $compare && '' !== $compare) {
             $compare = (string) $compare;
+            $comparablePeriod = $period->comparable($now);
             if ('previous' === $compare) {
-                $comparePeriod = $period->previous();
+                $comparePeriod = $period->previousAligned($now);
             } elseif ('year' === $compare) {
-                $comparePeriod = $period->sameLastYear();
+                $comparePeriod = $comparablePeriod->sameLastYear();
             } else {
                 throw new BadRequestException('Paramètre compare invalide (previous|year).', 'invalid_query');
             }
         }
 
         $categories = $this->categoryMap($entityManager, $household);
-        $rows = $statsRepository->categories($household, $accountIds, $period, $direction, $parentId, $comparePeriod);
+        $rows = $statsRepository->categories($household, $accountIds, $period, $direction, $parentId, $comparePeriod, $comparablePeriod);
 
-        return new JsonResponse(array_map(
+        $response = new JsonResponse(array_map(
             static fn (array $row): array => [
                 'category' => null !== $row['categoryId'] ? $categoryPresenter->presentRef($categories[$row['categoryId']]) : null,
                 'total' => $row['total'],
                 'count' => $row['count'],
                 'share' => $row['share'],
                 'compareTotal' => $row['compareTotal'],
+                'comparableTotal' => $row['comparableTotal'],
             ],
             $rows,
         ));
+        if (null !== $comparablePeriod && null !== $comparePeriod) {
+            $response->headers->set('X-Comparable-From', $comparablePeriod->from->format('Y-m-d'));
+            $response->headers->set('X-Comparable-To', $comparablePeriod->to->format('Y-m-d'));
+            $response->headers->set('X-Compare-From', $comparePeriod->from->format('Y-m-d'));
+            $response->headers->set('X-Compare-To', $comparePeriod->to->format('Y-m-d'));
+        }
+
+        return $response;
     }
 
     #[Route('/api/stats/merchants', name: 'api_stats_merchants', methods: ['GET'])]

@@ -23,12 +23,23 @@ export async function getMonthly(scopeParams, range) {
     return data;
 }
 
-// [{category, total, count, share, compareTotal}] — parentId null = racines, compare = 'previous'|'year'
+// {rows: [{category, total, count, share, compareTotal, comparableTotal}], meta} — parentId null = racines,
+// compare = 'previous'|'year'. meta = plages réellement comparées, lues dans les en-têtes
+// X-Comparable-From/To et X-Compare-From/To (présentes seulement quand compare est fourni) :
+// le mois en cours incomplet en est exclu (comparable = mois complets ou « mois à date »).
 export async function getCategoriesStats(scopeParams, range, { direction = 'expense', parentId = null, compare = null } = {}) {
-    const { data } = await http.get('/stats/categories', {
+    const { data, headers } = await http.get('/stats/categories', {
         params: buildParams(scopeParams, range, { direction, parentId, compare }),
     });
-    return data;
+    return {
+        rows: data,
+        meta: {
+            comparableFrom: headers['x-comparable-from'] ?? null,
+            comparableTo: headers['x-comparable-to'] ?? null,
+            compareFrom: headers['x-compare-from'] ?? null,
+            compareTo: headers['x-compare-to'] ?? null,
+        },
+    };
 }
 
 // [{key, merchant, total, count, category}]

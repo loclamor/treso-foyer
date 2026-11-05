@@ -29,11 +29,14 @@ final class StatsRepository
 
     /**
      * Totaux de la période : income/expense (positifs), net, savingsRate, compteurs.
+     * Le taux d'épargne est calculé sur $ratePeriod (mois complets, hors mois en cours
+     * incomplet) quand elle est fournie ; savingsRateFrom/savingsRateTo = plage réellement
+     * utilisée pour le taux.
      *
      * @param list<int>|null $accountIds périmètre (null = tout le foyer)
-     * @return array{from: string, to: string, income: int, expense: int, net: int, savingsRate: float|null, operationsCount: int, uncategorizedExpense: int, transfersIn: int, transfersOut: int}
+     * @return array{from: string, to: string, income: int, expense: int, net: int, savingsRate: float|null, savingsRateFrom: string, savingsRateTo: string, operationsCount: int, uncategorizedExpense: int, transfersIn: int, transfersOut: int}
      */
-    public function overview(Household $household, ?array $accountIds, StatsPeriod $period): array
+    public function overview(Household $household, ?array $accountIds, StatsPeriod $period, ?StatsPeriod $ratePeriod = null): array
     {
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $sql = $cte."\n"
@@ -50,13 +53,34 @@ final class StatsRepository
         $expense = (int) $row['expense'];
         $net = $income - $expense;
 
+        // Taux d'épargne sur la plage dédiée (mois complets) si elle diffère de la période.
+        $ratePeriod ??= $period;
+        $rateIncome = $income;
+        $rateExpense = $expense;
+        if ($ratePeriod->from != $period->from || $ratePeriod->to != $period->to) {
+            [$rCte, $rParams, $rTypes] = $this->base($household, $accountIds, $ratePeriod);
+            $rRow = $this->connection()->fetchAssociative(
+                $rCte."\n"
+                .'SELECT COALESCE(SUM('.AmountClassifier::incomeAmountExpr().'), 0) AS income,'."\n"
+                .'       COALESCE(SUM('.AmountClassifier::expenseAmountExpr().'), 0) AS expense'."\n"
+                .$this->fromWhere($accountIds),
+                $rParams,
+                $rTypes,
+            );
+            $rateIncome = (int) $rRow['income'];
+            $rateExpense = (int) $rRow['expense'];
+        }
+        $rateNet = $rateIncome - $rateExpense;
+
         return [
             'from' => $period->from->format('Y-m-d'),
             'to' => $period->to->format('Y-m-d'),
             'income' => $income,
             'expense' => $expense,
             'net' => $net,
-            'savingsRate' => $income > 0 ? round($net / $income, 4) : null,
+            'savingsRate' => $rateIncome > 0 ? round($rateNet / $rateIncome, 4) : null,
+            'savingsRateFrom' => $ratePeriod->from->format('Y-m-d'),
+            'savingsRateTo' => $ratePeriod->to->format('Y-m-d'),
             'operationsCount' => (int) $row['cnt'],
             'uncategorizedExpense' => (int) $row['uncat_expense'],
             'transfersIn' => (int) $row['transfers_in'],
@@ -174,12 +198,14 @@ final class StatsRepository
 
     /**
      * Classement des catégories pour une direction (racines, ou sous-catégories de
-     * parentId + la racine elle-même).
+     * parentId + la racine elle-même). comparePeriod = période de comparaison (compareTotal),
+     * comparablePeriod = période comparable courante (comparableTotal, renseignée quand
+     * compare est demandé : le mois en cours incomplet est exclu des deux).
      *
      * @param list<int>|null $accountIds
-     * @return list<array{categoryId: ?int, total: int, count: int, share: float, compareTotal: ?int}> triés par total desc (categoryId null = non catégorisé)
+     * @return list<array{categoryId: ?int, total: int, count: int, share: float, compareTotal: ?int, comparableTotal: ?int}> triés par total desc (categoryId null = non catégorisé)
      */
-    public function categories(Household $household, ?array $accountIds, StatsPeriod $period, string $direction, ?int $parentId, ?StatsPeriod $comparePeriod): array
+    public function categories(Household $household, ?array $accountIds, StatsPeriod $period, string $direction, ?int $parentId, ?StatsPeriod $comparePeriod, ?StatsPeriod $comparablePeriod = null): array
     {
         $sign = AmountClassifier::EXPENSE === $direction ? '-o.amount' : 'o.amount';
         $kind = AmountClassifier::kindExpr();
@@ -204,34 +230,17 @@ final class StatsRepository
             ."ORDER BY total DESC, category_id ASC";
         $rows = $this->connection()->fetchAllAssociative($sql, $params, $types);
 
-        $compareTotals = [];
-        if (null !== $comparePeriod) {
-            [$cCte, $cParams, $cTypes] = $this->base($household, $accountIds, $comparePeriod);
-            $cParams['direction'] = $direction;
-            $cTypes['direction'] = ParameterType::STRING;
-            if (null !== $parentId) {
-                $cParams['parentId'] = $parentId;
-                $cTypes['parentId'] = ParameterType::INTEGER;
-            }
-            $cRows = $this->connection()->fetchAllAssociative(
-                $cCte."\n"
-                ."SELECT $groupExpr AS category_id, COALESCE(SUM($sign), 0) AS total\n"
-                .$this->fromWhere($accountIds)."\n"
-                ."AND $kind = :direction$extra\n"
-                ."GROUP BY 1",
-                $cParams,
-                $cTypes,
-            );
-            foreach ($cRows as $cRow) {
-                $key = null === $cRow['category_id'] ? 'null' : (string) (int) $cRow['category_id'];
-                $compareTotals[$key] = (int) $cRow['total'];
-            }
-        }
+        $compareTotals = null !== $comparePeriod
+            ? $this->categoryTotals($household, $accountIds, $comparePeriod, $direction, $parentId)
+            : [];
+        $comparableTotals = null !== $comparablePeriod
+            ? $this->categoryTotals($household, $accountIds, $comparablePeriod, $direction, $parentId)
+            : [];
 
         $denominator = array_sum(array_map('intval', array_column($rows, 'total')));
 
         return array_map(
-            static function (array $row) use ($denominator, $compareTotals): array {
+            static function (array $row) use ($denominator, $compareTotals, $comparableTotals): array {
                 $categoryId = null !== $row['category_id'] ? (int) $row['category_id'] : null;
                 $key = null === $categoryId ? 'null' : (string) $categoryId;
                 $total = (int) $row['total'];
@@ -242,10 +251,54 @@ final class StatsRepository
                     'count' => (int) $row['cnt'],
                     'share' => $denominator > 0 ? round($total / $denominator, 4) : 0.0,
                     'compareTotal' => $compareTotals[$key] ?? null,
+                    'comparableTotal' => $comparableTotals[$key] ?? null,
                 ];
             },
             $rows,
         );
+    }
+
+    /**
+     * Moyenne mensuelle des dépenses des k derniers mois complets précédant le mois de
+     * $currentMonthFirst (k ≤ 12, bornés au premier mois ayant au moins une opération dans
+     * le périmètre ; même périmètre comptes et même classification que `expense`).
+     *
+     * @param list<int>|null $accountIds
+     * @return array{average: int, basisMonths: int}|null null si aucune opération avant le mois en cours (k = 0)
+     */
+    public function monthlyExpenseAverage(Household $household, ?array $accountIds, \DateTimeImmutable $currentMonthFirst): ?array
+    {
+        // Toutes les opérations du périmètre strictement avant le mois en cours.
+        $period = new StatsPeriod(new \DateTimeImmutable('1900-01-01'), $currentMonthFirst->modify('-1 day'));
+        [$cte, $params, $types] = $this->base($household, $accountIds, $period);
+        $sql = $cte."\n"
+            ."SELECT date_trunc('month', o.date)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."GROUP BY 1\n"
+            ."ORDER BY 1";
+        $rows = $this->connection()->fetchAllAssociative($sql, $params, $types);
+        if ([] === $rows) {
+            return null;
+        }
+
+        // Fenêtre : les 12 derniers mois complets, sans remonter avant le premier mois ayant une opération.
+        $firstOpMonth = new \DateTimeImmutable((string) $rows[0]['m']);
+        $bound = $currentMonthFirst->modify('-12 months');
+        if ($firstOpMonth > $bound) {
+            $bound = $firstOpMonth;
+        }
+        $k = ((int) $currentMonthFirst->format('Y') - (int) $bound->format('Y')) * 12
+            + ((int) $currentMonthFirst->format('n') - (int) $bound->format('n'));
+
+        $total = 0;
+        foreach ($rows as $row) {
+            $month = new \DateTimeImmutable((string) $row['m']);
+            if ($month >= $bound) {
+                $total += (int) $row['e'];
+            }
+        }
+
+        return ['average' => (int) round($total / $k), 'basisMonths' => $k];
     }
 
     /**
@@ -615,6 +668,46 @@ final class StatsRepository
     private function connection(): Connection
     {
         return $this->entityManager->getConnection();
+    }
+
+    /**
+     * Totaux par catégorie (clé 'null' = non catégorisé) sur une période auxiliaire
+     * (comparaison / période comparable), même agrégation que categories().
+     *
+     * @param list<int>|null $accountIds
+     * @return array<string, int>
+     */
+    private function categoryTotals(Household $household, ?array $accountIds, StatsPeriod $period, string $direction, ?int $parentId): array
+    {
+        $sign = AmountClassifier::EXPENSE === $direction ? '-o.amount' : 'o.amount';
+        $kind = AmountClassifier::kindExpr();
+        $groupExpr = null !== $parentId ? 'c.id' : 'COALESCE(r.id, c.id)';
+        $extra = '';
+        [$cte, $params, $types] = $this->base($household, $accountIds, $period);
+        $params['direction'] = $direction;
+        $types['direction'] = ParameterType::STRING;
+        if (null !== $parentId) {
+            $extra = ' AND (c.id = :parentId OR c.parent_id = :parentId)';
+            $params['parentId'] = $parentId;
+            $types['parentId'] = ParameterType::INTEGER;
+        }
+        $rows = $this->connection()->fetchAllAssociative(
+            $cte."\n"
+            ."SELECT $groupExpr AS category_id, COALESCE(SUM($sign), 0) AS total\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."AND $kind = :direction$extra\n"
+            ."GROUP BY 1",
+            $params,
+            $types,
+        );
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $key = null === $row['category_id'] ? 'null' : (string) (int) $row['category_id'];
+            $totals[$key] = (int) $row['total'];
+        }
+
+        return $totals;
     }
 
     /**
