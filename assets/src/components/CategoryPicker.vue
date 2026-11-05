@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import TreeSelect from 'primevue/treeselect';
 import { useCategoriesStore } from '@/stores/categories';
 
@@ -20,11 +20,30 @@ const selectionKeys = computed({
         emit('update:modelValue', key === undefined ? null : Number(key));
     },
 });
+
+// Le filtre de PrimeVue ne déplie pas les parents des résultats : on déplie tous les nœuds
+// ayant des enfants dans l'arbre filtré, et on replie quand la recherche est vidée.
+const expandedKeys = ref({});
+
+function parentKeys(nodes, keys = {}) {
+    for (const node of nodes ?? []) {
+        if (node.children?.length) {
+            keys[node.key] = true;
+            parentKeys(node.children, keys);
+        }
+    }
+    return keys;
+}
+
+function onFilter({ value, filteredNodes }) {
+    expandedKeys.value = value?.trim() ? parentKeys(filteredNodes) : {};
+}
 </script>
 
 <template>
     <TreeSelect
         v-model="selectionKeys"
+        v-model:expanded-keys="expandedKeys"
         :options="categoriesStore.options"
         selection-mode="single"
         filter
@@ -32,6 +51,7 @@ const selectionKeys = computed({
         filter-placeholder="Rechercher une catégorie…"
         :placeholder="placeholder"
         show-clear
+        @filter="onFilter"
         class="w-full"
     />
 </template>
