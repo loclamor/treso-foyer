@@ -44,7 +44,12 @@ final class DefaultRules
         ['Shopping › Achats divers', 10, 'AMAZON|AMZN|CDISCOUNT|FNAC|DARTY|BOULANGER|LEBONCOIN|VINTED|ETSY|ALIEXPRESS|TEMU|SHEIN|GIFI|STOKOMANI|PAYPAL'],
         ['Shopping › Vêtements', 50, 'DECATHLON|KIABI|ZARA|PRIMARK|CELIO|JULES|UNIQLO|GEMO|LA HALLE|BERSHKA|ZALANDO|INTERSPORT|GO SPORT'],
         ['Shopping › High-tech', 50, 'APPLE STORE|LDLC|MATERIEL NET|RUE DU COMMERCE'],
-        ['Logement › Équipement & mobilier', 50, 'IKEA|CONFORAMA|LEROY MERLIN|CASTORAMA|BRICOMARCHE|MR BRICOLAGE|WELDOM|MAISONS DU MONDE|GAMM VERT|JARDILAND|TRUFFAUT|BOTANIC'],
+        ['Logement › Équipement & mobilier', 50, 'IKEA|CONFORAMA|MAISONS DU MONDE'],
+        // Priorité 55 : l'emporte sur l'ancienne règle « Équipement & mobilier » qui listait ces enseignes.
+        // ADEO = groupe Leroy Merlin / Bricoman (libellé CB souvent tronqué en « ADEO*LEROY MER »).
+        ['Shopping › Bricolage', 55, 'LEROY MER\\w*|ADEO|CASTORAMA|BRICOMARCHE|BRICO DEPOT|BRICO CASH|BRICOMAN|BRICORAMA|MR BRICOLAGE|WELDOM|POINT P|LAPEYRE|ENTREPOT DU BRICOLAGE'],
+        ['Shopping › Jardinage', 55, 'GAMM VERT|JARDILAND|TRUFFAUT|BOTANIC|VILLAVERDE|POINT VERT|JARDINERIE|PEPINIERE\\w*'],
+        ['Shopping › Beauté & soins', 50, 'SEPHORA|NOCIBE|MARIONNAUD|YVES ROCHER|L OCCITANE|KIKO|COIFF\\w*|BARBIER|ESTHETIQUE|INSTITUT DE BEAUTE'],
         ['Logement › Énergie', 50, 'EDF|ENGIE|EKWATEUR|PLANETE OUI|GRDF|ENEDIS|ENERCOOP'],
         ['Logement › Eau', 50, 'VEOLIA|SUEZ|SAUR'],
         ['Loisirs & culture › Sport', 50, 'BASIC FIT|FITNESS|PISCINE|ESCALADE|KEEP COOL'],
@@ -66,6 +71,9 @@ final class DefaultRules
         // « FINANCES PUBL\w* » : le libellé est souvent tronqué (« DIRECTION GENERALE D ES FINANCES PUBL »).
         ['Impôts & taxes', '^PRELEVEMENT DE .*\b(DGFIP|IMPOTS?|FINANCES PUBL\w*)\b', RuleDirection::Any, 80],
         ['Retraits d’espèces', '^RETRAIT\b', RuleDirection::Debit, 80],
+        // OGEC : organisme de gestion des écoles privées sous contrat (paiement carte, prélèvement ou virement).
+        ['Scolarité › Frais de scolarité', '\b(OGEC|APEL)\b', RuleDirection::Debit, 80],
+        ['Scolarité › Cantine & garderie', '\b(CANTINE|RESTAURATION SCOLAIRE|PERISCOLAIRE|GARDERIE)\b', RuleDirection::Debit, 80],
         ['Revenus › Allocations & aides', '\b(CAF|CAISSE D ALLOCATIONS|FRANCE TRAVAIL|POLE EMPLOI)\b', RuleDirection::Credit, 80],
         ['Revenus › Remboursements', '\b(CPAM|AMELI|ASSURANCE MALADIE)\b', RuleDirection::Credit, 80],
     ];

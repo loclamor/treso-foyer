@@ -92,6 +92,18 @@ final class DefaultRulesTest extends TestCase
             ['COTISATION TRIMESTRIELLE DE VOTRE FORMULE', 'Banque & assurances › Frais bancaires'],
             ['PRELEVEMENT DE DGFIP IMPOT', 'Impôts & taxes'],
             ['PRELEVEMENT DE DIRECTION GENERALE D ES FINANCES PUBL', 'Impôts & taxes'],
+            // Scolarité : quel que soit le moyen de paiement.
+            ['ACHAT CB AEP OGEC SAINT 12.09.25 CARTE NUMERO 275', 'Scolarité › Frais de scolarité'],
+            ['PRELEVEMENT DE OGEC ECOLE SAINTE MARIE', 'Scolarité › Frais de scolarité'],
+            ['VIREMENT POUR APEL ECOLE COTISATION', 'Scolarité › Frais de scolarité'],
+            ['PRELEVEMENT DE MAIRIE RESTAURATION SCOLAIRE', 'Scolarité › Cantine & garderie'],
+            // Bricolage / jardinage : l'emportent sur « Équipement & mobilier ».
+            ['ACHAT CB ADEO*LEROY MER 03.05.25 CARTE NUMERO 275', 'Shopping › Bricolage'],
+            ['ACHAT CB LEROY MERLIN F 03.05.25', 'Shopping › Bricolage'],
+            ['CREDIT CARTE BANCAIRE CASTORAMA', 'Shopping › Bricolage'],
+            ['ACHAT CB TRUFFAUT COLOM 12.04.25', 'Shopping › Jardinage'],
+            ['ACHAT CB IKEA TOULOUSE', 'Logement › Équipement & mobilier'],
+            ['ACHAT CB TENDANCE COIFF 02.02.24', 'Shopping › Beauté & soins'],
         ];
     }
 
