@@ -38,6 +38,8 @@ final class DefaultRules
         ['Abonnements & télécoms › Internet & téléphone', 50, 'ORANGE|SOSH|SFR|BOUYGUES TEL|BOUYGUES TELECOM|FREE MOBILE|FREE TELECOM|FREE HAUTDEBIT'],
         ['Abonnements & télécoms › Streaming & médias', 50, 'NETFLIX|SPOTIFY|DEEZER|DISNEY|CANAL|PRIME VIDEO|YOUTUBE|MOLOTOV|DAZN|AUDIBLE'],
         ['Abonnements & télécoms › Logiciels & services en ligne', 50, 'OVH|OVHCLOUD|GOOGLE|MICROSOFT|ADOBE|DROPBOX|GITHUB|ANTHROPIC|OPENAI|JETBRAINS|PROTON|ICLOUD|APPLE COM'],
+        // « LA ?POSTE » : bureaux de poste (« LA POSTE 31149 », « LAPOSTE G22364 ») ; ne matche pas « BANQUE POSTALE ».
+        ['Abonnements & télécoms › Courrier & colis', 50, 'LA ?POSTE|COLISSIMO|CHRONOPOST|MONDIAL RELAY|RELAIS COLIS|DHL|FEDEX|PACKLINK|BOXTAL'],
         ['Santé › Pharmacie', 50, 'PHARMACIE|PHIE'],
         ['Santé › Médecins', 50, 'DOCTEUR|MEDECIN|DENTAIRE|KINE|OSTEO|LABORATOIRE|CLINIQUE|HOPITAL|DOCTOLIB'],
         ['Santé › Optique & dentaire', 50, 'OPTIC|OPTICIEN|KRYS|AFFLELOU|GRANDOPTICAL|ATOL'],

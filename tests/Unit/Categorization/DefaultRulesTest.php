@@ -104,6 +104,10 @@ final class DefaultRulesTest extends TestCase
             ['ACHAT CB TRUFFAUT COLOM 12.04.25', 'Shopping › Jardinage'],
             ['ACHAT CB IKEA TOULOUSE', 'Logement › Équipement & mobilier'],
             ['ACHAT CB TENDANCE COIFF 02.02.24', 'Shopping › Beauté & soins'],
+            // Courrier & colis : bureaux de poste et transporteurs, jamais la banque.
+            ['ACHAT CB LA POSTE L3114 05.03.24 CARTE NUMERO 275', 'Abonnements & télécoms › Courrier & colis'],
+            ['ACHAT CB LAPOSTE G22364 18.11.25', 'Abonnements & télécoms › Courrier & colis'],
+            ['ACHAT CB MONDIAL RELAY 02.02.26', 'Abonnements & télécoms › Courrier & colis'],
         ];
     }
 
@@ -111,6 +115,11 @@ final class DefaultRulesTest extends TestCase
     public function testExamplesResolveToExpectedCategory(string $label, string $expectedCategory): void
     {
         self::assertSame($expectedCategory, $this->resolve($label));
+    }
+
+    public function testBanquePostaleIsNotPostalMail(): void
+    {
+        self::assertNotSame('Abonnements & télécoms › Courrier & colis', $this->resolve('PRELEVEMENT DE LA BANQUE POSTALE ASSURANCE'));
     }
 
     public function testVirementFromAPersonMatchesNoRule(): void

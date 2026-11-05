@@ -73,6 +73,7 @@ final class DefaultCategories
                 'Internet & téléphone',
                 'Streaming & médias',
                 'Logiciels & services en ligne',
+                'Courrier & colis',
             ],
         ],
         [
