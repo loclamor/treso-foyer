@@ -37,8 +37,13 @@ function toDate(isoStr) {
 }
 
 // DatePicker en plage : [Date, Date] ↔ {from, to} ISO.
+// DatePicker (mode plage) plante sur [null, null] : il calcule le mois affiché depuis la 1re date.
+// Sans date de début (« Personnalisé » tout juste choisi), on lui passe donc null.
 const rangeModel = computed({
-    get: () => [toDate(period.custom.from), toDate(period.custom.to)],
+    get: () => {
+        const from = toDate(period.custom.from);
+        return from ? [from, toDate(period.custom.to)] : null;
+    },
     set: (v) => {
         const from = Array.isArray(v) ? dateToIso(v[0]) : null;
         const to = Array.isArray(v) && v[1] ? dateToIso(v[1]) : null;
