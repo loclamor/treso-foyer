@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Import\Parser;
 
+use App\Enum\AccountType;
 use App\Enum\ImportFormat;
 use App\Import\Exception\NotAnAccountStatementException;
 use App\Import\Exception\ParseException;
@@ -153,6 +154,33 @@ final class PdfStatementParserTest extends TestCase
             array_map(static fn (ParsedOperation $op): int => $op->amount, $statement->operations),
         );
         self::assertSame('ACHAT CB LIBRAIRIE EXEMPLE 30.04.16 CARTE NUMERO 123', $statement->operations[2]->rawLabel);
+
+        // Comptes d'épargne de la synthèse : section détaillée (Livret A) ou solde seul (Livret Jeune, sans mouvement).
+        self::assertCount(2, $statement->related);
+        [$livretA, $livretJeune] = $statement->related;
+        self::assertSame('0000000000L', $livretA->accountNumber);
+        self::assertSame('Livret A', $livretA->accountLabel);
+        self::assertSame(AccountType::Savings, $livretA->accountType);
+        self::assertSame('2016-04-21', $livretA->openingDate?->format('Y-m-d'));
+        self::assertSame(1833, $livretA->openingBalance);
+        self::assertSame(51833, $livretA->closingBalance);
+        self::assertCount(1, $livretA->operations);
+        self::assertSame(50000, $livretA->operations[0]->amount);
+        self::assertSame('2016-05-05', $livretA->operations[0]->date->format('Y-m-d'));
+        self::assertSame('VIREMENT DE TITULAIRE FICTIVE REFERENCE : 0000000000000002', $livretA->operations[0]->rawLabel);
+
+        self::assertSame('0000000001R', $livretJeune->accountNumber);
+        self::assertSame([4200, 4200, []], [$livretJeune->openingBalance, $livretJeune->closingBalance, $livretJeune->operations]);
+        self::assertSame($statement->openingDate, $livretJeune->openingDate);
+    }
+
+    public function testCompteEpargneIncoherentAvecLaSynthese(): void
+    {
+        $text = str_replace('+ 518,33 ¤', '+ 600,00 ¤', $this->fixture('releve-francs-et-livret.txt'));
+
+        $this->expectException(ParseException::class);
+        $this->expectExceptionMessage('Compte d’épargne incohérent');
+        $this->parser()->parseText($text);
     }
 
     public function testReleveAnnuelDeFrais(): void

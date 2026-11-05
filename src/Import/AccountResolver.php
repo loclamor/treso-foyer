@@ -32,7 +32,7 @@ final class AccountResolver
      * @throws UnknownAccountException si compte introuvable et $autoCreate à false,
      *                                 ou aucun foyer en base (message avec masque uniquement)
      */
-    public function resolve(string $rawNumber, bool $autoCreate): Account
+    public function resolve(string $rawNumber, bool $autoCreate, ?AccountType $type = null, ?string $label = null): Account
     {
         /** @var AccountRepository $accountRepository */
         $accountRepository = $this->entityManager->getRepository(Account::class);
@@ -63,8 +63,8 @@ final class AccountResolver
         $account = new Account(
             $household,
             $alias,
-            'Compte '.$mask,
-            AccountType::Personal,
+            ($label ?? 'Compte').' '.$mask,
+            $type ?? AccountType::Personal,
             $hash,
             $mask,
         );

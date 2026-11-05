@@ -14,7 +14,7 @@ final class AccountPatchInput
         public readonly ?string $alias = null,
         #[Assert\Length(min: 1, max: 100, minMessage: 'label ne doit pas être vide.', maxMessage: 'label ne doit pas dépasser 100 caractères.')]
         public readonly ?string $label = null,
-        #[Assert\Choice(choices: ['personal', 'joint'], message: 'type doit être « personal » ou « joint ».')]
+        #[Assert\Choice(choices: ['personal', 'joint', 'savings'], message: 'type doit être « personal », « joint » ou « savings ».')]
         public readonly ?string $type = null,
         #[Assert\Type(type: 'array', message: 'holderIds doit être un tableau.')]
         #[Assert\All([new Assert\Positive(message: 'Chaque holderId doit être positif.')])]

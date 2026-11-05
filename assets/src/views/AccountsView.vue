@@ -19,10 +19,11 @@ const accountsStore = useAccountsStore();
 const membersStore = useMembersStore();
 const toast = useToast();
 
-const TYPE_LABELS = { personal: 'Personnel', joint: 'Commun' };
+const TYPE_LABELS = { personal: 'Personnel', joint: 'Commun', savings: 'Épargne' };
 const TYPE_OPTIONS = [
     { label: 'Personnel', value: 'personal' },
     { label: 'Commun', value: 'joint' },
+    { label: 'Épargne', value: 'savings' },
 ];
 
 const dialogVisible = ref(false);

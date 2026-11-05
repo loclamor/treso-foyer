@@ -81,7 +81,7 @@ final class ImportCommand extends Command
         foreach ($files as $file) {
             $basename = basename($file);
             try {
-                $report = $this->importer->import($file, $options);
+                $reports = $this->importer->importAll($file, $options);
             } catch (NotAnAccountStatementException) {
                 // Relevé annuel de frais ou document sans opérations : ignoré, pas un échec.
                 $rows[] = [$basename, '-', '-', 0, 0, 0, 0, 'ignoré (pas un relevé d\'opérations)'];
@@ -98,24 +98,33 @@ final class ImportCommand extends Command
                 $errors[] = sprintf('%s : %s', $basename, $exception->getMessage());
                 continue;
             }
-            $rows[] = [
-                $basename,
-                trim(($report->accountAlias ?? '?').' '.$report->accountMasked),
-                $this->formatPeriod($report),
-                $report->added,
-                $report->skipped,
-                $report->enriched,
-                $report->probableDuplicates,
-                $report->status,
-            ];
-            if ($report->isAlreadyImported()) {
-                // Compteurs de l'import d'origine : affichés sur la ligne, jamais cumulés.
-                continue;
+            // Une ligne par compte du fichier (compte principal, puis livrets éventuels).
+            foreach ($reports as $report) {
+                if ('failed' === $report->status) {
+                    $failures++;
+                    $rows[] = [$basename, '-', '-', 0, 0, 0, 0, 'échoué (compte lié)'];
+                    $errors[] = sprintf('%s (compte lié) : %s', $basename, $report->error);
+                    continue;
+                }
+                $rows[] = [
+                    $basename,
+                    trim(($report->accountAlias ?? '?').' '.$report->accountMasked),
+                    $this->formatPeriod($report),
+                    $report->added,
+                    $report->skipped,
+                    $report->enriched,
+                    $report->probableDuplicates,
+                    $report->status,
+                ];
+                if ($report->isAlreadyImported()) {
+                    // Compteurs de l'import d'origine : affichés sur la ligne, jamais cumulés.
+                    continue;
+                }
+                $totalAdded += $report->added;
+                $totalSkipped += $report->skipped;
+                $totalProbable += $report->probableDuplicates;
+                $totalEnriched += $report->enriched;
             }
-            $totalAdded += $report->added;
-            $totalSkipped += $report->skipped;
-            $totalProbable += $report->probableDuplicates;
-            $totalEnriched += $report->enriched;
         }
 
         $io->table(

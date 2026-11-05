@@ -45,25 +45,101 @@ final class StatementImporter
     }
 
     /**
+     * Importe un fichier et renvoie le rapport du compte principal (voir importAll pour les comptes liés).
+     *
      * @throws ParseException|UnsupportedFormatException|NotAnAccountStatementException|Exception\UnknownAccountException|\Throwable
      */
     public function import(string $path, ImportOptions $options): ImportReport
     {
-        // Un rollback (dry-run, erreur) ferme l'EntityManager (ORM 3) : on repart d'un EM ouvert à chaque fichier.
-        $this->entityManager = $this->openEntityManager();
+        return $this->importAll($path, $options)[0];
+    }
 
+    /**
+     * Importe un fichier : relevé du compte principal, puis relevés des comptes liés du même document
+     * (livrets d'un relevé La Banque Postale), chacun dans son propre lot, sur son compte.
+     * Un fichier déjà importé est relu pour importer les comptes liés qui ne l'auraient pas été.
+     * Les exceptions concernent le compte principal ; un compte lié en erreur donne un rapport « failed ».
+     *
+     * @return non-empty-list<ImportReport> le compte principal en premier
+     *
+     * @throws ParseException|UnsupportedFormatException|NotAnAccountStatementException|Exception\UnknownAccountException|\Throwable
+     */
+    public function importAll(string $path, ImportOptions $options): array
+    {
         $raw = @file_get_contents($path);
         if (false === $raw) {
             throw new ParseException(sprintf('Fichier illisible : %s.', basename($path)));
         }
         $sha256 = hash('sha256', $raw);
 
+        $parser = null;
+        foreach ($this->parsers as $candidate) {
+            if ($candidate->supports($path, $raw)) {
+                $parser = $candidate;
+                break;
+            }
+        }
+        if (!$parser instanceof StatementParserInterface) {
+            throw new UnsupportedFormatException(sprintf('Aucun parseur ne prend en charge « %s ».', basename($path)));
+        }
+
+        /** @var ParsedStatement|null $parsed */
+        $parsed = null;
+        $main = $this->importOne($path, $sha256, $options, static function () use ($parser, $path, &$parsed): ParsedStatement {
+            return $parsed = $parser->parse($path);
+        });
+
+        if (null === $parsed) {
+            // Fichier déjà importé : relu pour ses comptes liés (un échec de relecture n'est pas une erreur).
+            try {
+                $parsed = $parser->parse($path);
+            } catch (\Throwable) {
+                return [$main];
+            }
+        }
+
+        $reports = [$main];
+        foreach ($parsed->related as $related) {
+            // Lot propre à chaque compte lié : empreinte du fichier suffixée par le numéro de compte.
+            $relatedSha = hash('sha256', $sha256.'#'.$related->accountNumber);
+            try {
+                $reports[] = $this->importOne($path, $relatedSha, $options, static fn (): ParsedStatement => $related);
+            } catch (\Throwable $exception) {
+                $reports[] = new ImportReport(
+                    filename: $options->originalFilename ?? basename($path),
+                    status: 'failed',
+                    accountAlias: null,
+                    accountMasked: '',
+                    periodStart: null,
+                    periodEnd: null,
+                    added: 0,
+                    skipped: 0,
+                    probableDuplicates: 0,
+                    error: $exception->getMessage(),
+                );
+            }
+        }
+
+        return $reports;
+    }
+
+    /**
+     * Importe un relevé dans un lot d'empreinte $sha256 (déjà importé : rapport « already_imported »,
+     * sans appeler $parse).
+     *
+     * @param \Closure(): ParsedStatement $parse
+     */
+    private function importOne(string $path, string $sha256, ImportOptions $options, \Closure $parse): ImportReport
+    {
+        // Un rollback (dry-run, erreur) ferme l'EntityManager (ORM 3) : on repart d'un EM ouvert à chaque relevé.
+        $this->entityManager = $this->openEntityManager();
+
         $batchRepository = $this->entityManager->getRepository(ImportBatch::class);
         $existing = $batchRepository->findOneBy(['sha256' => $sha256]);
         if ($existing instanceof ImportBatch) {
             if (ImportStatus::Completed === $existing->getStatus()) {
                 return new ImportReport(
-                    filename: basename($path),
+                    filename: $options->originalFilename ?? basename($path),
                     status: 'already_imported',
                     accountAlias: $existing->getAccount()?->getAlias(),
                     accountMasked: $existing->getAccount()?->getNumberMasked() ?? '',
@@ -80,23 +156,12 @@ final class StatementImporter
             $this->entityManager->flush();
         }
 
-        $parser = null;
-        foreach ($this->parsers as $candidate) {
-            if ($candidate->supports($path, $raw)) {
-                $parser = $candidate;
-                break;
-            }
-        }
-        if (!$parser instanceof StatementParserInterface) {
-            throw new UnsupportedFormatException(sprintf('Aucun parseur ne prend en charge « %s ».', basename($path)));
-        }
-
         $resolvedAccount = null;
         try {
             return $this->entityManager->wrapInTransaction(
-                function () use ($path, $sha256, $parser, $options, &$resolvedAccount): ImportReport {
-                    $parsed = $parser->parse($path);
-                    $account = $this->accountResolver->resolve($parsed->accountNumber, $options->autoCreateAccount);
+                function () use ($path, $sha256, $parse, $options, &$resolvedAccount): ImportReport {
+                    $parsed = $parse();
+                                        $account = $this->accountResolver->resolve($parsed->accountNumber, $options->autoCreateAccount, $parsed->accountType, $parsed->accountLabel);
                     $resolvedAccount = $account;
 
                     $filename = $options->originalFilename ?? basename($path);

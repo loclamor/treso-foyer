@@ -1,6 +1,7 @@
 Situation de vos comptes au 21 mai 2016                                                                                Solde
 CCP n° 12 345 67 X 999                                                                                       + 278,32 ¤
-Livret A n° 000 0000000 L                                                                                     + 18,33 ¤
+Livret A n° 000 0000000 L                                                                                    + 518,33 ¤
+Livret Jeune n° 000 0000001 R                                                                                  + 42,00 ¤
 
 Compte Courant Postal n° 12 345 67X 999
 IBAN : FR00 0000 0000 0012 3456 7X99 900 | BIC : FICTIFXX
@@ -35,7 +36,8 @@ Comptes d'Épargne
 Date     Opérations                                                                                               Débit (¤)           Crédit (¤)
 
     Livret A n° 000 0000000 L
-                                                                Ancien solde au 21/04/2016                                          18,33
-05/05 VERSEMENT                                                                                                                    500,00
-                                                              Nouveau solde au 20/05/2016                                          518,33
+                                                                Ancien solde au 21/04/2016                                                        18,33
+05/05 VIREMENT DE TITULAIRE FICTIVE                                                                                                              500,00
+         REFERENCE : 0000000000000002
+                                                              Nouveau solde au 20/05/2016                                                        518,33
                                                                                                                     Page 2/2

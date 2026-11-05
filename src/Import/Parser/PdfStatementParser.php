@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Import\Parser;
 
+use App\Enum\AccountType;
 use App\Enum\ImportFormat;
 use App\Import\Exception\NotAnAccountStatementException;
 use App\Import\Exception\ParseException;
@@ -89,6 +90,9 @@ final class PdfStatementParser implements StatementParserInterface
         $debitEnd = null;
         $creditEnd = null;
         $inOperations = false;
+        /** @var array<string, array{label: string, balance: int}> $savingsBalances n° de compte d'épargne => solde de la synthèse */
+        $savingsBalances = [];
+        $mainEnd = count($lines);
         /** @var list<array{day: int, month: int, amount: int, label: list<string>}> $rows */
         $rows = [];
         /** @var array{day: int, month: int, amount: int, label: list<string>}|null $current */
@@ -129,6 +133,17 @@ final class PdfStatementParser implements StatementParserInterface
                 $debitEnd = (int) strpos($line, 'Débit (¤)') + strlen('Débit (¤)');
                 $creditEnd = (int) strpos($line, 'Crédit (¤)') + strlen('Crédit (¤)');
                 $inOperations = true;
+                continue;
+            }
+            // Synthèse de la page 1 (avant la 1re en-tête de colonnes) : solde de chaque compte d'épargne,
+            // ex. « Livret A n° 000 0000000 L    + 9 505,60 ¤ ». Le CCP y figure aussi : on l'exclut.
+            if (null === $debitEnd
+                && preg_match('/^(?<label>[A-Z][^|]*?)\s+n°\s*(?<num>\d[0-9A-Z ]*?[0-9A-Z])\s+(?<sign>[+-])\s?(?<amount>'.self::MONTANT.')\s*¤?$/u', $trimmed, $m)
+                && !preg_match('/^(CCP|Compte Courant)/u', $m['label'])
+            ) {
+                $number = $this->normalizeAccountNumber($m['num']);
+                $amount = Money::parse($m['amount']);
+                $savingsBalances[$number] = ['label' => $m['label'], 'balance' => '-' === $m['sign'] ? -$amount : $amount];
                 continue;
             }
             // Numéro de compte : ligne « Situation » ou IBAN (repli : caractères 14 à 24 inclus).
@@ -175,7 +190,8 @@ final class PdfStatementParser implements StatementParserInterface
                     $closingBalance = '-' === $francSigns[$lineNo] ? -abs($closingBalance) : abs($closingBalance);
                 }
                 // Fin du compte courant : la suite (livrets, « Comptes d'Épargne »…) a ses propres
-                // soldes et opérations, qui ne doivent pas être mêlés au CCP.
+                // soldes et opérations, lus à part (parseSavings) pour ne pas les mêler au CCP.
+                $mainEnd = $lineNo;
                 break;
             }
             // Ligne d'opération : JJ/MM + libellé + montant en fin de ligne.
@@ -210,30 +226,10 @@ final class PdfStatementParser implements StatementParserInterface
             throw new ParseException('En-tête incomplet : solde d’ouverture ou de clôture manquant.');
         }
 
-        // Année des opérations « JJ/MM » : année du nouveau solde, −1 si le mois est supérieur
-        // (relevé de janvier contenant des opérations de décembre).
-        $closingYear = (int) $closingDate->format('Y');
-        $closingMonth = (int) $closingDate->format('n');
-        $operations = [];
-        foreach ($rows as $row) {
-            $year = $row['month'] > $closingMonth ? $closingYear - 1 : $closingYear;
-            $operations[] = new ParsedOperation(
-                $this->makeDate($row['day'], $row['month'], $year, 0),
-                $row['amount'],
-                implode(' ', $row['label']),
-            );
-        }
-        // Ordre chronologique croissant, stable (l'ordre du relevé est conservé pour une même date).
-        usort($operations, static fn (ParsedOperation $a, ParsedOperation $b): int => $a->date <=> $b->date);
+        $operations = $this->buildOperations($rows, $closingDate);
 
         // Contrôle 1 : ancien solde + Σ opérations = nouveau solde.
-        $sum = array_sum(array_map(static fn (ParsedOperation $op): int => $op->amount, $operations));
-        if ($openingBalance + $sum !== $closingBalance) {
-            throw new ParseException(sprintf(
-                'Relevé incohérent : écart de %s entre l’ancien solde + les opérations et le nouveau solde.',
-                Money::format(abs($closingBalance - ($openingBalance + $sum))),
-            ));
-        }
+        $this->checkBalance($openingBalance, $operations, $closingBalance, 'Relevé incohérent');
         // Contrôle 2 : totaux calculés = ligne « Total des opérations » (si présente).
         if (null !== $totalDebits) {
             $debits = 0;
@@ -267,7 +263,170 @@ final class PdfStatementParser implements StatementParserInterface
             closingDate: $closingDate,
             closingBalance: $closingBalance,
             operations: $operations,
+            related: $this->parseSavings(array_slice($lines, $mainEnd + 1, null, true), $francSigns, $savingsBalances, $openingDate, $closingDate),
         );
+    }
+
+    /**
+     * Comptes d'épargne du relevé (livrets…) : un relevé par compte listé dans la synthèse.
+     * Section « Comptes d'Épargne » présente (mois avec mouvements) : soldes et opérations de la section ;
+     * sinon, relevé sans opération dont les soldes d'ouverture et de clôture valent le solde de la synthèse.
+     *
+     * @param array<int, string>                                $lines           lignes après le nouveau solde du CCP (clés = n° de ligne)
+     * @param array<int, string>                                $francSigns
+     * @param array<string, array{label: string, balance: int}> $savingsBalances
+     *
+     * @return list<ParsedStatement>
+     */
+    private function parseSavings(array $lines, array $francSigns, array $savingsBalances, \DateTimeImmutable $openingDate, \DateTimeImmutable $closingDate): array
+    {
+        /** @var array<string, array{opening: ?int, openingDate: ?\DateTimeImmutable, closing: ?int, rows: list<array{day: int, month: int, amount: int, label: list<string>}>}> $sections */
+        $sections = [];
+        $number = null;
+        $debitEnd = null;
+        $creditEnd = null;
+        $current = null;
+        $close = function () use (&$current, &$sections, &$number): void {
+            if (null !== $current && null !== $number) {
+                $sections[$number]['rows'][] = $current;
+            }
+            $current = null;
+        };
+
+        foreach ($lines as $lineNo => $line) {
+            $trimmed = trim($line);
+            if ('' === $trimmed || preg_match('/\bPage \d+\/\d+\b/', $line)) {
+                $close();
+                continue;
+            }
+            if (str_contains($line, 'Débit (¤)') && str_contains($line, 'Crédit (¤)')) {
+                $close();
+                $debitEnd = (int) strpos($line, 'Débit (¤)') + strlen('Débit (¤)');
+                $creditEnd = (int) strpos($line, 'Crédit (¤)') + strlen('Crédit (¤)');
+                continue;
+            }
+            // En-tête de section : « Livret A n° 000 0000000 L » (seulement un compte de la synthèse).
+            if (preg_match('/^.+?\s+n°\s*(\d[0-9A-Z ]*?[0-9A-Z])\s*$/u', $trimmed, $m)
+                && isset($savingsBalances[$this->normalizeAccountNumber($m[1])])
+            ) {
+                $close();
+                $number = $this->normalizeAccountNumber($m[1]);
+                $sections[$number] = ['opening' => null, 'openingDate' => null, 'closing' => null, 'rows' => []];
+                continue;
+            }
+            if (null === $number || null === $debitEnd || null !== $sections[$number]['closing']) {
+                continue;
+            }
+            if (preg_match('/^Ancien solde au (\d{2})\/(\d{2})\/(\d{4})/u', $trimmed, $m)) {
+                $close();
+                $sections[$number]['openingDate'] = $this->makeDate((int) $m[1], (int) $m[2], (int) $m[3], $lineNo);
+                $sections[$number]['opening'] = $this->signedBalance($line, $lineNo, $francSigns, $debitEnd, (int) $creditEnd);
+                continue;
+            }
+            if (preg_match('/^Nouveau solde au /u', $trimmed)) {
+                $close();
+                $sections[$number]['closing'] = $this->signedBalance($line, $lineNo, $francSigns, $debitEnd, (int) $creditEnd);
+                continue;
+            }
+            if (preg_match('/^\s*(\d{2})\/(\d{2})\s+(.+)\s{2,}('.self::MONTANT.')\s*$/u', $line, $m, PREG_OFFSET_CAPTURE)) {
+                $close();
+                $amount = Money::parse($m[4][0]);
+                if ($this->isDebitColumn($m[4][1] + strlen($m[4][0]), $debitEnd, (int) $creditEnd)) {
+                    $amount = -abs($amount);
+                }
+                $current = ['day' => (int) $m[1][0], 'month' => (int) $m[2][0], 'amount' => $amount, 'label' => [trim($m[3][0])]];
+                continue;
+            }
+            if (null !== $current) {
+                $current['label'][] = $trimmed;
+            }
+        }
+        $close();
+
+        $statements = [];
+        foreach ($savingsBalances as $savingsNumber => ['label' => $label, 'balance' => $balance]) {
+            $section = $sections[$savingsNumber] ?? null;
+            if (null === $section || null === $section['opening'] || null === $section['closing']) {
+                $statements[] = new ParsedStatement($savingsNumber, ImportFormat::Pdf, $openingDate, $balance, $closingDate, $balance, [], accountLabel: $label, accountType: AccountType::Savings);
+                continue;
+            }
+            $operations = $this->buildOperations($section['rows'], $closingDate);
+            $this->checkBalance($section['opening'], $operations, $section['closing'], 'Compte d’épargne incohérent');
+            if ($section['closing'] !== $balance) {
+                throw new ParseException('Compte d’épargne incohérent : nouveau solde différent de celui de la synthèse.');
+            }
+            $statements[] = new ParsedStatement(
+                $savingsNumber,
+                ImportFormat::Pdf,
+                $section['openingDate'],
+                $section['opening'],
+                $closingDate,
+                $section['closing'],
+                $operations,
+                accountLabel: $label,
+                accountType: AccountType::Savings,
+            );
+        }
+
+        return $statements;
+    }
+
+    /** Solde en fin de ligne : signe de la colonne francs si présente, sinon colonne Débit/Crédit. */
+    private function signedBalance(string $line, int $lineNo, array $francSigns, int $debitEnd, int $creditEnd): int
+    {
+        $balance = $this->parseTrailingAmount($line, $debitEnd, $creditEnd);
+        if (null === $balance) {
+            throw new ParseException(sprintf('Ligne %d : solde illisible.', $lineNo + 1));
+        }
+        if (isset($francSigns[$lineNo])) {
+            return '-' === $francSigns[$lineNo] ? -abs($balance) : abs($balance);
+        }
+
+        return $balance;
+    }
+
+    /**
+     * Opérations datées, en ordre chronologique croissant (stable pour une même date).
+     * Année des « JJ/MM » : année du nouveau solde, −1 si le mois est supérieur (relevé de janvier
+     * contenant des opérations de décembre).
+     *
+     * @param list<array{day: int, month: int, amount: int, label: list<string>}> $rows
+     *
+     * @return list<ParsedOperation>
+     */
+    private function buildOperations(array $rows, \DateTimeImmutable $closingDate): array
+    {
+        $closingYear = (int) $closingDate->format('Y');
+        $closingMonth = (int) $closingDate->format('n');
+        $operations = [];
+        foreach ($rows as $row) {
+            $year = $row['month'] > $closingMonth ? $closingYear - 1 : $closingYear;
+            $operations[] = new ParsedOperation(
+                $this->makeDate($row['day'], $row['month'], $year, 0),
+                $row['amount'],
+                implode(' ', $row['label']),
+            );
+        }
+        usort($operations, static fn (ParsedOperation $a, ParsedOperation $b): int => $a->date <=> $b->date);
+
+        return $operations;
+    }
+
+    /**
+     * Ancien solde + Σ opérations = nouveau solde, sinon ParseException.
+     *
+     * @param list<ParsedOperation> $operations
+     */
+    private function checkBalance(int $opening, array $operations, int $closing, string $prefix): void
+    {
+        $sum = array_sum(array_map(static fn (ParsedOperation $op): int => $op->amount, $operations));
+        if ($opening + $sum !== $closing) {
+            throw new ParseException(sprintf(
+                '%s : écart de %s entre l’ancien solde + les opérations et le nouveau solde.',
+                $prefix,
+                Money::format(abs($closing - ($opening + $sum))),
+            ));
+        }
     }
 
     /** Le texte contient-il au moins un en-tête « Vos opérations » ? */
