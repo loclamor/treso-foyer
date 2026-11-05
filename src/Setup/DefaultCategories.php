@@ -129,6 +129,7 @@ final class DefaultCategories
                 'Enfants',
                 'Animaux',
                 'Aide & services à la personne',
+                'Remboursements à des proches',
             ],
         ],
         [
