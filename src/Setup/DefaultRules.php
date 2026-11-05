@@ -41,10 +41,10 @@ final class DefaultRules
         // « LA ?POSTE » : bureaux de poste (« LA POSTE 31149 », « LAPOSTE G22364 ») ; ne matche pas « BANQUE POSTALE ».
         ['Abonnements & télécoms › Courrier & colis', 50, 'LA ?POSTE|COLISSIMO|CHRONOPOST|MONDIAL RELAY|RELAIS COLIS|DHL|FEDEX|PACKLINK|BOXTAL'],
         ['Santé › Pharmacie', 50, 'PHARMACIE|PHIE'],
-        ['Santé › Médecins', 50, 'DOCTEUR|MEDECIN|DENTAIRE|KINE|OSTEO|LABORATOIRE|CLINIQUE|HOPITAL|DOCTOLIB'],
+        ['Santé › Médecins', 50, 'DOCTEUR|DR|MEDECIN|MEDICAL|DENTAIRE|KINE|OSTEO|LABORATOIRE|CLINIQUE|HOPITAL|DOCTOLIB|CARDIOLOGIE|PEDIATRE'],
         ['Santé › Optique & dentaire', 50, 'OPTIC|OPTICIEN|KRYS|AFFLELOU|GRANDOPTICAL|ATOL'],
         ['Shopping › Achats divers', 10, 'AMAZON|AMZN|CDISCOUNT|FNAC|DARTY|BOULANGER|LEBONCOIN|VINTED|ETSY|ALIEXPRESS|TEMU|SHEIN|GIFI|STOKOMANI|PAYPAL'],
-        ['Shopping › Vêtements', 50, 'DECATHLON|KIABI|ZARA|PRIMARK|CELIO|JULES|UNIQLO|GEMO|LA HALLE|BERSHKA|ZALANDO|INTERSPORT|GO SPORT'],
+        ['Shopping › Vêtements', 50, 'DECATHLON|KIABI|ZARA|PRIMARK|CELIO|JULES|UNIQLO|GEMO|LA HALLE|HALLE CHAUSSUR|BERSHKA|ZALANDO|INTERSPORT|GO SPORT|H&M\\w*|JUSTFAB\\w*|ORCHESTRA|NEWORCH\\w*|PETIT BATEAU|VERTBAUDET|CAMAIEU|BON ?PRIX|3 SUISSES'],
         ['Shopping › High-tech', 50, 'APPLE STORE|LDLC|MATERIEL NET|RUE DU COMMERCE'],
         ['Logement › Équipement & mobilier', 50, 'IKEA|CONFORAMA|MAISONS DU MONDE'],
         // Priorité 55 : l'emporte sur l'ancienne règle « Équipement & mobilier » qui listait ces enseignes.
@@ -53,13 +53,13 @@ final class DefaultRules
         ['Shopping › Jardinage', 55, 'GAMM VERT|JARDILAND|TRUFFAUT|BOTANIC|VILLAVERDE|POINT VERT|JARDINERIE|PEPINIERE\\w*'],
         // « FLEUR\w* » : fleuristes indépendants et Monceau Fleurs ; pas de préfixe « FLOR » (ne doit pas matcher « LE FLORENCE »).
         ['Shopping › Fleuriste', 50, 'FLEUR\\w*|INTERFLORA|AQUARELLE|FLORAJET|RAPID ?FLORE|BEBLOOM|WAKE UP FLOWERS'],
-        ['Shopping › Beauté & soins', 50, 'SEPHORA|NOCIBE|MARIONNAUD|YVES ROCHER|L OCCITANE|KIKO|COIFF\\w*|BARBIER|ESTHETIQUE|INSTITUT DE BEAUTE'],
+        ['Shopping › Beauté & soins', 50, 'SEPHORA|NOCIBE|MARIONNAUD|YVES ROCHER|L OCCITANE|KIKO|COIFF\\w*|BARBIER|ESTHETIQUE|INSTITUT DE BEAUTE|WECASA'],
         ['Logement › Énergie', 50, 'EDF|ENGIE|EKWATEUR|PLANETE OUI|GRDF|ENEDIS|ENERCOOP'],
         ['Logement › Eau', 50, 'VEOLIA|SUEZ|SAUR'],
         ['Loisirs & culture › Sport', 50, 'BASIC FIT|FITNESS|PISCINE|ESCALADE|KEEP COOL'],
         ['Loisirs & culture › Sorties & spectacles', 50, 'CINEMA|PATHE|GAUMONT|UGC|MEGA CGR|KINEPOLIS|TICKETMASTER|THEATRE|MUSEE'],
         ['Loisirs & culture › Voyages & vacances', 50, 'BOOKING|AIRBNB|HOTEL|IBIS|CAMPING|ABRITEL|CENTER PARCS|EXPEDIA'],
-        ['Loisirs & culture › Livres, jeux & hobbies', 50, 'CULTURA|LIBRAIRIE|STEAM|PLAYSTATION|NINTENDO|MICROMANIA|KING JOUET|JOUE CLUB|PHILIBERT'],
+        ['Loisirs & culture › Livres, jeux & hobbies', 50, 'CULTURA|LIBRAIRIE|STEAM|PLAYSTATION|NINTENDO|MICROMANIA|KING JOUET|JOUE CLUB|PHILIBERT|MAXITOYS|LUNII\\w*'],
         ['Famille › Animaux', 50, 'VETERINAIRE|ANIMALIS|MAXI ZOO|ZOOPLUS'],
     ];
 
@@ -81,6 +81,12 @@ final class DefaultRules
         ['Scolarité › Frais de scolarité', '\b(OGEC|APEL)\b', RuleDirection::Debit, 80],
         ['Scolarité › Cantine & garderie', '\b(CANTINE|RESTAURATION SCOLAIRE|PERISCOLAIRE|GARDERIE)\b', RuleDirection::Debit, 80],
         ['Revenus › Allocations & aides', '\b(CAF|CAISSE D ALLOCATIONS|FRANCE TRAVAIL|POLE EMPLOI|ANAH)\b', RuleDirection::Credit, 80],
+        // Traitement d'agent public versé par la DRFiP (« … PAYES 2019-05-29-… REMUNERATION DU 05/2019 »).
+        ['Revenus › Salaires', '^VIREMENT DE .*\bPAYES \d{4}-\d{2}-\d{2}\b.*\bREMUNERATION DU\b', RuleDirection::Credit, 80],
+        // Remboursements d'impôt (excédent de mensualisation, avance de crédit d'impôt RICI).
+        ['Impôts & taxes', '^VIREMENT DE .*\b(DGFIP|DRFIP|DDFIP)\b.*\b(REMB|RICI)\b', RuleDirection::Credit, 80],
+        // Remboursements de mutuelle (« MUTUELLE GENERALE EDUCA TION NATIONALE », MGEN…).
+        ['Revenus › Remboursements', '^VIREMENT DE .*\b(MGEN|MUTUELLE)\b', RuleDirection::Credit, 80],
         // « C\.?P\.?A\.?M » : aussi la forme pointée « C.P.A.M. TOULOUSE ».
         ['Revenus › Remboursements', '\b(C\.?P\.?A\.?M|AMELI|ASSURANCE MALADIE)\b', RuleDirection::Credit, 80],
     ];

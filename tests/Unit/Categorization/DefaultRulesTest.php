@@ -143,6 +143,27 @@ final class DefaultRulesTest extends TestCase
         self::assertSame('Revenus › Allocations & aides', $this->resolve('VIREMENT DE DRFIP ILE DE FRANCE ET DE PARIS 1D0750000ANAH-MPR-2022-1 ANAH-MPR-2022-1', 100000));
     }
 
+    public function testTraitementRemboursementsImpotEtMutuelle(): void
+    {
+        self::assertSame('Revenus › Salaires', $this->resolve('VIREMENT DE DRFIP OCCITANIE ET HTE GARONNE 1G0310000 PAYES 2019-05-29-00045656 REMUNERATION DU 05/2019. MINISTERE : 206', 150000));
+        self::assertSame('Revenus › Salaires', $this->resolve('VIREMENT DE 0310000A310DRFIP DE LAHAUTE GARONNE 1G0310000 PAYES 2018-05-29-00044865 REMUNERATION DU 05/2018.', 150000));
+        self::assertSame('Impôts & taxes', $this->resolve('VIREMENT DE DGFIP FINANCES PUBLIQUE S 1E0670000M000 REMB. EXCD. MENSUALISE 222', 18600));
+        self::assertSame('Impôts & taxes', $this->resolve('VIREMENT DE DGFIP FINANCES PUBLIQUE S 6P0670000 RICI AVANCE CREDIMPOT 222', 69000));
+        self::assertSame('Revenus › Remboursements', $this->resolve('VIREMENT DE MUTUELLE GENERALE EDUCA TION NATIONALE OWRQ0000000000001', 1314));
+    }
+
+    public function testEnseignesAjoutees(): void
+    {
+        self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB H&M067 12.03.19 CARTE NUMERO 152'));
+        self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB JustFab SLU 23.05.19 EUR 9,95 CARTE NO 152'));
+        self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB SHOP.ORCHESTRA 02.02.20 CARTE NUMERO 642'));
+        self::assertSame('Shopping › Vêtements', $this->resolve('ACHAT CB NEWORCHORCHEST 02.02.20 CARTE NUMERO 642'));
+        self::assertSame('Santé › Médecins', $this->resolve('ACHAT CB DR CAMACHO MAU 02.02.20 CARTE NUMERO 642'));
+        self::assertSame('Santé › Médecins', $this->resolve('ACHAT CB MAISON MEDICAL 19.01.16 CARTE NUMERO 391'));
+        self::assertSame('Shopping › Beauté & soins', $this->resolve('ACHAT CB WECASA 02.02.20 CARTE NUMERO 642'));
+        self::assertSame('Loisirs & culture › Livres, jeux & hobbies', $this->resolve('ACHAT CB MAXITOYS COLOM 26.12.15 CARTE NUMERO 391'));
+    }
+
     public function testFlorenceIsNotAFlorist(): void
     {
         self::assertNotSame('Shopping › Fleuriste', $this->resolve('ACHAT CB LE FLORENCE 01.03.21 CARTE NUMERO 275'));
