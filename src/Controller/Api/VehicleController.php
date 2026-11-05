@@ -6,10 +6,12 @@ namespace App\Controller\Api;
 
 use App\Api\ConflictException;
 use App\Api\HouseholdProvider;
+use App\Api\Input\OdometerReadingCreateInput;
 use App\Api\Input\VehicleCreateInput;
 use App\Api\Input\VehicleLookupInput;
 use App\Api\Input\VehiclePatchInput;
 use App\Api\NotFoundException;
+use App\Api\Presenter\OdometerReadingPresenter;
 use App\Api\Presenter\VehiclePresenter;
 use App\Api\Query\StatsQuery;
 use App\Api\ServiceUnavailableException;
@@ -17,6 +19,7 @@ use App\Api\TooManyRequestsException;
 use App\Api\ValidationException;
 use App\Entity\Household;
 use App\Entity\Member;
+use App\Entity\OdometerReading;
 use App\Entity\Vehicle;
 use App\Enum\VehicleEnergy;
 use App\Enum\VehicleType;
@@ -265,6 +268,83 @@ final class VehicleController extends AbstractController
         $vehicleAssigner->sync($household);
 
         return new Response('', Response::HTTP_NO_CONTENT);
+    }
+
+    #[Route('/api/vehicles/{id}/odometer', name: 'api_vehicle_odometer_list', requirements: ['id' => '\d+'], methods: ['GET'])]
+    public function odometerList(
+        int $id,
+        HouseholdProvider $householdProvider,
+        OdometerReadingRepository $odometerReadingRepository,
+        OdometerReadingPresenter $odometerReadingPresenter,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        $vehicle = $this->find($entityManager, $householdProvider->get(), $id);
+
+        return new JsonResponse(array_map(
+            static fn (OdometerReading $reading): array => $odometerReadingPresenter->present($reading),
+            $odometerReadingRepository->findByVehicleDesc($vehicle),
+        ));
+    }
+
+    #[Route('/api/vehicles/{id}/odometer', name: 'api_vehicle_odometer_create', requirements: ['id' => '\d+'], methods: ['POST'])]
+    public function odometerCreate(
+        int $id,
+        #[MapRequestPayload] OdometerReadingCreateInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OdometerReadingRepository $odometerReadingRepository,
+        OdometerReadingPresenter $odometerReadingPresenter,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $vehicle = $this->find($entityManager, $household, $id);
+        $date = new \DateTimeImmutable((string) $input->date); // format validé par Assert\Date
+        $km = (int) $input->km;
+
+        // Un relevé par date et par véhicule ⇒ 409.
+        $existing = $odometerReadingRepository->findOneBy(['vehicle' => $vehicle, 'date' => $date]);
+        if ($existing instanceof OdometerReading) {
+            throw new ConflictException('Un relevé existe déjà à cette date pour ce véhicule.', 'reading_date_exists');
+        }
+
+        $reading = new OdometerReading($vehicle, $date, $km);
+        $reading->setNote(self::nullIfEmpty($input->note));
+        $entityManager->persist($reading);
+        $entityManager->flush();
+
+        // Avertissement (pas une erreur) si le relevé est incohérent avec ses voisins.
+        $payload = $odometerReadingPresenter->present($reading);
+        $warning = $this->incoherenceWarning($odometerReadingRepository->findPointsByVehicle($vehicle), $date, $km);
+        if (null !== $warning) {
+            $payload['warning'] = $warning;
+        }
+
+        return new JsonResponse($payload, Response::HTTP_CREATED);
+    }
+
+    /**
+     * Message d'avertissement si le relevé (date, km) est incohérent avec les relevés voisins
+     * (km strictement inférieur au relevé précédent, ou strictement supérieur au suivant).
+     *
+     * @param list<array{date: string, km: int}> $points relevés du véhicule, date asc
+     */
+    private function incoherenceWarning(array $points, \DateTimeImmutable $date, int $km): ?string
+    {
+        $previous = null;
+        $next = null;
+        foreach ($points as $point) {
+            $pointDate = new \DateTimeImmutable($point['date']);
+            if ($pointDate < $date) {
+                $previous = $point;
+            } elseif ($pointDate > $date && null === $next) {
+                $next = $point;
+            }
+        }
+        $incoherent = (null !== $previous && $km < $previous['km'])
+            || (null !== $next && $km > $next['km']);
+
+        return $incoherent
+            ? 'Relevé incohérent avec les relevés voisins (kilométrage décroissant) : il sera ignoré par le calcul de distance.'
+            : null;
     }
 
     private function find(EntityManagerInterface $entityManager, Household $household, int $id): Vehicle

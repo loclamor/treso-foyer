@@ -586,6 +586,32 @@ final class StatsRepository
         ];
     }
 
+    /**
+     * Dépense d'un véhicule (même convention que vehicles() : total positif = somme de
+     * -amount, kind « expense » uniquement, virements internes exclus) restreinte à
+     * [from, to], périmètre comptes inclus. Utilisée pour le coût au km (lot 4).
+     *
+     * @param list<int>|null $accountIds
+     */
+    public function vehicleExpenseBetween(Household $household, ?array $accountIds, int $vehicleId, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    {
+        [$cte, $params, $types] = $this->base($household, $accountIds, new StatsPeriod($from, $to));
+        $kind = AmountClassifier::kindExpr();
+        $params['vehicleId'] = $vehicleId;
+        $types['vehicleId'] = ParameterType::INTEGER;
+
+        $row = $this->connection()->fetchAssociative(
+            $cte."\n"
+            ."SELECT COALESCE(SUM(-o.amount), 0) AS total\n"
+            .$this->fromWhere($accountIds)."\n"
+            ."AND $kind = '".AmountClassifier::EXPENSE."' AND o.vehicle_id = :vehicleId",
+            $params,
+            $types,
+        );
+
+        return (int) $row['total'];
+    }
+
     private function connection(): Connection
     {
         return $this->entityManager->getConnection();

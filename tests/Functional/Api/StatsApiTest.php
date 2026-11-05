@@ -543,4 +543,94 @@ final class StatsApiTest extends ApiTestCase
 
         self::assertSame(['total' => 1000, 'count' => 1], $data['unassigned']);
     }
+
+    public function testVehiclesDistanceAndCostPerKm(): void
+    {
+        $vehicle = new \App\Entity\Vehicle($this->household, 'Clio', \App\Enum\VehicleType::Car);
+        $this->em()->persist($vehicle);
+        $carburant = $this->category('Transport › Carburant');
+        $entretien = $this->category('Transport › Entretien véhicule');
+        $this->em()->flush();
+
+        // Relevés : 10 000 km le 10/01, 13 000 km le 20/03.
+        $managed = $this->em()->find(\App\Entity\Vehicle::class, (int) $vehicle->getId());
+        $this->em()->persist(new \App\Entity\OdometerReading($managed, new \DateTimeImmutable('2026-01-10'), 10000));
+        $this->em()->persist(new \App\Entity\OdometerReading($managed, new \DateTimeImmutable('2026-03-20'), 13000));
+
+        // Dépenses : avant coveredFrom (hors coût/km), entre les bornes (dans le coût/km), après coveredTo (hors coût/km).
+        $op1 = $this->addOperation($this->account, '2026-01-05', -5000, 'ESSENCE AVANT', 'STATION', $carburant, CategorizationSource::Manual);
+        $op1->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        $op2 = $this->addOperation($this->account, '2026-01-12', -3000, 'VIDANGE GARAGE', 'GARAGE', $entretien, CategorizationSource::Manual);
+        $op2->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        $op3 = $this->addOperation($this->account, '2026-03-25', -7000, 'ESSENCE APRES', 'STATION', $carburant, CategorizationSource::Manual);
+        $op3->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        $this->em()->flush();
+
+        $client = $this->client();
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/vehicles?from=2026-01-01&to=2026-03-31'));
+
+        self::assertCount(1, $data['vehicles']);
+        $row = $data['vehicles'][0];
+        // total sur toute la période = 5000 + 3000 + 7000.
+        self::assertSame(15000, $row['total']);
+        self::assertSame(3, $row['count']);
+        // distance : la période couvre tous les relevés ⇒ bornes = relevés, 3000 km.
+        self::assertSame('2026-01-10', $row['distance']['coveredFrom']);
+        self::assertSame('2026-03-20', $row['distance']['coveredTo']);
+        self::assertEqualsWithDelta(3000.0, $row['distance']['km'], 1e-9);
+        // coût au km : seule la vidange (3000 c) tombe dans [coveredFrom, coveredTo] ⇒ 3000 / 3000 = 1.0.
+        self::assertEqualsWithDelta(1.0, $row['costPerKm'], 1e-9);
+    }
+
+    public function testVehiclesDistanceInterpolatedBoundsAndNullCases(): void
+    {
+        $em = $this->em();
+        $vehicleA = new \App\Entity\Vehicle($this->household, 'Clio', \App\Enum\VehicleType::Car);
+        $vehicleB = new \App\Entity\Vehicle($this->household, 'Scooter', \App\Enum\VehicleType::Motorcycle);
+        $em->persist($vehicleA);
+        $em->persist($vehicleB);
+        $em->flush();
+        $carburant = $this->category('Transport › Carburant');
+
+        // A : relevés 01-01: 1000, 01-11: 2000, 01-21: 4000 ; période 01-06..01-25.
+        $em->persist(new \App\Entity\OdometerReading($vehicleA, new \DateTimeImmutable('2026-01-01'), 1000));
+        $em->persist(new \App\Entity\OdometerReading($vehicleA, new \DateTimeImmutable('2026-01-11'), 2000));
+        $em->persist(new \App\Entity\OdometerReading($vehicleA, new \DateTimeImmutable('2026-01-21'), 4000));
+        // B : un seul relevé ⇒ distance null.
+        $em->persist(new \App\Entity\OdometerReading($vehicleB, new \DateTimeImmutable('2026-01-05'), 500));
+
+        $opA1 = $this->addOperation($this->account, '2026-01-08', -2000, 'ESSENCE A1', 'STATION', $carburant, CategorizationSource::Manual);
+        $opA1->assignVehicle($vehicleA, \App\Enum\VehicleSource::Manual);
+        // Dans la période mais après coveredTo (dernier relevé 01-21) : comptée dans total, pas dans costPerKm.
+        $opA2 = $this->addOperation($this->account, '2026-01-25', -9000, 'ESSENCE A2', 'STATION', $carburant, CategorizationSource::Manual);
+        $opA2->assignVehicle($vehicleA, \App\Enum\VehicleSource::Manual);
+        $opB = $this->addOperation($this->account, '2026-01-09', -1500, 'ESSENCE B', 'STATION', $carburant, CategorizationSource::Manual);
+        $opB->assignVehicle($vehicleB, \App\Enum\VehicleSource::Manual);
+        $em->flush();
+
+        $client = $this->client();
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/vehicles?from=2026-01-06&to=2026-01-25'));
+
+        self::assertCount(2, $data['vehicles']);
+        $byId = [];
+        foreach ($data['vehicles'] as $row) {
+            $byId[$row['vehicle']['id']] = $row;
+        }
+        $rowA = $byId[(int) $vehicleA->getId()];
+        // total A sur la période = 2000 (01-08) + 9000 (01-25).
+        self::assertSame(11000, $rowA['total']);
+        self::assertSame(2, $rowA['count']);
+        // coveredTo ramené au dernier relevé (01-21) ; km(01-06) interpolé = 1500, km(01-21) = 4000 ⇒ 2500 km.
+        self::assertSame('2026-01-06', $rowA['distance']['coveredFrom']);
+        self::assertSame('2026-01-21', $rowA['distance']['coveredTo']);
+        self::assertEqualsWithDelta(2500.0, $rowA['distance']['km'], 1e-9);
+        // Seule l'opération du 01-08 (2000 c) est dans [coveredFrom, coveredTo] ⇒ 2000/2500 = 0.8.
+        self::assertEqualsWithDelta(0.8, $rowA['costPerKm'], 1e-9);
+
+        // B : un seul relevé ⇒ distance null, costPerKm null.
+        $rowB = $byId[(int) $vehicleB->getId()];
+        self::assertSame(1500, $rowB['total']);
+        self::assertNull($rowB['distance']);
+        self::assertNull($rowB['costPerKm']);
+    }
 }

@@ -15,8 +15,10 @@ use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Vehicle;
 use App\Repository\CategoryRepository;
+use App\Repository\OdometerReadingRepository;
 use App\Stats\StatsPeriod;
 use App\Stats\StatsRepository;
+use App\Vehicle\OdometerCalculator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -326,6 +328,8 @@ final class StatsController extends AbstractController
         StatsRepository $statsRepository,
         VehiclePresenter $vehiclePresenter,
         CategoryPresenter $categoryPresenter,
+        OdometerReadingRepository $odometerReadingRepository,
+        OdometerCalculator $odometerCalculator,
         EntityManagerInterface $entityManager,
     ): JsonResponse {
         $household = $householdProvider->get();
@@ -340,11 +344,25 @@ final class StatsController extends AbstractController
         }
         $categories = $this->categoryMap($entityManager, $household);
         $monthCount = count($period->months());
+        // Lot 4 : relevés kilométriques des véhicules listés (points {date, km} par véhicule).
+        $pointsByVehicle = $odometerReadingRepository->pointsByVehicleIds(array_map(
+            static fn (array $row): int => (int) $row['vehicleId'],
+            $data['vehicles'],
+        ));
 
         return new JsonResponse([
             'vehicles' => array_map(
-                static function (array $row) use ($vehicleMap, $categories, $categoryPresenter, $vehiclePresenter, $monthCount): array {
+                static function (array $row) use ($vehicleMap, $categories, $categoryPresenter, $vehiclePresenter, $monthCount, $pointsByVehicle, $odometerCalculator, $statsRepository, $household, $accountIds, $period): array {
                     $vehicle = $vehicleMap[$row['vehicleId']] ?? null;
+
+                    // Distance parcourue sur la période (intersection avec [premier, dernier relevé],
+                    // km aux bornes interpolés) et coût au km sur [coveredFrom, coveredTo].
+                    $distance = $odometerCalculator->distance($pointsByVehicle[$row['vehicleId']] ?? [], $period->from, $period->to);
+                    $costPerKm = null;
+                    if (null !== $distance && $distance->km > 0.0) {
+                        $expense = $statsRepository->vehicleExpenseBetween($household, $accountIds, (int) $row['vehicleId'], $distance->coveredFrom, $distance->coveredTo);
+                        $costPerKm = round($expense / $distance->km, 1);
+                    }
 
                     return [
                         'vehicle' => null !== $vehicle ? $vehiclePresenter->presentRef($vehicle) : null,
@@ -360,6 +378,8 @@ final class StatsController extends AbstractController
                             ],
                             $row['byCategory'],
                         ),
+                        'distance' => null !== $distance ? $distance->toArray() : null,
+                        'costPerKm' => $costPerKm,
                     ];
                 },
                 $data['vehicles'],

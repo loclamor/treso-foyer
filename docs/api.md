@@ -33,6 +33,8 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
  "firstRegistrationAt": "2020-05-10" | null, "vin": "…" | null, "acquiredAt": "2020-06-01" | null, "disposedAt": null,
  "purchasePrice": 1500000 | null, "mainDriver": Member | null, "lookupAt": "…" | null,
  "operationsCount": 42, "lastOdometer": {"date": "2026-03-15", "km": 48200} | null}  // lookupData (réponse brute) jamais exposé
+// OdometerReading (relevé kilométrique d'un véhicule)
+{"id": 12, "date": "2026-03-15", "km": 48200, "note": "…" | null}
 // Operation
 {"id": 42, "date": "2026-08-26", "amount": -2756, "rawLabel": "…", "normalizedLabel": "…", "merchant": "…" | null,
  "account": AccountRef, "category": CategoryRef | null,
@@ -103,6 +105,16 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 
 Après création/modification/suppression d'un véhicule, d'une règle (champ `vehicleId`) ou d'une catégorie (champ `vehicleRelated`), l'affectation automatique des opérations est resynchronisée (`VehicleAssigner::sync()`) : les affectations `manual` ne sont jamais modifiées, une règle appliquée avec véhicule prime (source `rule`), sinon catégorie `vehicleRelated` + exactement un véhicule actif à la date de l'opération (source `auto`).
 
+## Relevés kilométriques (lot 4)
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/vehicles/{id}/odometer` | `[OdometerReading]` triés par date desc (puis id desc) |
+| POST | `/api/vehicles/{id}/odometer` | `{"date", "km", "note"?}` ⇒ `201 OdometerReading`. Doublon de date pour ce véhicule ⇒ `409 reading_date_exists` ; `km < 0` ⇒ `422` sur `km` ; date invalide ⇒ `422` sur `date`. Relevé incohérent avec les relevés voisins (km strictement inférieur au relevé précédent ou strictement supérieur au suivant) ⇒ toujours `201`, avec un champ `"warning"` (avertissement, pas une erreur) |
+| PATCH | `/api/odometer-readings/{id}` | `{"date"?, "km"?, "note"?}` ⇒ `204`. Champ absent = inchangé ; `note: null` explicite (clé présente) efface la note ; doublon de date ⇒ `409 reading_date_exists` ; `km < 0` ⇒ `422` |
+| DELETE | `/api/odometer-readings/{id}` | `204` |
+
+Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404`. Un relevé incohérent (km décroissant avec la date) reste stocké mais est **ignoré** par le calcul de distance.
+
 ## Opérations
 | Méthode | Route | Notes |
 |---|---|---|
@@ -166,7 +178,7 @@ Tous les endpoints acceptent le **périmètre** (`accountId[]` / `memberId`) et 
 | GET | `/api/stats/sankey` | `{"nodes": [{"id","name","kind": "income\|expense\|hub\|savings\|deficit", "category": CategoryRef \| null}], "links": [{"source","target","value"}]}` — racines de revenu → nœud `hub` « Budget » → racines de dépense ; nœud `savings` « Épargne / excédent » si revenus > dépenses, sinon nœud source `deficit` « Déficit ». Non catégorisé = nœud dédié de chaque côté. |
 | GET | `/api/stats/calendar` | `[{"date": "2026-03-14", "expense": n, "count": n}]` — dépenses par jour (jours sans dépense omis). |
 | GET | `/api/stats/category-trend` | `?categoryId=` (racine ou feuille, sous-catégories incluses) ⇒ `{"category": CategoryRef, "months": [...], "values": [...], "counts": [...]}` |
-| GET | `/api/stats/vehicles` | ⇒ `{"vehicles": [{"vehicle": VehicleRef, "total", "count", "monthlyAverage", "byCategory": [{"category": CategoryRef \| null, "total"}]}], "unassigned": {"total", "count"}}` — véhicules ayant au moins une dépense sur la période, triés par `total` desc ; `total` positif (somme de `-amount`, kind `expense` uniquement, virements internes exclus, même convention que `/api/stats/categories`) ; `monthlyAverage` = total / nombre de mois de la période ; `unassigned` = opérations de catégories `vehicleRelated` sans véhicule |
+| GET | `/api/stats/vehicles` | ⇒ `{"vehicles": [{"vehicle": VehicleRef, "total", "count", "monthlyAverage", "byCategory": [{"category": CategoryRef \| null, "total"}], "distance": {"km", "coveredFrom", "coveredTo"} \| null, "costPerKm": n \| null}], "unassigned": {"total", "count"}}` — véhicules ayant au moins une dépense sur la période, triés par `total` desc ; `total` positif (somme de `-amount`, kind `expense` uniquement, virements internes exclus, même convention que `/api/stats/categories`) ; `monthlyAverage` = total / nombre de mois de la période ; `unassigned` = opérations de catégories `vehicleRelated` sans véhicule. **Lot 4** : `distance` = distance parcourue **sur la période demandée** (période ramenée à l'intersection avec [premier relevé, dernier relevé] du véhicule, km aux bornes interpolés linéairement entre les relevés encadrants, relevés à km décroissant ignorés) ⇒ `null` si moins de 2 relevés ou intersection vide ; `costPerKm` = dépense du véhicule (même convention que `total`, périmètre comptes inclus) restreinte à `[coveredFrom, coveredTo]` divisée par `distance.km`, en centimes par km arrondi à 1 décimale ⇒ `null` si `distance` null ou `km` nul |
 
 `Category` (référentiel, `/api/categories`) gagne aussi `chartSlot` ; `PATCH /api/categories/{id}` accepte `chartSlot` (1-8 ou null, **racines de dépense uniquement**, unique dans le foyer ⇒ `409` si déjà pris, `422` sinon).
 
@@ -221,3 +233,20 @@ Choix et écarts par rapport au contrat :
 - `monthlyAverage` = `round(total / nombre de mois de la période)` (0 si période sans mois, impossible en pratique).
 - Pas de `GET /api/vehicles/{id}` (non demandé) ; le véhicule complet est renvoyé par `POST`/`PATCH` et la liste.
 - Aucune migration : le schéma véhicules existe déjà (`Version20261105170000`), `doctrine:schema:validate` est vert.
+
+## Notes d'implémentation (lot 4, relevés kilométriques et coût au km)
+
+Fichiers clés :
+- `src/Vehicle/OdometerCalculator.php` (pur, sans dépendance) : `distance(list<OdometerReading|array{date, km}> $readings, \DateTimeImmutable $from, \DateTimeImmutable $to): ?OdometerDistance`. Relevés triés par date (doublons de date dédoublonnés, premier conservé) ; relevé incohérent (km strictement inférieur au dernier relevé cohérent précédent) ignoré ; période ramenée à l'intersection avec [premier, dernier relevé] ; km aux bornes par interpolation linéaire (timestamps) entre les relevés encadrants ; `null` si moins de 2 relevés cohérents ou intersection vide. Retour `src/Vehicle/OdometerDistance.php` (`{km: float, coveredFrom, coveredTo}` + `toArray()` en `AAAA-MM-JJ`).
+- `src/Controller/Api/VehicleController.php` : `GET /api/vehicles/{id}/odometer` (date desc, `OdometerReadingRepository::findByVehicleDesc()`) et `POST /api/vehicles/{id}/odometer` ⇒ `201` ; doublon de date vérifié avant flush ⇒ `409 reading_date_exists` ; `km < 0` ⇒ `422` via `Assert\PositiveOrZero` sur `OdometerReadingCreateInput` ; avertissement `"warning"` si le relevé est incohérent avec ses voisins (km < relevé précédent ou km > relevé suivant, comparaison sur les dates strictes).
+- `src/Controller/Api/OdometerReadingController.php` : `PATCH`/`DELETE /api/odometer-readings/{id}` ⇒ `204` ; périmètre foyer vérifié via `vehicle.household` (relève hors foyer ⇒ `404`) ; PATCH partiel (`OdometerReadingPatchInput`, absent = inchangé, `note: null` explicite = efface), doublon de date ⇒ `409`.
+- `src/Api/Presenter/OdometerReadingPresenter.php` : `{id, date, km, note}`.
+- `src/Repository/OdometerReadingRepository.php` : `pointsByVehicleIds()` (points `{date, km}` groupés par véhicule, une requête DBAL, ordre date asc) pour le calcul de distance et l'avertissement.
+- `src/Stats/StatsRepository::vehicleExpenseBetween()` : dépense d'un véhicule (mêmes CTE `base()`/`fromWhere()`, kind `expense`, virements exclus, périmètre comptes) restreinte à `[coveredFrom, coveredTo]` ; `StatsController::vehicles()` ajoute par véhicule `"distance"` (`OdometerCalculator::distance()` sur la période demandée, `null` si moins de 2 relevés ou intersection vide) et `"costPerKm"` = `round(dépense[coveredFrom, coveredTo] / distance.km, 1)`, `null` si distance null ou `km` nul.
+- Tests : `tests/Unit/Vehicle/OdometerCalculatorTest.php` (interpolation, bornes, 0/1 relevé, période hors relevés, incohérence) + `tests/Functional/Api/VehicleApiTest.php` (CRUD relevés, 409, 422, warning, isolement foyer) + `tests/Functional/Api/StatsApiTest.php` (distance/costPerKm).
+
+Choix et écarts par rapport au contrat :
+- Aucune migration : la table `odometer_reading` existe déjà (`Version20261105170000`), `doctrine:schema:validate` reste vert.
+- `distance.km` est un float (interpolation) ; `costPerKm` est le seul champ arrondi (1 décimale, comme demandé).
+- L'avertissement d'incohérence n'est émis que sur `POST` (création) ; `PATCH` applique sans avertir.
+- `costPerKm` respecte le périmètre comptes (`accountId[]`/`memberId`) comme le `total` de la ligne.

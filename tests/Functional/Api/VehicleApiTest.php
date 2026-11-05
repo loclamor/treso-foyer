@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Functional\Api;
 
 use App\Entity\CategorizationRule;
+use App\Entity\Household;
+use App\Entity\OdometerReading;
 use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\RuleMatchField;
@@ -377,5 +379,171 @@ final class VehicleApiTest extends ApiTestCase
             $data['vehicle'],
         );
         self::assertSame('manual', $data['vehicleSource']);
+    }
+
+    public function testOdometerListCreatePatchDelete(): void
+    {
+        $vehicle = $this->createVehicle(['name' => 'Clio']);
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+
+        // POST ⇒ 201 OdometerReading.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => 45000, 'note' => 'Plein']);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $r1 = $this->decode($response);
+        self::assertSame('2026-01-10', $r1['date']);
+        self::assertSame(45000, $r1['km']);
+        self::assertSame('Plein', $r1['note']);
+        self::assertArrayNotHasKey('warning', $r1);
+
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-03-15', 'km' => 48200]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $r2 = $this->decode($response);
+        self::assertNull($r2['note']);
+
+        // GET ⇒ relevés triés date desc.
+        $list = $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer"));
+        self::assertSame([$r2['id'], $r1['id']], array_column($list, 'id'));
+        self::assertSame(['2026-03-15', '2026-01-10'], array_column($list, 'date'));
+
+        // PATCH ⇒ 204 ; km modifié, note effacée (null explicite, clé présente).
+        $response = $this->json($client, 'PATCH', '/api/odometer-readings/'.(int) $r1['id'], ['km' => 45100, 'note' => null]);
+        self::assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
+        $list = $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer"));
+        $patched = null;
+        foreach ($list as $row) {
+            if ((int) $row['id'] === (int) $r1['id']) {
+                $patched = $row;
+            }
+        }
+        self::assertSame(45100, $patched['km']);
+        self::assertNull($patched['note']);
+        self::assertSame('2026-01-10', $patched['date']); // absent = inchangé
+
+        // PATCH date vers un doublon ⇒ 409.
+        $response = $this->json($client, 'PATCH', '/api/odometer-readings/'.(int) $r1['id'], ['date' => '2026-03-15']);
+        self::assertSame(Response::HTTP_CONFLICT, $response->getStatusCode());
+        self::assertSame('reading_date_exists', $this->decode($response)['error']);
+
+        // PATCH km négatif ⇒ 422 sur km.
+        $response = $this->json($client, 'PATCH', '/api/odometer-readings/'.(int) $r1['id'], ['km' => -5]);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        self::assertSame('km', $this->decode($response)['violations'][0]['field']);
+
+        // DELETE ⇒ 204, puis le relevé n'est plus là ; re-DELETE ⇒ 404.
+        $response = $this->json($client, 'DELETE', '/api/odometer-readings/'.(int) $r2['id']);
+        self::assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
+        $list = $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer"));
+        self::assertSame([(int) $r1['id']], array_column($list, 'id'));
+        $response = $this->json($client, 'DELETE', '/api/odometer-readings/'.(int) $r2['id']);
+        self::assertSame(Response::HTTP_NOT_FOUND, $response->getStatusCode());
+    }
+
+    public function testOdometerCreate409OnDuplicateDate(): void
+    {
+        $vehicle = $this->createVehicle(['name' => 'Clio']);
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => 45000]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => 46000]);
+        self::assertSame(Response::HTTP_CONFLICT, $response->getStatusCode());
+        self::assertSame('reading_date_exists', $this->decode($response)['error']);
+    }
+
+    public function testOdometerCreate422OnNegativeKmMissingKmOrBadDate(): void
+    {
+        $vehicle = $this->createVehicle(['name' => 'Clio']);
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+
+        // km < 0 ⇒ 422 sur km.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => -1]);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertSame('validation_failed', $data['error']);
+        self::assertSame('km', $data['violations'][0]['field']);
+
+        // km absent ⇒ 422 sur km.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10']);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        self::assertSame('km', $this->decode($response)['violations'][0]['field']);
+
+        // date invalide ⇒ 422 sur date.
+        foreach (['2026-02-30', '10/01/2026'] as $badDate) {
+            $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => $badDate, 'km' => 1000]);
+            self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode(), $badDate);
+            self::assertSame('date', $this->decode($response)['violations'][0]['field'], $badDate);
+        }
+    }
+
+    public function testOdometerCreateWarnsWhenIncoherentWithNeighbors(): void
+    {
+        $vehicle = $this->createVehicle(['name' => 'Clio']);
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+
+        $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => 45000]);
+        $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-03-15', 'km' => 48200]);
+
+        // Entre les deux, km inférieur au relevé précédent ⇒ 201 + warning.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-02-01', 'km' => 44000]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertArrayHasKey('warning', $data);
+        self::assertStringContainsString('incohérent', $data['warning']);
+
+        // km supérieur au relevé suivant ⇒ 201 + warning.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-02-20', 'km' => 49000]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        self::assertArrayHasKey('warning', $this->decode($response));
+
+        // Cohérent (km croissant) ⇒ 201 sans warning.
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-04-01', 'km' => 50000]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        self::assertArrayNotHasKey('warning', $this->decode($response));
+    }
+
+    public function testOdometerUnknownVehicleOrReadingReturns404(): void
+    {
+        $client = $this->client();
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'GET', '/api/vehicles/999999/odometer')->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'POST', '/api/vehicles/999999/odometer', ['date' => '2026-01-10', 'km' => 1000])->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'PATCH', '/api/odometer-readings/999999', ['km' => 1000])->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'DELETE', '/api/odometer-readings/999999')->getStatusCode());
+    }
+
+    public function testOdometerReadingIsolatedByHousehold(): void
+    {
+        $vehicle = $this->createVehicle(['name' => 'Clio']);
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+        $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-01-10', 'km' => 45000]);
+        $list = $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer"));
+        $readingId = (int) $list[0]['id'];
+
+        // Second foyer (données fictives) : son véhicule et son relevé sont invisibles du foyer connecté.
+        $em = $this->em();
+        $otherHousehold = new Household('Autre foyer');
+        $em->persist($otherHousehold);
+        $otherVehicle = new Vehicle($otherHousehold, 'Voiture autre foyer', VehicleType::Car);
+        $em->persist($otherVehicle);
+        $otherReading = new OdometerReading($otherVehicle, new \DateTimeImmutable('2026-02-02'), 12000);
+        $em->persist($otherReading);
+        $em->flush();
+        $otherVehicleId = (int) $otherVehicle->getId();
+        $otherReadingId = (int) $otherReading->getId();
+
+        // Périmètre foyer vérifié via le véhicule.
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'GET', "/api/vehicles/$otherVehicleId/odometer")->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'POST', "/api/vehicles/$otherVehicleId/odometer", ['date' => '2026-02-03', 'km' => 13000])->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'PATCH', "/api/odometer-readings/$otherReadingId", ['km' => 13000])->getStatusCode());
+        self::assertSame(Response::HTTP_NOT_FOUND, $this->json($client, 'DELETE', "/api/odometer-readings/$otherReadingId")->getStatusCode());
+
+        // Le relevé du foyer connecté reste accessible et supprimable.
+        self::assertCount(1, $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer")));
+        self::assertSame(Response::HTTP_NO_CONTENT, $this->json($client, 'DELETE', "/api/odometer-readings/$readingId")->getStatusCode());
     }
 }
