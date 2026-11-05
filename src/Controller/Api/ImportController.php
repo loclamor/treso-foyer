@@ -87,7 +87,7 @@ final class ImportController extends AbstractController
             $files = [$files];
         }
         if ([] === $files) {
-            return new JsonResponse(['reports' => [], 'postProcessing' => ['transfersMatched' => 0, 'categorized' => 0]]);
+            return new JsonResponse(['reports' => [], 'postProcessing' => ['transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0]]);
         }
 
         if (!is_dir($uploadsDir)) {
@@ -102,11 +102,11 @@ final class ImportController extends AbstractController
             $addedOrEnriched += $report['added'] + $report['enriched'];
         }
 
-        $postProcessing = ['transfersMatched' => 0, 'categorized' => 0];
+        $postProcessing = ['transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0];
         if ($addedOrEnriched > 0) {
             try {
                 $result = $postImportProcessor->process($household);
-                $postProcessing = ['transfersMatched' => $result->transfersMatched, 'categorized' => $result->categorized()];
+                $postProcessing = ['transfersMatched' => $result->transfersMatched, 'categorized' => $result->categorized(), 'vehiclesAssigned' => $result->vehiclesAssigned()];
             } catch (\Throwable) {
                 // Un échec du post-traitement ne fait pas échouer l'import déjà réussi.
             }

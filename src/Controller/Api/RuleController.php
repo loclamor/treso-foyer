@@ -23,6 +23,7 @@ use App\Enum\CategorizationSource;
 use App\Enum\RuleDirection;
 use App\Enum\RuleMatchField;
 use App\Enum\RuleMatchType;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -133,6 +134,7 @@ final class RuleController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         Categorizer $categorizer,
+        VehicleAssigner $vehicleAssigner,
     ): Response {
         $household = $householdProvider->get();
         $rule = $this->findRule($entityManager, $household, $id);
@@ -156,6 +158,9 @@ final class RuleController extends AbstractController
             ->setParameter('household', $household)
             ->getQuery()->toIterable();
         $categorizer->categorize($fresh, new CategorizeOptions(onlyUncategorized: true));
+        // La règle supprimée pouvait désigner un véhicule : resynchronise l'axe véhicule.
+        $entityManager->flush();
+        $vehicleAssigner->sync($household);
 
         return new Response('', Response::HTTP_NO_CONTENT);
     }

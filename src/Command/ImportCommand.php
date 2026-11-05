@@ -181,6 +181,13 @@ final class ImportCommand extends Command
                 $report->bySimilarity,
                 $report->stillUncategorized,
             ));
+            $vehicles = $result->vehicles;
+            $io->writeln(sprintf(
+                'Post-traitement — véhicules : %d par règle, %d auto, %d retirée(s).',
+                $vehicles->byRule,
+                $vehicles->auto,
+                $vehicles->cleared,
+            ));
         } catch (\Throwable $exception) {
             // Un échec du post-traitement ne fait pas échouer l'import déjà réussi.
             $io->warning(sprintf('Post-traitement ignoré : %s', $exception->getMessage()));

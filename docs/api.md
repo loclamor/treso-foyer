@@ -106,13 +106,13 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 | PATCH | `/api/rules/{id}` | idem partiel |
 | DELETE | `/api/rules/{id}` | `204` (les opérations catégorisées par cette règle perdent leur catégorie puis sont recatégorisées) |
 | POST | `/api/rules/preview` | corps = règle (sans id) ⇒ `{"matchCount": n, "conflicts": n, "sample": [Operation]}` (10 max ; `conflicts` = opérations correspondantes déjà catégorisées autrement, hors manuelles comptées à part dans `"manualCount"`) |
-| POST | `/api/categorization/run` | `{"all": bool}` ⇒ `{"processed","byRule","bySimilarity","stillUncategorized","categorizedPercent"}` |
+| POST | `/api/categorization/run` | `{"all": bool}` ⇒ `{"processed","byRule","bySimilarity","stillUncategorized","categorizedPercent","vehicles":{"processed","byRule","auto","cleared","unchanged"}}` |
 
 ## Imports
 | Méthode | Route | Notes |
 |---|---|---|
 | GET | `/api/imports` | `[ImportBatch]` paginé, plus récent d'abord |
-| POST | `/api/imports` | `multipart/form-data`, champ `files[]` (PDF/CSV, 20 Mo max chacun). Chaque fichier est conservé sous `data/uploads/<sha256>.<ext>`, importé (création automatique du compte si inconnu), puis post-traitement (virements internes + catégorisation). ⇒ `{"reports": [ImportReport], "postProcessing": {"transfersMatched": n, "categorized": n}}` |
+| POST | `/api/imports` | `multipart/form-data`, champ `files[]` (PDF/CSV, 20 Mo max chacun). Chaque fichier est conservé sous `data/uploads/<sha256>.<ext>`, importé (création automatique du compte si inconnu), puis post-traitement (virements internes + catégorisation + affectation des véhicules). ⇒ `{"reports": [ImportReport], "postProcessing": {"transfersMatched": n, "categorized": n, "vehiclesAssigned": n}}` |
 
 ## Virements internes
 | Méthode | Route | Notes |
@@ -161,8 +161,8 @@ Choix et écarts par rapport au contrat :
 - `PATCH` : un champ absent ou `null` ne modifie pas la ressource, sauf `note` sur opération où `null` efface la note. Conséquence : `parentId: null` ne remonte pas une catégorie à la racine (on archive plutôt).
 - `POST /api/merchants/categorize` : `updatedCount` inclut toutes les opérations non manuelles du groupe (y compris l'opération représentative utilisée pour apprendre la règle) ; groupe sans commerçant (clé = libellé normalisé) ⇒ règle apprise sur `label` exact au lieu de `merchant`.
 - `POST /api/operations/{id}/duplicate` avec `merge` sur une opération sans `duplicateOf` et sans libellé PDF ⇒ `400 not_a_duplicate`.
-- `POST /api/categorization/run` : `categorizedPercent` = pourcentage des opérations traitées ayant reçu une catégorie (règle + similarité).
-- `POST /api/imports` : un fichier invalide (format, > 20 Mo, erreur de parse) produit un rapport `failed` avec `error`, sans empêcher les autres fichiers ; `postProcessing` n'est lancé que si `added + enriched > 0`.
+- `POST /api/categorization/run` : `categorizedPercent` = pourcentage des opérations traitées ayant reçu une catégorie (règle + similarité). `vehicles` = rapport de la synchronisation de l'axe véhicule (`byRule` + `auto` affectations posées, `cleared` retirées) exécutée après la catégorisation.
+- `POST /api/imports` : un fichier invalide (format, > 20 Mo, erreur de parse) produit un rapport `failed` avec `error`, sans empêcher les autres fichiers ; `postProcessing` n'est lancé que si `added + enriched > 0` ; `vehiclesAssigned` = opérations ayant reçu un véhicule (règle + auto) lors du post-traitement.
 - Erreur `500` : message détaillé uniquement si `kernel.debug`, sinon « Une erreur interne est survenue. ».
 - `DELETE /api/transfers/{id}` : dissocie les opérations et retire leur catégorie « virement interne » (elles seront recatégorisées au prochain `run`/import).
 

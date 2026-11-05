@@ -26,6 +26,18 @@ Les opérations catégorisées **manuellement** (`source = manual`) et les opér
 
 **Virements internes** : source dédiée `CategorizationSource::Transfer` (« Virement interne détecté »), voir ADR 0009.
 
+## Axe véhicule
+
+L'affectation d'une opération à un véhicule est un axe **indépendant de la catégorie**, synchronisé par `App\Vehicle\VehicleAssigner::sync()` après chaque catégorisation (une fois les changements flushés — le `Categorizer` fait des `clear()`, le `VehicleAssigner` travaille donc en DBAL pur, hors UnitOfWork) : post-import (`PostImportProcessor`), `app:categorize`, `POST /api/categorization/run`, catégorisation manuelle (`ManualCategorizer`, point central couvrant opération et commerçant), catégorisation en masse, fusion de doublon et suppression de règle.
+
+Règle appliquée à chaque opération dont `vehicleSource` ≠ `manual` (les affectations manuelles ne sont **jamais** modifiées), décidée par la classe pure `App\Vehicle\VehicleAssignmentPolicy` :
+
+1. la règle appliquée (`appliedRule`) désigne un véhicule ⇒ ce véhicule, source `rule` ;
+2. sinon, catégorie `vehicleRelated` (`Category::vehicleRelated`) et **exactement un** véhicule du foyer actif à la date de l'opération (`Vehicle::isActiveOn`, bornes `acquiredAt`/`disposedAt` inclusives) ⇒ ce véhicule, source `auto` ;
+3. sinon ⇒ aucune affectation (une ancienne affectation `rule`/`auto` est retirée).
+
+Le traitement est **idempotent**. Efficace sur ~10 000 opérations : une seule lecture scalaire des opérations candidates (catégorie `vehicleRelated`, ou règle appliquée avec véhicule, ou véhicule déjà affecté — hors `manual`), puis `UPDATE … WHERE id IN (…)` groupés par (véhicule, source) et un `UPDATE` de remise à null. Rapport = compteurs uniquement (`processed`, `byRule`, `auto`, `cleared`, `unchanged`) : aucune sortie n'affiche de nom ni de plaque de véhicule.
+
 ## Pourquoi
 Les données restent locales par défaut ; règles explicables et corrigeables ; le LLM n'est qu'un accélérateur pour l'amorçage.
 

@@ -10,13 +10,14 @@ use App\Categorization\InternalTransferMatcher;
 use App\Entity\Household;
 use App\Entity\Operation;
 use App\Repository\OperationRepository;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
  * Post-traitement après un import réel (extrait de ImportCommand, utilisé aussi par
  * POST /api/imports) : appariement des virements internes du foyer, puis catégorisation
  * des opérations non catégorisées et des opérations enrichies non manuelles
- * (leur commerçant a pu changer).
+ * (leur commerçant a pu changer), puis affectation automatique des véhicules.
  */
 final class PostImportProcessor
 {
@@ -24,6 +25,7 @@ final class PostImportProcessor
         private readonly EntityManagerInterface $entityManager,
         private readonly InternalTransferMatcher $transferMatcher,
         private readonly Categorizer $categorizer,
+        private readonly VehicleAssigner $vehicleAssigner,
     ) {
     }
 
@@ -45,10 +47,16 @@ final class PostImportProcessor
             new CategorizeOptions(onlyUncategorized: false),
         );
 
+        // Affectation des véhicules après le flush de la catégorisation (le Categorizer
+        // fait des clear() : le VehicleAssigner travaille en DBAL, hors UnitOfWork).
+        $this->entityManager->flush();
+        $vehicleReport = $this->vehicleAssigner->sync($household);
+
         return new PostImportReport(
             transfersMatched: $transferReport->matched,
             transfersAmbiguous: $transferReport->ambiguous,
             categorization: $categorizationReport,
+            vehicles: $vehicleReport,
         );
     }
 }

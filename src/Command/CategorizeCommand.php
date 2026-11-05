@@ -10,6 +10,7 @@ use App\Entity\Household;
 use App\Entity\Operation;
 use App\Repository\HouseholdRepository;
 use App\Repository\OperationRepository;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -30,6 +31,7 @@ final class CategorizeCommand extends Command
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly Categorizer $categorizer,
+        private readonly VehicleAssigner $vehicleAssigner,
     ) {
         parent::__construct();
     }
@@ -83,6 +85,13 @@ final class CategorizeCommand extends Command
         );
         $report = $this->categorizer->categorize($queryBuilder->getQuery()->toIterable(), $options);
 
+        // Affectation automatique des véhicules après le flush de la catégorisation
+        // (compteurs uniquement, jamais de nom ni de plaque).
+        if (!$options->dryRun) {
+            $this->entityManager->flush();
+        }
+        $vehicleReport = $this->vehicleAssigner->sync($household, dryRun: $options->dryRun);
+
         $total = (int) $operationRepository->createQueryBuilder('o')
             ->select('COUNT(o.id)')
             ->join('o.account', 'a')
@@ -107,6 +116,12 @@ final class CategorizeCommand extends Command
             $report->stillUncategorized,
         ));
         $io->writeln(sprintf('Opérations catégorisées du foyer : %d/%d (%.1f %%).', $categorized, $total, $percent));
+        $io->writeln(sprintf(
+            'Véhicules : par règle %d | auto %d | retirées %d.',
+            $vehicleReport->byRule,
+            $vehicleReport->auto,
+            $vehicleReport->cleared,
+        ));
         if ($options->dryRun) {
             $io->note('Dry-run : rien n’a été écrit.');
         }

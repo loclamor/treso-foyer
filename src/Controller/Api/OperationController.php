@@ -24,6 +24,7 @@ use App\Entity\Operation;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
 use App\Enum\ImportFormat;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -79,6 +80,7 @@ final class OperationController extends AbstractController
         #[MapRequestPayload] BulkCategorizeInput $input,
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $category = $this->findCategory($entityManager, $household, (int) $input->categoryId);
@@ -95,6 +97,8 @@ final class OperationController extends AbstractController
             $operation->categorize($category, CategorizationSource::Manual);
         }
         $entityManager->flush();
+        // La catégorie ayant changé, resynchronise l'axe véhicule du foyer.
+        $vehicleAssigner->sync($household);
 
         return new JsonResponse(['updatedCount' => count($operations)]);
     }
@@ -167,6 +171,7 @@ final class OperationController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         OperationPresenter $operationPresenter,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
 
@@ -198,6 +203,8 @@ final class OperationController extends AbstractController
         $kept->setDuplicateOf(null);
         $entityManager->remove($removed);
         $entityManager->flush();
+        // L'opération supprimée pouvait porter une affectation véhicule : resynchronise le foyer.
+        $vehicleAssigner->sync($householdProvider->get());
 
         return new JsonResponse(['kept' => $operationPresenter->present($kept)]);
     }

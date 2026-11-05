@@ -16,6 +16,7 @@ use App\Enum\RuleMatchField;
 use App\Enum\RuleMatchType;
 use App\Setup\CategoryResolver;
 use App\Tests\Support\CategorizationFixtures;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
@@ -35,6 +36,7 @@ final class ManualCategorizerTest extends KernelTestCase
         $this->manualCategorizer = new ManualCategorizer(
             $this->entityManager,
             $container->get(Categorizer::class),
+            $container->get(VehicleAssigner::class),
         );
         $this->categoryResolver = $container->get(CategoryResolver::class);
 

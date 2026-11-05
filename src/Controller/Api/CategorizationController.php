@@ -9,6 +9,7 @@ use App\Api\Input\CategorizationRunInput;
 use App\Categorization\CategorizeOptions;
 use App\Categorization\Categorizer;
 use App\Entity\Operation;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -23,6 +24,7 @@ final class CategorizationController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         Categorizer $categorizer,
+        VehicleAssigner $vehicleAssigner,
     ): JsonResponse {
         $household = $householdProvider->get();
         $operations = $entityManager->getRepository(Operation::class)->createQueryBuilder('o')
@@ -34,12 +36,17 @@ final class CategorizationController extends AbstractController
         // all=false : seules les opérations non catégorisées ; all=true : toutes les non manuelles.
         $report = $categorizer->categorize($operations, new CategorizeOptions(onlyUncategorized: !$input->all));
 
+        // Affectation automatique des véhicules après le flush de la catégorisation.
+        $entityManager->flush();
+        $vehicleReport = $vehicleAssigner->sync($household);
+
         return new JsonResponse([
             'processed' => $report->processed,
             'byRule' => $report->byRule,
             'bySimilarity' => $report->bySimilarity,
             'stillUncategorized' => $report->stillUncategorized,
             'categorizedPercent' => $report->processed > 0 ? round(100 * ($report->byRule + $report->bySimilarity) / $report->processed, 1) : 0.0,
+            'vehicles' => $vehicleReport->toArray(),
         ]);
     }
 }

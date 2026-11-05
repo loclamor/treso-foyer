@@ -11,6 +11,7 @@ use App\Enum\CategorizationSource;
 use App\Enum\RuleDirection;
 use App\Enum\RuleMatchField;
 use App\Enum\RuleMatchType;
+use App\Vehicle\VehicleAssigner;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
 
@@ -28,6 +29,7 @@ final class ManualCategorizer
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly Categorizer $categorizer,
+        private readonly VehicleAssigner $vehicleAssigner,
     ) {
     }
 
@@ -82,6 +84,8 @@ final class ManualCategorizer
         }
 
         $this->entityManager->flush();
+        // La catégorie ayant changé, resynchronise l'axe véhicule du foyer (hors UnitOfWork).
+        $this->vehicleAssigner->sync($op->getAccount()->getHousehold());
 
         return new ManualCategorizationResult($updated, $rule);
     }
@@ -92,10 +96,15 @@ final class ManualCategorizer
      */
     public function clear(Operation $op): CategorizationReport
     {
+        $household = $op->getAccount()->getHousehold();
         $op->uncategorize();
         $this->entityManager->flush();
 
-        return $this->categorizer->categorize([$op], new CategorizeOptions(onlyUncategorized: true));
+        $report = $this->categorizer->categorize([$op], new CategorizeOptions(onlyUncategorized: true));
+        $this->entityManager->flush();
+        $this->vehicleAssigner->sync($household);
+
+        return $report;
     }
 
     private function findOrCreateRule(Operation $op, Category $cat, string $merchant): CategorizationRule
