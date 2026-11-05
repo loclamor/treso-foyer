@@ -1,0 +1,17 @@
+Relevé de votre CCP - n° 9                                                          Relevé édité le 14 septembre 2026
+
+Situation de votre CCP n° 12 345 67 R 999
+
+Vos opérations CCP n° 12 345 67 R 999
+Date      Opération                                                                               Débit (¤)          Crédit (¤)
+                                                         Ancien solde au 13/08/2026                                151,08
+28/08     VIREMENT DE TIERS FICTIF                                                                                    775,00
+          REFERENCE : 0000000000000001
+05/09     PRELEVEMENT DE ASSUREUR FICTIF                                                            22,25
+          REF : 00000000001
+
+                                                                            Total des opérations          22,25             775,00
+
+                                                            Nouveau solde au 13/09/2026                               903,83
+
+Il vous est conseillé de conserver ce relevé.                                                  Page 1/1

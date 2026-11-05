@@ -164,7 +164,7 @@ final class PdfStatementParser implements StatementParserInterface
                 $amount = Money::parse($m[4][0]);
                 $montantEnd = $m[4][1] + strlen($m[4][0]);
                 // Débit ou crédit selon la colonne la plus proche de la fin du montant.
-                if (abs($montantEnd - $debitEnd) <= abs($montantEnd - (int) $creditEnd)) {
+                if ($this->isDebitColumn($montantEnd, $debitEnd, (int) $creditEnd)) {
                     $amount = -abs($amount);
                 }
                 // Artefact PDF : renvoi de note collé (ex. « 4FRAIS … ») retiré du début du libellé.
@@ -292,7 +292,17 @@ final class PdfStatementParser implements StatementParserInterface
         }
         $end = $m['montant'][1] + strlen($m['montant'][0]);
 
-        return abs($end - $debitEnd) <= abs($end - $creditEnd) ? -abs($amount) : $amount;
+        return $this->isDebitColumn($end, $debitEnd, $creditEnd) ? -abs($amount) : $amount;
+    }
+
+    /**
+     * Débit si la fin du montant est strictement plus proche de la fin de l'en-tête « Débit (¤) ».
+     * À égale distance : crédit (les débits finissent quelques caractères avant la colonne Débit,
+     * les crédits dans l'entre-deux ; ex. ancien solde positif du relevé réel de septembre 2018).
+     */
+    private function isDebitColumn(int $amountEnd, int $debitEnd, int $creditEnd): bool
+    {
+        return abs($amountEnd - $debitEnd) < abs($amountEnd - $creditEnd);
     }
 
     private function normalizeAccountNumber(string $raw): string

@@ -126,6 +126,18 @@ final class PdfStatementParserTest extends TestCase
         self::assertSame(235000, $statement->operations[2]->amount);
     }
 
+    public function testSoldeAEgaleDistanceDesColonnesEstUnCredit(): void
+    {
+        // Régression (relevé réel de septembre 2018, compte commun) : le montant de l'ancien solde finit
+        // pile entre les colonnes Débit et Crédit ; les débits finissent bien avant la colonne Débit,
+        // l'égalité est donc un crédit (solde positif).
+        $statement = $this->parser()->parseText($this->fixture('releve-solde-equidistant.txt'));
+
+        self::assertSame(15108, $statement->openingBalance);
+        self::assertSame(90383, $statement->closingBalance);
+        self::assertSame([77500, -2225], array_map(static fn (ParsedOperation $op): int => $op->amount, $statement->operations));
+    }
+
     public function testReleveAnnuelDeFrais(): void
     {
         $this->expectException(NotAnAccountStatementException::class);

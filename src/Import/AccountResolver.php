@@ -77,14 +77,17 @@ final class AccountResolver
 
     /**
      * Alias lu dans l'INI des comptes (section [comptes], clé = numéro normalisé sans espaces).
-     * Le fichier peut ne pas exister.
+     * Le fichier peut ne pas exister. Les lignes commençant par « # » (écrites par tools/ranger_releves.py)
+     * sont retirées avant l'analyse : PHP ne les reconnaît pas comme commentaires et échouerait sur leur contenu.
      */
     private function readAlias(string $normalizedNumber): ?string
     {
-        if (!is_file($this->accountsIni)) {
+        $content = is_file($this->accountsIni) ? file_get_contents($this->accountsIni) : false;
+        if (false === $content) {
             return null;
         }
-        $ini = @parse_ini_file($this->accountsIni, true, INI_SCANNER_RAW);
+        $content = preg_replace('/^\s*#.*$/m', '', $content) ?? $content;
+        $ini = @parse_ini_string($content, true, INI_SCANNER_RAW);
         if (!is_array($ini)) {
             return null;
         }
