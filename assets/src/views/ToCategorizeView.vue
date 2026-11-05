@@ -327,7 +327,8 @@ onMounted(() => {
     border: 1px solid var(--p-surface-border, var(--p-content-border-color));
     border-radius: var(--p-border-radius);
     padding: 0.9rem 1rem;
-    background: var(--p-surface-0, var(--p-content-background));
+    /* Fond de contenu du thème (s'adapte au mode sombre, contrairement à --p-surface-0 toujours blanc). */
+    background: var(--p-content-background);
 }
 .group-head {
     display: flex;

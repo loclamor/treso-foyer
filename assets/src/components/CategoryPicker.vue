@@ -11,26 +11,20 @@ const emit = defineEmits(['update:modelValue']);
 
 const categoriesStore = useCategoriesStore();
 
-function findNode(list, id) {
-    if (id === null || id === undefined) return null;
-    for (const node of list ?? []) {
-        if (Number(node.data) === Number(id)) return node;
-        const found = findNode(node.children, id);
-        if (found) return found;
-    }
-    return null;
-}
-
-// TreeSelect (selectionMode=single) travaille sur le nœud ; on expose l'id via data.
-const selectedNode = computed({
-    get: () => findNode(categoriesStore.options, props.modelValue),
-    set: (node) => emit('update:modelValue', node?.data ?? null),
+// TreeSelect (PrimeVue 4+) a pour modèle un objet de clés sélectionnées : { "<key>": true }.
+// Les clés des nœuds sont les ids de catégorie (cf. toTreeNodes) ; on expose l'id numérique.
+const selectionKeys = computed({
+    get: () => (props.modelValue === null || props.modelValue === undefined || props.modelValue === '' ? null : { [String(props.modelValue)]: true }),
+    set: (keys) => {
+        const key = Object.keys(keys ?? {}).find((k) => keys[k]);
+        emit('update:modelValue', key === undefined ? null : Number(key));
+    },
 });
 </script>
 
 <template>
     <TreeSelect
-        v-model="selectedNode"
+        v-model="selectionKeys"
         :options="categoriesStore.options"
         selection-mode="single"
         filter
