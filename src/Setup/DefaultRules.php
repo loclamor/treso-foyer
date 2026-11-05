@@ -60,6 +60,8 @@ final class DefaultRules
         ['Loisirs & culture › Sorties & spectacles', 50, 'CINEMA|PATHE|GAUMONT|UGC|MEGA CGR|KINEPOLIS|TICKETMASTER|THEATRE|MUSEE'],
         ['Loisirs & culture › Voyages & vacances', 50, 'BOOKING|AIRBNB|HOTEL|IBIS|CAMPING|ABRITEL|CENTER PARCS|EXPEDIA'],
         ['Loisirs & culture › Livres, jeux & hobbies', 50, 'CULTURA|LIBRAIRIE|STEAM|PLAYSTATION|NINTENDO|MICROMANIA|KING JOUET|JOUE CLUB|PHILIBERT|MAXITOYS|LUNII\\w*'],
+        // Cotisations syndicales (enseignants : SNES, SNUipp, SGEN, SE-UNSA ; libellé CB « SNES S4 »).
+        ['Cotisations & adhésions › Syndicat', 50, 'SNES\\w*|SNUIPP|SGEN|SE.UNSA'],
         ['Famille › Animaux', 50, 'VETERINAIRE|ANIMALIS|MAXI ZOO|ZOOPLUS'],
     ];
 

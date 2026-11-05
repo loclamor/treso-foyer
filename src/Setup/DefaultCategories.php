@@ -188,6 +188,17 @@ final class DefaultCategories
             'children' => [],
         ],
         [
+            'name' => 'Cotisations & adhésions',
+            'kind' => CategoryKind::Expense,
+            'icon' => 'pi pi-id-card',
+            'color' => '#898781',
+            'chartSlot' => null,
+            'children' => [
+                'Syndicat',
+                'Associations & clubs',
+            ],
+        ],
+        [
             'name' => 'Revenus',
             'kind' => CategoryKind::Income,
             'icon' => 'pi pi-wallet',
