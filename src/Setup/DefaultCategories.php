@@ -114,6 +114,7 @@ final class DefaultCategories
                 'Cadeaux',
                 'Bricolage',
                 'Jardinage',
+                'Fleuriste',
                 'Beauté & soins',
                 'Achats divers',
             ],

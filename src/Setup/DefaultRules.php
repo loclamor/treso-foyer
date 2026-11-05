@@ -51,6 +51,8 @@ final class DefaultRules
         // ADEO = groupe Leroy Merlin / Bricoman (libellé CB souvent tronqué en « ADEO*LEROY MER »).
         ['Shopping › Bricolage', 55, 'LEROY MER\\w*|ADEO|CASTORAMA|BRICOMARCHE|BRICO DEPOT|BRICO CASH|BRICOMAN|BRICORAMA|MR BRICOLAGE|WELDOM|POINT P|LAPEYRE|ENTREPOT DU BRICOLAGE'],
         ['Shopping › Jardinage', 55, 'GAMM VERT|JARDILAND|TRUFFAUT|BOTANIC|VILLAVERDE|POINT VERT|JARDINERIE|PEPINIERE\\w*'],
+        // « FLEUR\w* » : fleuristes indépendants et Monceau Fleurs ; pas de préfixe « FLOR » (ne doit pas matcher « LE FLORENCE »).
+        ['Shopping › Fleuriste', 50, 'FLEUR\\w*|INTERFLORA|AQUARELLE|FLORAJET|RAPID ?FLORE|BEBLOOM|WAKE UP FLOWERS'],
         ['Shopping › Beauté & soins', 50, 'SEPHORA|NOCIBE|MARIONNAUD|YVES ROCHER|L OCCITANE|KIKO|COIFF\\w*|BARBIER|ESTHETIQUE|INSTITUT DE BEAUTE'],
         ['Logement › Énergie', 50, 'EDF|ENGIE|EKWATEUR|PLANETE OUI|GRDF|ENEDIS|ENERCOOP'],
         ['Logement › Eau', 50, 'VEOLIA|SUEZ|SAUR'],

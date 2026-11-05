@@ -104,6 +104,10 @@ final class DefaultRulesTest extends TestCase
             ['ACHAT CB TRUFFAUT COLOM 12.04.25', 'Shopping › Jardinage'],
             ['ACHAT CB IKEA TOULOUSE', 'Logement › Équipement & mobilier'],
             ['ACHAT CB TENDANCE COIFF 02.02.24', 'Shopping › Beauté & soins'],
+            // Fleuriste : indépendants (« FLEURS », « FLEURISTE ») et livraison de fleurs.
+            ['ACHAT CB AU PAYS DES FLEURS 13.02.25 CARTE NUMERO 275', 'Shopping › Fleuriste'],
+            ['ACHAT CB MONCEAU FLEURS 08.05.24', 'Shopping › Fleuriste'],
+            ['ACHAT CB INTERFLORA 26.05.24', 'Shopping › Fleuriste'],
             // Courrier & colis : bureaux de poste et transporteurs, jamais la banque.
             ['ACHAT CB LA POSTE L3114 05.03.24 CARTE NUMERO 275', 'Abonnements & télécoms › Courrier & colis'],
             ['ACHAT CB LAPOSTE G22364 18.11.25', 'Abonnements & télécoms › Courrier & colis'],
@@ -120,6 +124,11 @@ final class DefaultRulesTest extends TestCase
     public function testBanquePostaleIsNotPostalMail(): void
     {
         self::assertNotSame('Abonnements & télécoms › Courrier & colis', $this->resolve('PRELEVEMENT DE LA BANQUE POSTALE ASSURANCE'));
+    }
+
+    public function testFlorenceIsNotAFlorist(): void
+    {
+        self::assertNotSame('Shopping › Fleuriste', $this->resolve('ACHAT CB LE FLORENCE 01.03.21 CARTE NUMERO 275'));
     }
 
     public function testVirementFromAPersonMatchesNoRule(): void
