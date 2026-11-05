@@ -7,12 +7,13 @@ import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import MultiSelect from 'primevue/multiselect';
+import DatePicker from 'primevue/datepicker';
 import { useToast } from 'primevue/usetoast';
 import { useAccountsStore } from '@/stores/accounts';
 import { useMembersStore } from '@/stores/members';
 import { updateAccount } from '@/api/accounts';
 import { apiMessage } from '@/api/http';
-import { formatDate } from '@/utils/format';
+import { dateToIso, formatDate } from '@/utils/format';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 
 const accountsStore = useAccountsStore();
@@ -29,7 +30,13 @@ const TYPE_OPTIONS = [
 const dialogVisible = ref(false);
 const editing = ref(null);
 const saving = ref(false);
-const form = reactive({ alias: '', label: '', type: 'personal', holderIds: [] });
+const form = reactive({ alias: '', label: '', type: 'personal', holderIds: [], closedAt: null });
+
+function isoToDate(iso) {
+    if (!iso) return null;
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
 
 function openEdit(account) {
     editing.value = account;
@@ -37,6 +44,7 @@ function openEdit(account) {
     form.label = account.label;
     form.type = account.type;
     form.holderIds = (account.holders ?? []).map((h) => h.id);
+    form.closedAt = isoToDate(account.closedAt);
     dialogVisible.value = true;
 }
 
@@ -49,6 +57,8 @@ async function submit() {
             label: form.label.trim(),
             type: form.type,
             holderIds: form.holderIds,
+            // Chaîne vide : compte rouvert (date effacée).
+            closedAt: form.closedAt ? dateToIso(form.closedAt) : '',
         });
         toast.add({ severity: 'success', summary: 'Compte mis à jour', life: 3000 });
         dialogVisible.value = false;
@@ -83,7 +93,10 @@ onMounted(async () => {
             <Column field="label" header="Libellé" />
             <Column field="numberMasked" header="Numéro" />
             <Column header="Type" style="width: 8rem">
-                <template #body="{ data }">{{ TYPE_LABELS[data.type] ?? data.type }}</template>
+                <template #body="{ data }">
+                    {{ TYPE_LABELS[data.type] ?? data.type }}
+                    <div v-if="data.closedAt" class="text-muted closed">Clôturé le {{ formatDate(data.closedAt) }}</div>
+                </template>
             </Column>
             <Column header="Titulaires">
                 <template #body="{ data }">{{ (data.holders ?? []).map((h) => h.displayName).join(', ') || '—' }}</template>
@@ -121,6 +134,19 @@ onMounted(async () => {
                     <Select id="acc-type" v-model="form.type" :options="TYPE_OPTIONS" option-label="label" option-value="value" class="w-full" />
                 </div>
                 <div class="field">
+                    <label for="acc-closed">Date de clôture</label>
+                    <DatePicker
+                        input-id="acc-closed"
+                        v-model="form.closedAt"
+                        date-format="dd/mm/yy"
+                        placeholder="Compte ouvert"
+                        show-icon
+                        show-button-bar
+                        class="w-full"
+                    />
+                    <small class="text-muted">Aucun relevé n'est attendu après le mois de clôture.</small>
+                </div>
+                <div class="field">
                     <label for="acc-holders">Titulaires</label>
                     <MultiSelect
                         id="acc-holders"
@@ -153,6 +179,9 @@ onMounted(async () => {
 }
 .solde-date {
     margin-left: 0.4rem;
+    font-size: 0.8rem;
+}
+.closed {
     font-size: 0.8rem;
 }
 </style>

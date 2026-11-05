@@ -67,6 +67,9 @@ final class AccountController extends AbstractController
         if (null !== $input->type) {
             $account->setType(AccountType::from($input->type));
         }
+        if (null !== $input->closedAt) {
+            $account->setClosedAt('' === $input->closedAt ? null : new \DateTimeImmutable($input->closedAt));
+        }
         if (null !== $input->holderIds) {
             $members = [];
             if ([] !== $input->holderIds) {

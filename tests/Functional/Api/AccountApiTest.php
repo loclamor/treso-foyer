@@ -74,6 +74,15 @@ final class AccountApiTest extends ApiTestCase
         self::assertSame('joint', $data['type']);
         self::assertCount(2, $data['holders']);
 
+        // clôture puis réouverture.
+        $response = $this->json($client, 'PATCH', '/api/accounts/'.(int) $this->account->getId(), ['closedAt' => '2017-01-17']);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertSame('2017-01-17', $this->decode($response)['closedAt']);
+        $response = $this->json($client, 'PATCH', '/api/accounts/'.(int) $this->account->getId(), ['closedAt' => 'hier']);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+        $response = $this->json($client, 'PATCH', '/api/accounts/'.(int) $this->account->getId(), ['closedAt' => '']);
+        self::assertNull($this->decode($response)['closedAt']);
+
         // holderId inconnu ⇒ 422.
         $response = $this->json($client, 'PATCH', '/api/accounts/'.(int) $this->account->getId(), ['holderIds' => [9999]]);
         self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());

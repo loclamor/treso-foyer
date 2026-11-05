@@ -19,6 +19,9 @@ final class AccountPatchInput
         #[Assert\Type(type: 'array', message: 'holderIds doit être un tableau.')]
         #[Assert\All([new Assert\Positive(message: 'Chaque holderId doit être positif.')])]
         public readonly ?array $holderIds = null,
+        /** Date de clôture AAAA-MM-JJ ; chaîne vide pour rouvrir le compte ; absent = inchangé. */
+        #[Assert\Date(message: 'closedAt doit être une date au format AAAA-MM-JJ.')]
+        public readonly ?string $closedAt = null,
     ) {
     }
 }

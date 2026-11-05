@@ -34,6 +34,7 @@ final class AccountPresenter
         return $this->presentRef($account) + [
             'type' => $account->getType()->value,
             'bank' => $account->getBank(),
+            'closedAt' => $account->getClosedAt()?->format('Y-m-d'),
             'holders' => array_map(
                 fn ($holder): array => $this->memberPresenter->present($holder),
                 $account->getHolders()->toArray(),

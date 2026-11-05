@@ -26,7 +26,15 @@ final class MissingStatementFinder
      *
      * @return list<array{month: string, reason: string}> triés par mois croissant
      */
-    public function find(array $months, \DateTimeImmutable $today): array
+    /**
+     * Mois manquants : trous entre le premier et le dernier relevé, puis mois attendus après le dernier.
+     * Compte clôturé : aucun relevé attendu après le mois de clôture.
+     *
+     * @param list<string> $months mois des relevés présents (AAAA-MM)
+     *
+     * @return list<array{month: string, reason: string}>
+     */
+    public function find(array $months, \DateTimeImmutable $today, ?\DateTimeImmutable $closedAt = null): array
     {
         $present = array_fill_keys($months, true);
         if ([] === $present) {
@@ -38,6 +46,10 @@ final class MissingStatementFinder
         $first = $this->monthStart($sorted[0]);
         $last = $this->monthStart($sorted[count($sorted) - 1]);
         $lastExpected = $this->lastExpectedMonth($today);
+        if (null !== $closedAt) {
+            $closingMonth = $closedAt->modify('first day of this month')->setTime(0, 0);
+            $lastExpected = min($lastExpected, $closingMonth);
+        }
 
         $missing = [];
         for ($month = $first->modify('+1 month'); $month < $last; $month = $month->modify('+1 month')) {

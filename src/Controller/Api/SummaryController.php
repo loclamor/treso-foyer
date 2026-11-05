@@ -93,7 +93,7 @@ final class SummaryController extends AbstractController
         $missingStatements = [];
         foreach ($accounts as $account) {
             $months = $monthsByAccount[(int) $account->getId()] ?? [];
-            foreach ($missingStatementFinder->find($months, $today) as $missing) {
+            foreach ($missingStatementFinder->find($months, $today, $account->getClosedAt()) as $missing) {
                 $missingStatements[] = ['account' => $accountPresenter->presentRef($account)] + $missing;
             }
         }

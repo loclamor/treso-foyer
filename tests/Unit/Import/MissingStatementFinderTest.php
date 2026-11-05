@@ -65,4 +65,18 @@ final class MissingStatementFinderTest extends TestCase
 
         $this->finder->find(['2026/08'], new \DateTimeImmutable('2026-11-05'));
     }
+
+    public function testClosedAccountExpectsNothingAfterItsClosingMonth(): void
+    {
+        $today = new \DateTimeImmutable('2026-11-05');
+
+        // Clôturé en janvier 2017 avec un dernier relevé de janvier : rien à réclamer.
+        self::assertSame([], $this->finder->find(['2016-11', '2016-12', '2017-01'], $today, new \DateTimeImmutable('2017-01-17')));
+
+        // Les trous avant la clôture restent signalés, ainsi que le relevé du mois de clôture s'il manque.
+        self::assertSame([
+            ['month' => '2016-12', 'reason' => 'gap'],
+            ['month' => '2017-02', 'reason' => 'overdue'],
+        ], $this->finder->find(['2016-11', '2017-01'], $today, new \DateTimeImmutable('2017-02-03')));
+    }
 }

@@ -53,6 +53,10 @@ class Account
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
+    /** Date de clôture : plus aucun relevé n'est attendu après le mois de cette date. */
+    #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $closedAt = null;
+
     public function __construct(
         Household $household,
         string $alias,
@@ -185,5 +189,17 @@ class Account
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getClosedAt(): ?\DateTimeImmutable
+    {
+        return $this->closedAt;
+    }
+
+    public function setClosedAt(?\DateTimeImmutable $closedAt): static
+    {
+        $this->closedAt = $closedAt;
+
+        return $this;
     }
 }
