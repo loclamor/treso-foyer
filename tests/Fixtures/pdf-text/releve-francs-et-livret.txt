@@ -38,6 +38,6 @@ Date     Opérations                                                            
     Livret A n° 000 0000000 L
                                                                 Ancien solde au 21/04/2016                                                        18,33
 05/05 VIREMENT DE TITULAIRE FICTIVE                                                                                                              500,00
-         REFERENCE : 0000000000000002
+         REFERENCE : 0000000000000002                                     Total des opérations                    500,00
                                                               Nouveau solde au 20/05/2016                                                        518,33
                                                                                                                     Page 2/2

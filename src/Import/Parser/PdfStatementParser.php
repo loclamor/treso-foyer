@@ -337,8 +337,15 @@ final class PdfStatementParser implements StatementParserInterface
                 $current = ['day' => (int) $m[1][0], 'month' => (int) $m[2][0], 'amount' => $amount, 'label' => [trim($m[3][0])]];
                 continue;
             }
+            // « Total des opérations » de la section : sur sa propre ligne, ou à droite d'une ligne de
+            // libellé (pdftotext les fusionne parfois, initiale « T » parfois perdue).
+            $continuation = trim((string) preg_replace('/(^|\s{2,})T?otal des opérations\b.*$/u', '', $trimmed));
+            if ('' === $continuation) {
+                $close();
+                continue;
+            }
             if (null !== $current) {
-                $current['label'][] = $trimmed;
+                $current['label'][] = $continuation;
             }
         }
         $close();
