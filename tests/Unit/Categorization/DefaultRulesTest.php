@@ -133,6 +133,16 @@ final class DefaultRulesTest extends TestCase
         self::assertSame('Revenus › Remboursements', $this->resolve('VIREMENT DE CPAM HAUTE-GARONNE', 600));
     }
 
+    public function testFinancesPubliquesEtAmendes(): void
+    {
+        self::assertSame('Impôts & taxes', $this->resolve('PRELEVEMENT DE DRFIP HAUTE-GARONNE REF : 1D031 IDENT : FR63ZZZ498620', -9000));
+        self::assertSame('Impôts & taxes', $this->resolve('PRELEVEMENT DE DGFIP IMPOT 2025', -9000));
+        self::assertSame('Impôts & taxes › Autres taxes & amendes', $this->resolve('ACHAT CB AMENDE RADAR W 29.04.18 CARTE NUMERO 325', -4500));
+        self::assertSame('Impôts & taxes › Autres taxes & amendes', $this->resolve('ACHAT CB WEB AMENDE.GOU 31.08.26 CARTE NUMERO 655', -4500));
+        // MaPrimeRénov' (ANAH) versée par une DRFIP : une aide, pas un impôt.
+        self::assertSame('Revenus › Allocations & aides', $this->resolve('VIREMENT DE DRFIP ILE DE FRANCE ET DE PARIS 1D0750000ANAH-MPR-2022-1 ANAH-MPR-2022-1', 100000));
+    }
+
     public function testFlorenceIsNotAFlorist(): void
     {
         self::assertNotSame('Shopping › Fleuriste', $this->resolve('ACHAT CB LE FLORENCE 01.03.21 CARTE NUMERO 275'));

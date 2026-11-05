@@ -71,14 +71,16 @@ final class DefaultRules
     public const BANK_RULES = [
         ['Banque & assurances › Frais bancaires', '^(COTISATION|FRAIS|COMMISSION|MINIMUM|AVANTAGE)\b', RuleDirection::Any, 80],
         ['Banque & assurances › Intérêts & agios', '^(INTERETS|AGIOS)\b', RuleDirection::Any, 80],
-        // Catégorie racine : un prélèvement de la DGFiP peut être l'impôt sur le revenu, la taxe foncière…
+        // Catégorie racine : un prélèvement de la DGFiP / DRFiP / DDFiP peut être l'impôt sur le revenu, la taxe foncière…
         // « FINANCES PUBL\w* » : le libellé est souvent tronqué (« DIRECTION GENERALE D ES FINANCES PUBL »).
-        ['Impôts & taxes', '^PRELEVEMENT DE .*\b(DGFIP|IMPOTS?|FINANCES PUBL\w*)\b', RuleDirection::Any, 80],
+        ['Impôts & taxes', '^PRELEVEMENT DE .*\b(DGFIP|DRFIP|DDFIP|IMPOTS?|FINANCES PUBL\w*)\b', RuleDirection::Any, 80],
+        // Amendes : radar, amende.gouv (paiement carte ou prélèvement).
+        ['Impôts & taxes › Autres taxes & amendes', '\bAMENDES?\b', RuleDirection::Debit, 85],
         ['Retraits d’espèces', '^RETRAIT\b', RuleDirection::Debit, 80],
         // OGEC : organisme de gestion des écoles privées sous contrat (paiement carte, prélèvement ou virement).
         ['Scolarité › Frais de scolarité', '\b(OGEC|APEL)\b', RuleDirection::Debit, 80],
         ['Scolarité › Cantine & garderie', '\b(CANTINE|RESTAURATION SCOLAIRE|PERISCOLAIRE|GARDERIE)\b', RuleDirection::Debit, 80],
-        ['Revenus › Allocations & aides', '\b(CAF|CAISSE D ALLOCATIONS|FRANCE TRAVAIL|POLE EMPLOI)\b', RuleDirection::Credit, 80],
+        ['Revenus › Allocations & aides', '\b(CAF|CAISSE D ALLOCATIONS|FRANCE TRAVAIL|POLE EMPLOI|ANAH)\b', RuleDirection::Credit, 80],
         // « C\.?P\.?A\.?M » : aussi la forme pointée « C.P.A.M. TOULOUSE ».
         ['Revenus › Remboursements', '\b(C\.?P\.?A\.?M|AMELI|ASSURANCE MALADIE)\b', RuleDirection::Credit, 80],
     ];
