@@ -30,6 +30,7 @@ const items = [
     { label: 'Accueil', icon: 'pi pi-home', command: () => router.push({ name: 'dashboard' }) },
     { label: 'Statistiques', icon: 'pi pi-chart-line', command: () => router.push({ name: 'stats' }) },
     { label: 'Opérations', icon: 'pi pi-list', command: () => router.push({ name: 'operations' }) },
+    { label: 'Récurrences', icon: 'pi pi-replay', command: () => router.push({ name: 'recurrences' }) },
     { label: 'À catégoriser', icon: 'pi pi-tags', command: () => router.push({ name: 'to-categorize' }) },
     { label: 'Imports', icon: 'pi pi-upload', command: () => router.push({ name: 'imports' }) },
     {

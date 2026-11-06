@@ -17,7 +17,7 @@ import { getBalance, getCategoriesStats, getMonthly, getOverview } from '@/api/s
 import { apiMessage } from '@/api/http';
 import { formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
 import { chartColors, useChartTheme, baseTooltip, baseLegend, baseGrid, valueAxis, categoryAxis, categoryAxisY, barItemStyle } from '@/charts/theme';
-import { colorForCategory, foldToOthers, slotColor } from '@/charts/palette';
+import { colorForCategory, foldToOthers, OTHERS_LABEL, slotColor } from '@/charts/palette';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import KpiTile from '@/components/KpiTile.vue';
 import ChartCard from '@/components/ChartCard.vue';
@@ -186,9 +186,31 @@ const monthlyRoots = computed(() => {
 // - dépenses : barre fantôme en pointillés (estimate.expense) superposée à la pile du mois.
 const INCOME_ESTIMATE_NAME = 'Revenus estimés';
 const EXPENSE_ESTIMATE_NAME = 'Dépenses estimées';
+// Séries hachurées « <Poste> (attendu) » : récurrent restant du mois en cours, par poste.
+// Préfixe d'id des séries hachurées (ECharts exige des id uniques : préfixe + clé du poste).
+const RECURRING_SERIES_ID = 'recurring-expected';
+const isRecurringSeriesId = (id) => typeof id === 'string' && id.startsWith(`${RECURRING_SERIES_ID}:`);
+const RECURRING_SUFFIX = ' (attendu)';
 
 function currentIndex(m) {
     return m.estimate ? m.months.indexOf(m.estimate.month) : -1;
+}
+
+// Échappement HTML des libellés (données utilisateur) injectés dans le formatter de l'infobulle.
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// 'AAAA-MM-JJ' → 'jj/mm' (date courte dans l'infobulle).
+function shortDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ''));
+    return m ? `${m[3]}/${m[2]}` : String(iso ?? '');
+}
+
+// Couleur hex #rrggbb + alpha 0..1.
+function withAlpha(hex, alpha) {
+    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+    return `${hex}${a}`;
 }
 
 function incomeEstimateSeries(m, c, idx) {
@@ -221,6 +243,59 @@ function expenseEstimateSeries(m, c, idx) {
     };
 }
 
+// Séries hachurées « <Poste> (attendu) » : récurrent restant du mois en cours, par poste de dépense.
+// Même stack que les barres réelles, placées APRÈS elles (donc au-dessus de la pile), valeur
+// uniquement au mois en cours. rootId null ou racine repliée dans « Autres » ⇒ série « Autres ».
+// Ces séries ne sont ni en légende ni cliquables (id RECURRING_SERIES_ID).
+function recurringExpectedSeries(m, c, roots, idx) {
+    const byRoot = m.estimate?.recurring?.expense?.byRoot ?? [];
+    const groups = new Map(); // clé de regroupement → {name, color, remaining}
+    for (const b of byRoot) {
+        if (!b.remaining || b.remaining <= 0) continue;
+        const rootId = b.rootId ?? null;
+        const root = rootId === null
+            ? roots.find((r) => r.others)
+            : roots.find((r) => r.category?.id === rootId);
+        let key, name, color;
+        if (root) {
+            key = `root:${root.category?.id ?? 'others'}`;
+            name = root.name;
+            color = root.color;
+        } else if (rootId === null) {
+            key = 'root:others';
+            name = OTHERS_LABEL;
+            color = c.others;
+        } else {
+            // racine absente du graphe (ex. plus de dépenses sur la période) : couleur via le référentiel
+            const cat = categoriesStore.byId.get(rootId);
+            key = `root:${rootId}`;
+            name = cat?.name ?? `Poste #${rootId}`;
+            color = colorForCategory(cat ?? null, theme.mode.value);
+        }
+        const g = groups.get(key) ?? { name, color, remaining: 0 };
+        g.remaining += b.remaining;
+        groups.set(key, g);
+    }
+    const decalColor = theme.mode.value === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)';
+    return [...groups.entries()].map(([key, g]) => ({
+        id: `${RECURRING_SERIES_ID}:${key}`,
+        name: `${g.name}${RECURRING_SUFFIX}`,
+        type: 'bar',
+        stack: 'depenses',
+        data: m.months.map((mo, i) => (i === idx ? g.remaining : null)),
+        barMaxWidth: 26,
+        z: 2,
+        itemStyle: {
+            color: withAlpha(g.color, 0.45), // fond en opacité réduite
+            borderRadius: 4,
+            borderColor: c.surface,
+            borderWidth: 2,
+            decal: { symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [3, 5], rotation: -Math.PI / 4, color: decalColor },
+        },
+        emphasis: { disabled: true },
+    }));
+}
+
 // Infobulle du graphe mensuel : détaille les estimations du mois en cours.
 function monthlyTooltip(c, estimate) {
     const t = baseTooltip(c);
@@ -244,7 +319,31 @@ function monthlyTooltip(c, estimate) {
             }
             return `${p.marker} ${p.seriesName} : <strong>${formatMoney(v)}</strong>`;
         }).filter(Boolean);
-        if (isCurrent) lines.push(`<span style="opacity:.7">Moyenne des ${estimate.basisMonths} derniers mois complets</span>`);
+        if (isCurrent) {
+            lines.push(`<span style="opacity:.7">Moyenne des ${estimate.basisMonths} derniers mois complets</span>`);
+            const recurring = estimate.recurring ?? null;
+            const variable = estimate.variable ?? null;
+            const expItems = (recurring?.expense?.items ?? []).filter((it) => !it.paid);
+            const incItems = (recurring?.income?.items ?? []).filter((it) => !it.paid);
+            const MAX_ITEMS = 8;
+            if (expItems.length) {
+                lines.push('<strong>Échéances attendues</strong>');
+                for (const it of expItems.slice(0, MAX_ITEMS)) {
+                    lines.push(`• ${shortDate(it.expectedDate)} — ${escapeHtml(it.merchant)} : <strong>${formatMoney(it.amount)}</strong>`);
+                }
+                if (expItems.length > MAX_ITEMS) lines.push(`… et ${expItems.length - MAX_ITEMS} autre(s)`);
+            }
+            if (incItems.length) {
+                lines.push('<strong>Revenus attendus</strong>');
+                for (const it of incItems.slice(0, MAX_ITEMS)) {
+                    lines.push(`• ${shortDate(it.expectedDate)} — ${escapeHtml(it.merchant)} : <strong>${formatMoney(it.amount)}</strong>`);
+                }
+                if (incItems.length > MAX_ITEMS) lines.push(`… et ${incItems.length - MAX_ITEMS} autre(s)`);
+            }
+            lines.push(
+                `<span style="opacity:.7">Dépensé à date : ${formatMoney(estimate.spent)} · récurrent restant : ${formatMoney(recurring?.expense?.remaining ?? 0)} · variable restant : ${formatMoney(variable?.expenseRemaining ?? 0)} (moyenne ${estimate.basisMonths} mois)</span>`,
+            );
+        }
         return [head, ...lines].join('<br/>');
     };
     return t;
@@ -266,6 +365,8 @@ const monthlyOption = computed(() => {
         emphasis: { focus: 'series' },
     }));
     const idx = currentIndex(m);
+    // Hachuré « (attendu) » : récurrent restant du mois en cours, au-dessus de la pile réelle.
+    if (idx !== -1) series.push(...recurringExpectedSeries(m, c, roots, idx));
     // Ligne des revenus sur le MÊME axe (une seule échelle en €) ; mois en cours retiré
     // (incomplet) quand une estimation le remplace.
     series.push({
@@ -280,9 +381,12 @@ const monthlyOption = computed(() => {
         if (idx > 0) series.push(incomeEstimateSeries(m, c, idx));
         series.push(expenseEstimateSeries(m, c, idx));
     }
+    const legend = baseLegend(c);
+    // Les séries « (attendu) » n'apparaissent pas dans la légende.
+    legend.data = series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name);
     return {
         tooltip: monthlyTooltip(c, m.estimate),
-        legend: baseLegend(c),
+        legend,
         grid: baseGrid(),
         xAxis: categoryAxis(c, labels),
         yAxis: valueAxis(c),
@@ -295,8 +399,11 @@ const monthlyEmpty = computed(() => !monthly.value || !monthly.value.months?.len
 // Clic sur un segment ⇒ opérations du mois cliqué pour cette racine.
 function onMonthlyClick(e) {
     if (e.componentType !== 'series' || e.seriesType !== 'bar' || !monthly.value) return;
-    if (e.seriesName === EXPENSE_ESTIMATE_NAME) return;
-    const root = monthlyRoots.value[e.seriesIndex];
+    // la barre fantôme et les séries hachurées « (attendu) » ne sont pas cliquables
+    if (e.seriesName === EXPENSE_ESTIMATE_NAME || isRecurringSeriesId(e.seriesId)) return;
+    // les séries hachurées décalent seriesIndex : la racine se retrouve par son nom
+    const root = monthlyRoots.value.find((r) => r.name === e.seriesName);
+    if (!root) return;
     const month = monthly.value.months[e.dataIndex];
     const b = monthBounds(month);
     const query = { from: b.from, to: b.to };
@@ -308,9 +415,12 @@ function onMonthlyClick(e) {
 const monthlyTableRows = computed(() => {
     const m = monthly.value;
     if (!m) return [];
+    const idx = currentIndex(m);
     return m.months.map((mo, i) => {
         const row = { month: formatMonth(mo), Revenus: m.income[i], Dépenses: m.expense[i] };
         for (const r of monthlyRoots.value) row[r.name] = r.values[i] ?? 0;
+        // récurrent attendu : renseigné seulement au mois en cours (estimé)
+        row['Récurrent attendu'] = i === idx ? (m.estimate?.recurring?.expense?.remaining ?? null) : null;
         return row;
     });
 });
@@ -540,6 +650,12 @@ onMounted(() => {
                         </Column>
                         <Column field="Dépenses" header="Dépenses" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data['Dépenses']) }}</template>
+                        </Column>
+                        <Column field="Récurrent attendu" header="Récurrent attendu" class="text-right">
+                            <template #body="{ data }">
+                                <span v-if="data['Récurrent attendu'] !== null && data['Récurrent attendu'] !== undefined">{{ formatMoney(data['Récurrent attendu']) }}</span>
+                                <span v-else class="text-muted">—</span>
+                            </template>
                         </Column>
                         <Column field="Revenus" header="Revenus" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data['Revenus']) }}</template>

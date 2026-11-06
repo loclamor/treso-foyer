@@ -50,6 +50,7 @@ Puis <https://localhost:8543> → page de connexion.
 | Opérations | recherche et filtres (période, catégorie, texte, montant, sens, source, doublons), totaux, catégorisation d'une opération ou de tout un commerçant, catégorisation de la sélection, notes |
 | À catégoriser | opérations non classées regroupées par commerçant (nombre, total, fourchette de montants, période, suggestion) ; « Classer » crée une règle pour le commerçant ; « Voir les opérations » pour classer individuellement un commerçant mixte (ex. courses et carburant au même magasin) |
 | Imports | glisser-déposer de relevés PDF / exports CSV, rapport par fichier, historique |
+| Récurrences | séries détectées automatiquement (dépenses et revenus récurrents : loyer, abonnements, salaire…) : statut, fréquence, montant attendu, prochaine échéance, opérations liées ; corrections manuelles possibles |
 | Réglages | catégories (arbre, couleurs, **couleur des graphiques** : 8 emplacements), règles (avec aperçu), comptes (alias, titulaires) ; contrôles : doublons probables, virements internes |
 
 Le sélecteur en haut à droite restreint toutes les vues au **foyer**, à **une personne** ou à **un compte**.
@@ -115,6 +116,10 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 - Réglages › Véhicules : créer les véhicules du foyer (dates d'acquisition / de cession, plaque, caractéristiques) et saisir les relevés kilométriques depuis la fiche du véhicule.
 - Les opérations des catégories « liées à un véhicule » (par défaut Transport › Carburant, Entretien véhicule, Assurance auto, Péages & parking) sont affectées automatiquement au véhicule s'il est le seul actif à leur date ; sinon via une règle désignant un véhicule, ou à la main (Opérations, unitaire ou en masse). Détails : [ADR 0011](docs/adr/0011-vehicules.md).
 - Pré-remplissage depuis la plaque (optionnel, service externe) : dans `.env.local`, `VEHICLE_LOOKUP_PROVIDER=rapidapi` et `VEHICLE_LOOKUP_TOKEN=<clé RapidAPI « API Plaque Immatriculation France »>`, puis `make cc`. Désactivé par défaut.
+
+## Récurrences
+- Les dépenses et revenus récurrents (loyer, énergie, abonnements, impôts mensualisés, salaire…) sont **détectés automatiquement** à partir de l'historique (36 mois) : `make sf c='app:recurrences:detect'` (ajoutez `--dry-run` pour simuler), relancé automatiquement après chaque import (`app:import` / `POST /api/imports`). Détails : [ADR 0012](docs/adr/0012-recurrences.md).
+- Les séries détectées alimentent l'estimation du mois en cours du graphe mensuel (échéances restantes + partie variable) et sont gérables via l'API (`GET/PATCH /api/recurrences`, `POST /api/recurrences/detect`) — l'écran dédié arrive dans un lot front séparé.
 
 ## Tests
 ```bash

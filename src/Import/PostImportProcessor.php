@@ -9,15 +9,18 @@ use App\Categorization\Categorizer;
 use App\Categorization\InternalTransferMatcher;
 use App\Entity\Household;
 use App\Entity\Operation;
+use App\Recurrence\RecurrenceDetector;
 use App\Repository\OperationRepository;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Clock\ClockInterface;
 
 /**
  * Post-traitement après un import réel (extrait de ImportCommand, utilisé aussi par
  * POST /api/imports) : appariement des virements internes du foyer, puis catégorisation
  * des opérations non catégorisées et des opérations enrichies non manuelles
- * (leur commerçant a pu changer), puis affectation automatique des véhicules.
+ * (leur commerçant a pu changer), puis affectation automatique des véhicules,
+ * puis détection des séries récurrentes.
  */
 final class PostImportProcessor
 {
@@ -26,6 +29,8 @@ final class PostImportProcessor
         private readonly InternalTransferMatcher $transferMatcher,
         private readonly Categorizer $categorizer,
         private readonly VehicleAssigner $vehicleAssigner,
+        private readonly RecurrenceDetector $recurrenceDetector,
+        private readonly ClockInterface $clock,
     ) {
     }
 
@@ -52,11 +57,15 @@ final class PostImportProcessor
         $this->entityManager->flush();
         $vehicleReport = $this->vehicleAssigner->sync($household);
 
+        // Détection des récurrences après le flush (DBAL, hors UnitOfWork), à la date du jour.
+        $recurrenceReport = $this->recurrenceDetector->sync($household, $this->clock->now());
+
         return new PostImportReport(
             transfersMatched: $transferReport->matched,
             transfersAmbiguous: $transferReport->ambiguous,
             categorization: $categorizationReport,
             vehicles: $vehicleReport,
+            recurrences: $recurrenceReport,
         );
     }
 }

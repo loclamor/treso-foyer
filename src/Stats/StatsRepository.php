@@ -262,19 +262,24 @@ final class StatsRepository
      * Moyennes mensuelles des dépenses et des revenus des k derniers mois complets précédant le mois de
      * $currentMonthFirst (k ≤ 12, bornés au premier mois ayant au moins une opération dans
      * le périmètre ; même périmètre comptes et même classification que `expense`).
+     * `expenseVariable` / `incomeVariable` = mêmes moyennes restreintes aux opérations NON liées
+     * à une série récurrente non ignorée (operation.recurring_series_id NULL ou série « ignored »).
      *
      * @param list<int>|null $accountIds
-     * @return array{expense: int, income: int, basisMonths: int}|null null si aucune opération avant le mois en cours (k = 0)
+     * @return array{expense: int, income: int, basisMonths: int, expenseVariable: int, incomeVariable: int}|null null si aucune opération avant le mois en cours (k = 0)
      */
     public function monthlyAverages(Household $household, ?array $accountIds, \DateTimeImmutable $currentMonthFirst): ?array
     {
         // Toutes les opérations du périmètre strictement avant le mois en cours.
         $period = new StatsPeriod(new \DateTimeImmutable('1900-01-01'), $currentMonthFirst->modify('-1 day'));
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
+        $notRecurring = "(o.recurring_series_id IS NULL OR rs.status = 'ignored')";
         $sql = $cte."\n"
             ."SELECT date_trunc('month', o.date)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e,\n"
-            ."COALESCE(SUM(".AmountClassifier::incomeAmountExpr()."), 0) AS i\n"
-            .$this->fromWhere($accountIds)."\n"
+            ."COALESCE(SUM(".AmountClassifier::incomeAmountExpr()."), 0) AS i,\n"
+            ."COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::expenseAmountExpr()." ELSE 0 END), 0) AS e_var,\n"
+            ."COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::incomeAmountExpr()." ELSE 0 END), 0) AS i_var\n"
+            .$this->fromWhere($accountIds, true)."\n"
             ."GROUP BY 1\n"
             ."ORDER BY 1";
         $rows = $this->connection()->fetchAllAssociative($sql, $params, $types);
@@ -293,11 +298,15 @@ final class StatsRepository
 
         $expense = 0;
         $income = 0;
+        $expenseVariable = 0;
+        $incomeVariable = 0;
         foreach ($rows as $row) {
             $month = new \DateTimeImmutable((string) $row['m']);
             if ($month >= $bound) {
                 $expense += (int) $row['e'];
                 $income += (int) $row['i'];
+                $expenseVariable += (int) $row['e_var'];
+                $incomeVariable += (int) $row['i_var'];
             }
         }
 
@@ -305,6 +314,31 @@ final class StatsRepository
             'expense' => (int) round($expense / $k),
             'income' => (int) round($income / $k),
             'basisMonths' => $k,
+            'expenseVariable' => (int) round($expenseVariable / $k),
+            'incomeVariable' => (int) round($incomeVariable / $k),
+        ];
+    }
+
+    /**
+     * Totaux « non récurrents » (opérations non liées à une série non ignorée) du mois en cours
+     * sur [from, to] : dépenses et revenus positifs, même classification que partout.
+     *
+     * @param list<int>|null $accountIds
+     * @return array{expense: int, income: int}
+     */
+    public function currentMonthVariable(Household $household, ?array $accountIds, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        [$cte, $params, $types] = $this->base($household, $accountIds, new StatsPeriod($from, $to));
+        $notRecurring = "(o.recurring_series_id IS NULL OR rs.status = 'ignored')";
+        $sql = $cte."\n"
+            ."SELECT COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::expenseAmountExpr()." ELSE 0 END), 0) AS e,\n"
+            ."COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::incomeAmountExpr()." ELSE 0 END), 0) AS i\n"
+            .$this->fromWhere($accountIds, true);
+        $row = $this->connection()->fetchAssociative($sql, $params, $types);
+
+        return [
+            'expense' => (int) $row['e'],
+            'income' => (int) $row['i'],
         ];
     }
 
@@ -749,16 +783,19 @@ final class StatsRepository
 
     /**
      * FROM/WHERE commun : opération o, compte a, catégorie c + racine r, période params.
+     * Avec $withSeries, joint aussi recurring_series rs (pour exclure les opérations liées
+     * à une série non ignorée).
      *
      * @param list<int>|null $accountIds
      */
-    private function fromWhere(?array $accountIds): string
+    private function fromWhere(?array $accountIds, bool $withSeries = false): string
     {
         $scope = null !== $accountIds ? ' AND a.id IN (:scopeIds)' : '';
+        $series = $withSeries ? "\n                LEFT JOIN recurring_series rs ON rs.id = o.recurring_series_id" : '';
 
         return 'FROM operation o
                 JOIN account a ON a.id = o.account_id
-                '.AmountClassifier::joins().'
+                '.AmountClassifier::joins().$series.'
                 CROSS JOIN params
                 WHERE a.household_id = params.household_id'.$scope.'
                   AND o.date >= params.from_d

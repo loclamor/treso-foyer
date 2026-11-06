@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Import;
 
 use App\Categorization\CategorizationReport;
+use App\Recurrence\RecurrenceDetectionReport;
 use App\Vehicle\VehicleAssignmentReport;
 
 /**
  * Résultat du post-traitement d'un import : appariement des virements internes,
- * catégorisation automatique puis affectation des véhicules (compteurs uniquement,
- * jamais de libellé).
+ * catégorisation automatique, affectation des véhicules puis détection des récurrences
+ * (compteurs uniquement, jamais de libellé).
  */
 final readonly class PostImportReport
 {
@@ -19,6 +20,7 @@ final readonly class PostImportReport
         public int $transfersAmbiguous,
         public CategorizationReport $categorization,
         public VehicleAssignmentReport $vehicles,
+        public RecurrenceDetectionReport $recurrences,
     ) {
     }
 

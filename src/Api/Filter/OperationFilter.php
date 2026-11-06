@@ -7,6 +7,7 @@ namespace App\Api\Filter;
 use App\Api\BadRequestException;
 use App\Entity\Category;
 use App\Entity\Household;
+use App\Entity\RecurringSeries;
 use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
@@ -46,6 +47,7 @@ final class OperationFilter
         public readonly string $order,
         public readonly ?int $vehicleId,
         public readonly bool $vehicleUnassigned,
+        public readonly ?int $recurringSeriesId,
     ) {
     }
 
@@ -123,6 +125,26 @@ final class OperationFilter
         }
         $vehicleUnassigned = in_array((string) $request->query->get('vehicleUnassigned', '0'), ['1', 'true'], true);
 
+        $recurringSeriesId = null;
+        $rawRecurringSeriesId = $request->query->get('recurringSeriesId');
+        if (null !== $rawRecurringSeriesId && '' !== $rawRecurringSeriesId) {
+            if (!ctype_digit((string) $rawRecurringSeriesId)) {
+                throw new BadRequestException('Paramètre recurringSeriesId invalide.', 'invalid_query');
+            }
+            $recurringSeriesId = (int) $rawRecurringSeriesId;
+            $exists = $entityManager->getRepository(RecurringSeries::class)->createQueryBuilder('rs')
+                ->select('rs.id')
+                ->join('rs.account', 'a')
+                ->where('rs.id = :id')
+                ->andWhere('a.household = :household')
+                ->setParameter('id', $recurringSeriesId)
+                ->setParameter('household', $household)
+                ->getQuery()->getOneOrNullResult();
+            if (null === $exists) {
+                throw new BadRequestException('Série récurrente introuvable.', 'invalid_query');
+            }
+        }
+
         return new self(
             accountIds: null, // posé par l'appelant via withAccountIds()
             from: $from,
@@ -141,6 +163,7 @@ final class OperationFilter
             order: $order,
             vehicleId: $vehicleId,
             vehicleUnassigned: $vehicleUnassigned,
+            recurringSeriesId: $recurringSeriesId,
         );
     }
 
@@ -165,6 +188,7 @@ final class OperationFilter
             order: $this->order,
             vehicleId: $this->vehicleId,
             vehicleUnassigned: $this->vehicleUnassigned,
+            recurringSeriesId: $this->recurringSeriesId,
         );
     }
 
@@ -224,6 +248,9 @@ final class OperationFilter
             $qb->leftJoin('o.category', 'fvc')
                 ->andWhere('o.vehicle IS NULL')
                 ->andWhere('fvc.vehicleRelated = true');
+        }
+        if (null !== $this->recurringSeriesId) {
+            $qb->andWhere('o.recurringSeries = :recurringSeriesId')->setParameter('recurringSeriesId', $this->recurringSeriesId);
         }
     }
 

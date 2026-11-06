@@ -43,7 +43,7 @@ erDiagram
 | `CategorizationRule` | Règle automatique | champ commerçant/libellé, contient/commence par/exact/regex, sens, bornes de montant (valeur absolue), compte optionnel, priorité ; `matches()` pur et testé |
 | `InternalTransfer` | Paire de virements entre comptes du foyer | exclue des stats consolidées |
 | `Budget` | Budget mensuel d'un poste | portée foyer / personne / compte |
-| `RecurringSeries` | Dépense/revenu récurrent détecté | fréquence, montant attendu ± tolérance, prochaine échéance |
+| `RecurringSeries` | Dépense/revenu récurrent détecté (ADR 0012) | unicité (compte, `matchKey` = `coalesce(merchant, normalized_label)`, `direction`) ; fréquence (ajout de `bimonthly`), montant attendu **toujours positif** ± tolérance, `lastOccurrence`/`nextExpected`, `activeMonths` (mois 1..12 actifs ou null), statut `detected`/`confirmed`/`ignored`/`ended` |
 | `Vehicle` | Véhicule du foyer | plaque toujours stockée normalisée (SIV `AA-123-AA`, FNI sans séparateurs), unicité (foyer, nom) et (foyer, plaque) ; période de service `acquiredAt`/`disposedAt` (`isActiveOn()`), conducteur principal, données brutes d'une API de plaque (`lookupData`/`lookupAt`) |
 | `OdometerReading` | Relevé de compteur d'un véhicule | un relevé par (véhicule, date), `km` ≥ 0 |
 

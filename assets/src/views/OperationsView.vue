@@ -11,10 +11,12 @@ import DatePicker from 'primevue/datepicker';
 import Textarea from 'primevue/textarea';
 import Dialog from 'primevue/dialog';
 import Card from 'primevue/card';
+import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
 import { useScopeStore } from '@/stores/scope';
 import { useVehiclesStore } from '@/stores/vehicles';
 import { bulkCategorize, listOperations, patchOperation } from '@/api/operations';
+import { listRecurrences } from '@/api/recurrences';
 import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { centsToEuros, dateToIso, formatDate, formatDateTime, parseEuros } from '@/utils/format';
@@ -66,6 +68,7 @@ const filters = reactive({
     source: null,
     duplicateStatus: null,
     vehicle: null, // null | 'unassigned' | id de véhicule
+    recurringSeriesId: null, // id de série récurrente (lien depuis l'écran Récurrences)
 });
 
 const directionOptions = [
@@ -113,6 +116,7 @@ function initFromQuery() {
     if (q.duplicateStatus) filters.duplicateStatus = String(q.duplicateStatus);
     if (q.vehicleId) filters.vehicle = Number(q.vehicleId);
     if (q.vehicleUnassigned === '1' || q.vehicleUnassigned === 'true') filters.vehicle = 'unassigned';
+    if (q.recurringSeriesId) filters.recurringSeriesId = Number(q.recurringSeriesId);
     if (q.page) first.value = (Number(q.page) - 1) * rows.value;
     if (q.perPage) rows.value = Number(q.perPage);
     if (q.sort) sortField.value = String(q.sort);
@@ -136,6 +140,7 @@ function buildQuery() {
     if (filters.duplicateStatus) query.duplicateStatus = filters.duplicateStatus;
     if (filters.vehicle === 'unassigned') query.vehicleUnassigned = '1';
     else if (filters.vehicle) query.vehicleId = filters.vehicle;
+    if (filters.recurringSeriesId) query.recurringSeriesId = filters.recurringSeriesId;
     const page = Math.floor(first.value / rows.value) + 1;
     if (page > 1) query.page = page;
     if (rows.value !== 25) query.perPage = rows.value;
@@ -167,6 +172,7 @@ function buildParams() {
     if (filters.duplicateStatus) params.duplicateStatus = filters.duplicateStatus;
     if (filters.vehicle === 'unassigned') params.vehicleUnassigned = 1;
     else if (filters.vehicle) params.vehicleId = filters.vehicle;
+    if (filters.recurringSeriesId) params.recurringSeriesId = filters.recurringSeriesId;
     return params;
 }
 
@@ -240,6 +246,31 @@ function resetFilters() {
     filters.source = null;
     filters.duplicateStatus = null;
     filters.vehicle = null;
+    filters.recurringSeriesId = null;
+    onFilterChange();
+}
+
+// ---------- puce du filtre récurrence actif ----------
+// Libellé « Récurrence : <merchant> » quand la série est retrouvée, sinon « Récurrence #id ».
+const recurringFilterLabel = ref('');
+
+async function loadRecurringFilterLabel() {
+    if (!filters.recurringSeriesId) {
+        recurringFilterLabel.value = '';
+        return;
+    }
+    try {
+        const res = await listRecurrences({ ...scope.params });
+        const found = (res.items ?? []).find((r) => r.id === filters.recurringSeriesId);
+        recurringFilterLabel.value = found?.merchant ? `Récurrence : ${found.merchant}` : `Récurrence #${filters.recurringSeriesId}`;
+    } catch {
+        recurringFilterLabel.value = `Récurrence #${filters.recurringSeriesId}`;
+    }
+}
+
+function clearRecurringFilter() {
+    filters.recurringSeriesId = null;
+    recurringFilterLabel.value = '';
     onFilterChange();
 }
 
@@ -349,6 +380,7 @@ const showAccountColumn = computed(() => scope.current.type !== 'account');
 onMounted(() => {
     initFromQuery();
     if (!vehiclesStore.loaded) vehiclesStore.refresh().catch(() => {});
+    loadRecurringFilterLabel();
     load();
 });
 </script>
@@ -381,6 +413,25 @@ onMounted(() => {
                 outlined
                 @click="openBulkVehicle"
             />
+        </div>
+
+        <div v-if="filters.recurringSeriesId" class="active-filters">
+            <Tag
+                :value="recurringFilterLabel || `Récurrence #${filters.recurringSeriesId}`"
+                severity="info"
+                icon="pi pi-replay"
+                class="recurring-filter-tag"
+                role="button"
+                tabindex="0"
+                :aria-label="'Retirer le filtre récurrence'"
+                @click="clearRecurringFilter"
+                @keydown.enter="clearRecurringFilter"
+            >
+                <template #default>
+                    {{ recurringFilterLabel || `Récurrence #${filters.recurringSeriesId}` }}
+                    <i class="pi pi-times tag-remove" aria-hidden="true" />
+                </template>
+            </Tag>
         </div>
 
         <Card v-show="showFilters" id="operations-filters" class="filters">
@@ -647,6 +698,18 @@ onMounted(() => {
 }
 .filters {
     margin-bottom: 1rem;
+}
+.active-filters {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.recurring-filter-tag {
+    cursor: pointer;
+}
+.tag-remove {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
 }
 .filters-grid {
     display: grid;

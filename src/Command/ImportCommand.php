@@ -188,6 +188,15 @@ final class ImportCommand extends Command
                 $vehicles->auto,
                 $vehicles->cleared,
             ));
+            $recurrences = $result->recurrences;
+            $io->writeln(sprintf(
+                'Post-traitement — récurrences : %d créée(s), %d mise(s) à jour, %d terminée(s), %d retirée(s), %d opération(s) liée(s).',
+                $recurrences->created,
+                $recurrences->updated,
+                $recurrences->ended,
+                $recurrences->removed,
+                $recurrences->linked,
+            ));
         } catch (\Throwable $exception) {
             // Un échec du post-traitement ne fait pas échouer l'import déjà réussi.
             $io->warning(sprintf('Post-traitement ignoré : %s', $exception->getMessage()));

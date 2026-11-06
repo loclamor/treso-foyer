@@ -32,6 +32,7 @@ final class OperationPresenter
             'duplicateStatus' => $operation->getDuplicateStatus()->value,
             'duplicateOfId' => null !== $operation->getDuplicateOf() ? (int) $operation->getDuplicateOf()->getId() : null,
             'internalTransferId' => null !== $operation->getInternalTransfer() ? (int) $operation->getInternalTransfer()->getId() : null,
+            'recurringSeriesId' => null !== $operation->getRecurringSeries() ? (int) $operation->getRecurringSeries()->getId() : null,
             'vehicle' => null !== $operation->getVehicle() ? $this->vehiclePresenter->presentRef($operation->getVehicle()) : null,
             'vehicleSource' => $operation->getVehicleSource()?->value,
             'note' => $operation->getNote(),

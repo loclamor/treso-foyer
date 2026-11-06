@@ -14,6 +14,7 @@ use App\Entity\Account;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Vehicle;
+use App\Recurrence\RecurrenceForecaster;
 use App\Repository\CategoryRepository;
 use App\Repository\OdometerReadingRepository;
 use App\Stats\StatsPeriod;
@@ -85,6 +86,7 @@ final class StatsController extends AbstractController
         HouseholdProvider $householdProvider,
         Scope $scope,
         StatsRepository $statsRepository,
+        RecurrenceForecaster $recurrenceForecaster,
         CategoryPresenter $categoryPresenter,
         EntityManagerInterface $entityManager,
         ClockInterface $clock,
@@ -99,8 +101,10 @@ final class StatsController extends AbstractController
 
         // Estimation du mois en cours (présent seulement s'il fait partie de la série) :
         // spent / received = dépense / revenu à date, average / incomeAverage = moyennes des
-        // k derniers mois complets (k ≤ 12), expense / income = max(à date, moyenne) ;
-        // null si aucune opération avant le mois en cours.
+        // k derniers mois complets (k ≤ 12), recurring = échéances récurrentes restantes du mois
+        // (RecurrenceForecaster), variable = partie NON récurrente (moyenne des k mois complets,
+        // montant à date, reste = max(0, moyenne − à date)) ; expense / income = à date + récurrent
+        // restant + variable restant. null si aucune opération avant le mois en cours.
         $estimate = null;
         $currentMonth = $now->format('Y-m');
         $currentIndex = array_search($currentMonth, $data['months'], true);
@@ -109,15 +113,29 @@ final class StatsController extends AbstractController
             if (null !== $averages) {
                 $spent = $data['expense'][$currentIndex];
                 $received = $data['income'][$currentIndex];
+                $recurring = $recurrenceForecaster->forMonth($household, $accountIds, $now);
+                $monthTo = min($period->to, StatsPeriod::lastOfMonth($now));
+                $variable = $statsRepository->currentMonthVariable($household, $accountIds, StatsPeriod::firstOfMonth($now), $monthTo);
+                $expenseRemaining = max(0, $averages['expenseVariable'] - $variable['expense']);
+                $incomeRemaining = max(0, $averages['incomeVariable'] - $variable['income']);
                 $estimate = [
                     'month' => $currentMonth,
-                    'spent' => $spent,
-                    'average' => $averages['expense'],
-                    'expense' => max($spent, $averages['expense']),
-                    'received' => $received,
-                    'incomeAverage' => $averages['income'],
-                    'income' => max($received, $averages['income']),
                     'basisMonths' => $averages['basisMonths'],
+                    'spent' => $spent,
+                    'received' => $received,
+                    'average' => $averages['expense'],
+                    'incomeAverage' => $averages['income'],
+                    'recurring' => $recurring,
+                    'variable' => [
+                        'expenseAverage' => $averages['expenseVariable'],
+                        'expenseSpent' => $variable['expense'],
+                        'expenseRemaining' => $expenseRemaining,
+                        'incomeAverage' => $averages['incomeVariable'],
+                        'incomeReceived' => $variable['income'],
+                        'incomeRemaining' => $incomeRemaining,
+                    ],
+                    'expense' => $spent + $recurring['expense']['remaining'] + $expenseRemaining,
+                    'income' => $received + $recurring['income']['remaining'] + $incomeRemaining,
                 ];
             }
         }

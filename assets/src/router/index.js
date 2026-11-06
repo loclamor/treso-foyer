@@ -7,6 +7,7 @@ const routes = [
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
     { path: '/statistiques', name: 'stats', component: () => import('@/views/StatsView.vue') },
     { path: '/operations', name: 'operations', component: () => import('@/views/OperationsView.vue') },
+    { path: '/recurrences', name: 'recurrences', component: () => import('@/views/RecurrencesView.vue') },
     { path: '/a-categoriser', name: 'to-categorize', component: () => import('@/views/ToCategorizeView.vue') },
     { path: '/imports', name: 'imports', component: () => import('@/views/ImportsView.vue') },
     { path: '/parametrage/categories', name: 'categories', component: () => import('@/views/CategoriesView.vue') },
