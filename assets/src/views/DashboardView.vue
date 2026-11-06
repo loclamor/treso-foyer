@@ -165,7 +165,11 @@ async function loadMonthly() {
     loadingMonthly.value = true;
     monthlyError.value = '';
     try {
-        const prevParams = period.previousParams;
+        // Graphe mensuel : le mois en cours y est estimé jusqu'à la fin du mois ⇒ la période
+        // précédente va jusqu'à la FIN de son dernier mois (pas « mêmes jours », réservé aux totaux).
+        const prevParams = period.previousParams
+            ? { from: period.previousParams.from, to: monthBounds(period.previousParams.to.slice(0, 7)).to }
+            : null;
         const [cur, prev] = await Promise.all([
             getMonthly(scope.params, period.params),
             prevParams ? getMonthly(scope.params, prevParams) : Promise.resolve(null),
