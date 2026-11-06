@@ -3,8 +3,9 @@ import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Select from 'primevue/select';
 import DatePicker from 'primevue/datepicker';
+import Checkbox from 'primevue/checkbox';
 import { usePeriodStore } from '@/stores/period';
-import { dateToIso } from '@/utils/format';
+import { dateToIso, formatDate } from '@/utils/format';
 
 // Ligne de filtres unique au-dessus des graphiques : préréglages de période + plage personnalisée.
 // Synchronisée avec la query string (?period=… ou ?from=…&to=…).
@@ -28,6 +29,15 @@ const period = usePeriodStore();
 const selectedPreset = computed({
     get: () => period.preset,
     set: (v) => period.setPreset(v),
+});
+
+const compareModel = computed({
+    get: () => period.compare,
+    set: (v) => period.setCompare(v),
+});
+const previousLabel = computed(() => {
+    const r = period.previousRange;
+    return r ? `${formatDate(r.from)} → ${formatDate(r.to)}` : '';
 });
 
 function toDate(isoStr) {
@@ -63,6 +73,7 @@ watch(
         delete query.period;
         delete query.from;
         delete query.to;
+        delete query.compare;
         router.replace({ query: { ...query, ...q } });
     },
     { deep: true },
@@ -90,6 +101,11 @@ watch(
             class="period-range"
             show-icon
         />
+        <div v-if="period.compareAvailable" class="period-compare">
+            <Checkbox v-model="compareModel" input-id="period-compare" binary />
+            <label for="period-compare">Comparer à la période précédente</label>
+            <span v-if="previousLabel" class="period-compare-range">({{ previousLabel }})</span>
+        </div>
     </div>
 </template>
 
@@ -103,6 +119,16 @@ watch(
 }
 .period-select {
     min-width: 12rem;
+}
+.period-compare {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: 0.5rem;
+}
+.period-compare-range {
+    color: var(--p-text-muted-color);
+    font-size: 0.875rem;
 }
 .period-range {
     max-width: 18rem;

@@ -12,6 +12,48 @@ function iso(d) {
 function firstOfMonth(d) {
     return new Date(d.getFullYear(), d.getMonth(), 1);
 }
+function parseIso(s) {
+    const [y, m, d] = String(s).split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+function lastDayOfMonth(y, m) {
+    return new Date(y, m + 1, 0).getDate();
+}
+// Date décalée de n mois en arrière, jour borné au dernier jour du mois cible (31/03 − 1 mois = 28/02).
+function minusMonths(d, n) {
+    const y = d.getFullYear();
+    const m = d.getMonth() - n;
+    const target = new Date(y, m, 1);
+    return new Date(target.getFullYear(), target.getMonth(), Math.min(d.getDate(), lastDayOfMonth(target.getFullYear(), target.getMonth())));
+}
+
+/**
+ * Période précédente alignée sur {from, to} :
+ * - from au 1er du mois ⇒ décalage de N mois calendaires (N = nombre de mois couverts) ;
+ *   to en fin de mois ⇒ fin du mois cible, sinon même jour (« mois à date » : mêmes jours) ;
+ * - sinon ⇒ même nombre de jours juste avant from.
+ * Ainsi le mois i de la période précédente correspond au mois i de la période courante.
+ */
+export function previousRangeOf(range) {
+    if (!range?.from || !range?.to) return null;
+    const from = parseIso(range.from);
+    const to = parseIso(range.to);
+    if (from.getDate() === 1) {
+        const n = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+        const pFrom = minusMonths(from, n);
+        const toIsEndOfMonth = to.getDate() === lastDayOfMonth(to.getFullYear(), to.getMonth());
+        const shifted = minusMonths(to, n);
+        const pTo = toIsEndOfMonth
+            ? new Date(shifted.getFullYear(), shifted.getMonth(), lastDayOfMonth(shifted.getFullYear(), shifted.getMonth()))
+            : shifted;
+        return { from: iso(pFrom), to: iso(pTo) };
+    }
+    const days = Math.round((to - from) / 86400000) + 1;
+    const pTo = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1);
+    const pFrom = new Date(from.getFullYear(), from.getMonth(), from.getDate() - days);
+    return { from: iso(pFrom), to: iso(pTo) };
+}
+
 function today() {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -22,6 +64,8 @@ export const PRESET_KEYS = ['month', 'lastMonth', 'last3', 'last6', 'last12', 'y
 export const usePeriodStore = defineStore('period', () => {
     const preset = ref('last12'); // défaut : 12 derniers mois
     const custom = ref({ from: null, to: null }); // 'YYYY-MM-DD'
+    // Comparaison avec la période précédente (case à cocher du filtre ; sans objet pour « Tout l'historique »).
+    const compare = ref(false);
     // Date de la plus ancienne opération du foyer ('YYYY-MM-DD'), borne de « Tout l'historique ».
     const firstDate = ref(null);
     let firstDatePromise = null;
@@ -82,12 +126,24 @@ export const usePeriodStore = defineStore('period', () => {
         return p;
     });
 
+    const compareAvailable = computed(() => preset.value !== 'all');
+    const compareActive = computed(() => compare.value && compareAvailable.value && !!range.value.from && !!range.value.to);
+    // Plage de la période précédente (null si comparaison inactive).
+    const previousRange = computed(() => (compareActive.value ? previousRangeOf(range.value) : null));
+    const previousParams = computed(() => (previousRange.value ? { ...previousRange.value } : null));
+
     // Query string reflétant la sélection.
-    const query = computed(() =>
-        preset.value === 'custom'
+    const query = computed(() => {
+        const q = preset.value === 'custom'
             ? { from: custom.value.from, to: custom.value.to }
-            : { period: preset.value },
-    );
+            : { period: preset.value };
+        if (compare.value) q.compare = '1';
+        return q;
+    });
+
+    function setCompare(v) {
+        compare.value = !!v;
+    }
 
     function setPreset(p) {
         if (PRESET_KEYS.includes(p)) preset.value = p;
@@ -101,6 +157,7 @@ export const usePeriodStore = defineStore('period', () => {
 
     // Applique la query string de la route (une seule fois au montage du filtre).
     function applyQuery(q) {
+        compare.value = q.compare === '1';
         if (q.from && q.to) {
             custom.value = { from: String(q.from), to: String(q.to) };
             preset.value = 'custom';
@@ -110,5 +167,8 @@ export const usePeriodStore = defineStore('period', () => {
         }
     }
 
-    return { preset, custom, firstDate, range, params, query, setPreset, setCustom, applyQuery, loadFirstDate };
+    return {
+        preset, custom, firstDate, compare, compareAvailable, compareActive, range, params, previousRange, previousParams, query,
+        setPreset, setCustom, setCompare, applyQuery, loadFirstDate,
+    };
 });

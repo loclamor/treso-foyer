@@ -157,6 +157,7 @@ const kpis = computed(() => {
 
 // ---------- dépenses mensuelles par poste (stats/monthly) ----------
 const monthly = ref(null);
+const prevMonthly = ref(null); // période précédente (comparaison), null si inactive
 const loadingMonthly = ref(true);
 const monthlyError = ref('');
 
@@ -164,7 +165,13 @@ async function loadMonthly() {
     loadingMonthly.value = true;
     monthlyError.value = '';
     try {
-        monthly.value = await getMonthly(scope.params, period.params);
+        const prevParams = period.previousParams;
+        const [cur, prev] = await Promise.all([
+            getMonthly(scope.params, period.params),
+            prevParams ? getMonthly(scope.params, prevParams) : Promise.resolve(null),
+        ]);
+        monthly.value = cur;
+        prevMonthly.value = prev;
     } catch (e) {
         monthlyError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
@@ -179,6 +186,49 @@ const monthlyRoots = computed(() => {
     if (m.uncategorized?.some((v) => v)) series.push({ category: null, values: m.uncategorized });
     return foldToOthers(series, theme.mode.value);
 });
+
+// Période précédente : mêmes postes (repliés comme la période courante), alignés mois par mois
+// (le mois i de la période précédente est dessiné à côté du mois i courant).
+const PREV_ID = 'prev';
+const PREV_INCOME_NAME = 'Revenus (période précédente)';
+const isPrevSeriesId = (id) => typeof id === 'string' && id.startsWith(`${PREV_ID}:`);
+
+const prevMonthlyRoots = computed(() => {
+    const p = prevMonthly.value;
+    if (!p) return [];
+    const series = p.byRoot.map((r) => ({ category: r.category, values: r.values }));
+    if (p.uncategorized?.some((v) => v)) series.push({ category: null, values: p.uncategorized });
+    return foldToOthers(series, theme.mode.value);
+});
+
+// Séries barres « période précédente » : nom identique au poste courant (la légende masque
+// les deux ensemble), pile distincte à gauche de la pile courante, couleur atténuée.
+function previousSeries(m, c) {
+    const p = prevMonthly.value;
+    if (!p) return [];
+    const n = m.months.length;
+    const align = (values) => Array.from({ length: n }, (_, i) => values?.[i] ?? null);
+    const out = prevMonthlyRoots.value.map((r) => ({
+        id: `${PREV_ID}:${r.name}`,
+        name: r.name,
+        type: 'bar',
+        stack: 'previous',
+        data: align(r.values),
+        barMaxWidth: 26,
+        itemStyle: { ...barItemStyle(withAlpha(r.color, 0.35), c.surface) },
+        emphasis: { disabled: true },
+    }));
+    out.push({
+        id: `${PREV_ID}:income`,
+        name: PREV_INCOME_NAME,
+        type: 'line',
+        data: align(p.income),
+        symbol: 'none',
+        lineStyle: { width: 1.5, type: 'dotted', color: c.muted, opacity: 0.8 },
+        itemStyle: { color: c.muted },
+    });
+    return out;
+}
 
 // Estimations du mois en cours (mois incomplet) :
 // - revenus : la ligne réelle s'arrête au mois précédent ; un segment en pointillés part de
@@ -230,15 +280,20 @@ function incomeEstimateSeries(m, c, idx) {
     };
 }
 
+// Part variable restante estimée : segment vide en pointillés EN HAUT de la pile du mois en cours
+// (réel + hachuré récurrent + ce segment = estimate.expense). Un segment empilé plutôt qu'une barre
+// superposée (barGap -100 %) : compatible avec la pile « période précédente » à côté.
 function expenseEstimateSeries(m, c, idx) {
+    const est = m.estimate;
+    const recurringRemaining = est.recurring?.expense?.remaining ?? 0;
+    const variableRemaining = Math.max(0, est.expense - est.spent - recurringRemaining);
     return {
         name: EXPENSE_ESTIMATE_NAME,
         type: 'bar',
-        barGap: '-100%', // superposée à la pile du même mois
+        stack: 'depenses',
         barMaxWidth: 26,
-        z: 1,
-        data: m.months.map((mo, i) => (i === idx ? m.estimate.expense : null)),
-        itemStyle: { color: 'transparent', borderColor: c.muted, borderWidth: 1.5, borderType: 'dashed' },
+        data: m.months.map((mo, i) => (i === idx ? variableRemaining : null)),
+        itemStyle: { color: 'transparent', borderColor: c.muted, borderWidth: 1.5, borderType: 'dashed', borderRadius: 4 },
         emphasis: { disabled: true },
     };
 }
@@ -297,21 +352,25 @@ function recurringExpectedSeries(m, c, roots, idx) {
 }
 
 // Infobulle du graphe mensuel : détaille les estimations du mois en cours.
-function monthlyTooltip(c, estimate) {
+function monthlyTooltip(c, m, prev) {
     const t = baseTooltip(c);
-    if (!estimate) return t;
+    const estimate = m.estimate;
+    if (!estimate && !prev) return t;
     t.formatter = (params) => {
-        const list = (Array.isArray(params) ? params : [params]).filter((p) => {
+        const all = (Array.isArray(params) ? params : [params]).filter((p) => {
             const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
             return v !== null && v !== undefined;
         });
-        if (!list.length) return '';
-        const head = list[0].axisValueLabel ?? String(list[0].name ?? '');
-        const isCurrent = list.some((p) => p.seriesName === EXPENSE_ESTIMATE_NAME);
+        if (!all.length) return '';
+        const list = all.filter((p) => !isPrevSeriesId(p.seriesId));
+        const prevList = all.filter((p) => isPrevSeriesId(p.seriesId));
+        const head = all[0].axisValueLabel ?? String(all[0].name ?? '');
+        const dataIndex = all[0].dataIndex;
+        const isCurrent = !!estimate && m.months[dataIndex] === estimate.month;
         const lines = list.map((p) => {
             const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
             if (p.seriesName === EXPENSE_ESTIMATE_NAME) {
-                return `${p.marker} Dépenses estimées : <strong>${formatMoney(v)}</strong> (dépensé à date : ${formatMoney(estimate.spent)})`;
+                return `${p.marker} Dépenses estimées : <strong>${formatMoney(estimate.expense)}</strong> (dépensé à date : ${formatMoney(estimate.spent)})`;
             }
             if (p.seriesName === INCOME_ESTIMATE_NAME) {
                 if (!isCurrent) return null; // point de départ du segment = revenus réels du mois précédent
@@ -319,6 +378,20 @@ function monthlyTooltip(c, estimate) {
             }
             return `${p.marker} ${p.seriesName} : <strong>${formatMoney(v)}</strong>`;
         }).filter(Boolean);
+        if (prev && prevList.length) {
+            const prevMonth = prev.months[dataIndex];
+            const prevExpense = prev.expense[dataIndex] ?? 0;
+            const curExpense = m.expense[dataIndex] ?? 0;
+            const delta = prevExpense ? Math.round(((curExpense - prevExpense) / prevExpense) * 100) : null;
+            lines.push(`<strong>Période précédente — ${prevMonth ? formatMonth(prevMonth) : ''}</strong>`);
+            lines.push(`Dépenses : <strong>${formatMoney(prevExpense)}</strong>${delta === null ? '' : ` <span style="opacity:.7">(${delta >= 0 ? '+' : ''}${delta} % depuis)</span>`}`);
+            for (const p of prevList) {
+                const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
+                if (!v) continue;
+                const label = p.seriesName === PREV_INCOME_NAME ? 'Revenus' : escapeHtml(p.seriesName);
+                lines.push(`<span style="opacity:.75">${p.marker} ${label} : ${formatMoney(v)}</span>`);
+            }
+        }
         if (isCurrent) {
             lines.push(`<span style="opacity:.7">Moyenne des ${estimate.basisMonths} derniers mois complets</span>`);
             const recurring = estimate.recurring ?? null;
@@ -355,7 +428,9 @@ const monthlyOption = computed(() => {
     const c = chartColors(theme.mode.value);
     const roots = monthlyRoots.value;
     const labels = m.months.map((mo) => formatMonth(mo));
-    const series = roots.map((r) => ({
+    // Période précédente d'abord : sa pile se place à GAUCHE de la pile courante.
+    const series = previousSeries(m, c);
+    series.push(...roots.map((r) => ({
         name: r.name,
         type: 'bar',
         stack: 'depenses',
@@ -363,7 +438,7 @@ const monthlyOption = computed(() => {
         barMaxWidth: 26,
         itemStyle: barItemStyle(r.color, c.surface),
         emphasis: { focus: 'series' },
-    }));
+    })));
     const idx = currentIndex(m);
     // Hachuré « (attendu) » : récurrent restant du mois en cours, au-dessus de la pile réelle.
     if (idx !== -1) series.push(...recurringExpectedSeries(m, c, roots, idx));
@@ -383,9 +458,10 @@ const monthlyOption = computed(() => {
     }
     const legend = baseLegend(c);
     // Les séries « (attendu) » n'apparaissent pas dans la légende.
-    legend.data = series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name);
+    // Les postes de la période précédente partagent le nom du poste courant (une seule entrée).
+    legend.data = [...new Set(series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name))];
     return {
-        tooltip: monthlyTooltip(c, m.estimate),
+        tooltip: monthlyTooltip(c, m, prevMonthly.value),
         legend,
         grid: baseGrid(),
         xAxis: categoryAxis(c, labels),
@@ -400,7 +476,7 @@ const monthlyEmpty = computed(() => !monthly.value || !monthly.value.months?.len
 function onMonthlyClick(e) {
     if (e.componentType !== 'series' || e.seriesType !== 'bar' || !monthly.value) return;
     // la barre fantôme et les séries hachurées « (attendu) » ne sont pas cliquables
-    if (e.seriesName === EXPENSE_ESTIMATE_NAME || isRecurringSeriesId(e.seriesId)) return;
+    if (e.seriesName === EXPENSE_ESTIMATE_NAME || isRecurringSeriesId(e.seriesId) || isPrevSeriesId(e.seriesId)) return;
     // les séries hachurées décalent seriesIndex : la racine se retrouve par son nom
     const root = monthlyRoots.value.find((r) => r.name === e.seriesName);
     if (!root) return;
@@ -418,6 +494,7 @@ const monthlyTableRows = computed(() => {
     const idx = currentIndex(m);
     return m.months.map((mo, i) => {
         const row = { month: formatMonth(mo), Revenus: m.income[i], Dépenses: m.expense[i] };
+        if (prevMonthly.value) row['Dépenses (préc.)'] = prevMonthly.value.expense[i] ?? null;
         for (const r of monthlyRoots.value) row[r.name] = r.values[i] ?? 0;
         // récurrent attendu : renseigné seulement au mois en cours (estimé)
         row['Récurrent attendu'] = i === idx ? (m.estimate?.recurring?.expense?.remaining ?? null) : null;
@@ -428,6 +505,7 @@ const monthlyTableRows = computed(() => {
 // ---------- répartition des dépenses (stats/categories) avec drill ----------
 const drillParent = ref(null);
 const cats = ref(null);
+const prevCats = ref(null); // période précédente (comparaison), null si inactive
 const loadingCats = ref(true);
 const catsError = ref('');
 
@@ -435,11 +513,14 @@ async function loadCategories() {
     loadingCats.value = true;
     catsError.value = '';
     try {
-        const res = await getCategoriesStats(scope.params, period.params, {
-            direction: 'expense',
-            parentId: drillParent.value,
-        });
+        const opts = { direction: 'expense', parentId: drillParent.value };
+        const prevParams = period.previousParams;
+        const [res, prevRes] = await Promise.all([
+            getCategoriesStats(scope.params, period.params, opts),
+            prevParams ? getCategoriesStats(scope.params, prevParams, opts) : Promise.resolve(null),
+        ]);
         cats.value = res.rows;
+        prevCats.value = prevRes?.rows ?? null;
     } catch (e) {
         catsError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
@@ -468,21 +549,60 @@ const catsOption = computed(() => {
     }));
     // Barres horizontales triées : l'axe Y affiche le plus grand en haut.
     const labels = rows.map((r) => r.name).reverse();
+    // Période précédente : même poste (id de catégorie, null = non catégorisé), barre atténuée.
+    const prevByKey = new Map((prevCats.value ?? []).map((it) => [it.category?.id ?? 'none', it.total]));
+    const hasPrev = prevCats.value !== null;
+    const prevValue = (r) => prevByKey.get(r.category?.id ?? 'none') ?? 0;
+    const series = [
+        {
+            name: 'Dépenses',
+            type: 'bar',
+            data: rows.map((r) => ({ value: r.value, itemStyle: r.itemStyle, category: r.category, count: r.count, share: r.share })).reverse(),
+            barMaxWidth: 22,
+            label: { show: false },
+            emphasis: { focus: 'series' },
+        },
+    ];
+    if (hasPrev) {
+        // Ajoutée en second : sur un axe Y catégoriel, elle se dessine juste au-dessus de la barre courante.
+        series.push({
+            name: 'Période précédente',
+            type: 'bar',
+            data: rows.map((r) => ({
+                value: prevValue(r),
+                category: r.category,
+                itemStyle: { color: withAlpha(colorForCategory(r.category, theme.mode.value), 0.35), borderRadius: 4 },
+            })).reverse(),
+            barMaxWidth: 22,
+            barGap: '15%',
+            emphasis: { disabled: true },
+        });
+    }
+    const tooltip = { ...baseTooltip(c), trigger: hasPrev ? 'axis' : 'item', axisPointer: { type: 'shadow' } };
+    if (hasPrev) {
+        const range = period.previousRange;
+        tooltip.formatter = (params) => {
+            const list = Array.isArray(params) ? params : [params];
+            const cur = list.find((p) => p.seriesName === 'Dépenses');
+            const prv = list.find((p) => p.seriesName === 'Période précédente');
+            const curV = cur?.value ?? 0;
+            const prvV = prv?.value ?? 0;
+            const delta = prvV ? Math.round(((curV - prvV) / prvV) * 100) : null;
+            const name = escapeHtml(list[0]?.axisValueLabel ?? list[0]?.name ?? '');
+            return [
+                `<strong>${name}</strong>`,
+                `${cur?.marker ?? ''} Période : <strong>${formatMoney(curV)}</strong>`,
+                `${prv?.marker ?? ''} Précédente${range ? ` (${formatDate(range.from)} → ${formatDate(range.to)})` : ''} : ${formatMoney(prvV)}`,
+                delta === null ? '' : `<span style="opacity:.7">Variation : ${delta >= 0 ? '+' : ''}${delta} %</span>`,
+            ].filter(Boolean).join('<br/>');
+        };
+    }
     return {
-        tooltip: { ...baseTooltip(c), trigger: 'item', axisPointer: { type: 'shadow' } },
+        tooltip,
         grid: baseGrid({ left: 8, right: 48, top: 8, bottom: 8 }),
         xAxis: valueAxis(c),
         yAxis: categoryAxisY(c, labels),
-        series: [
-            {
-                name: 'Dépenses',
-                type: 'bar',
-                data: rows.map((r) => ({ value: r.value, itemStyle: r.itemStyle, category: r.category, count: r.count, share: r.share })).reverse(),
-                barMaxWidth: 22,
-                label: { show: false },
-                emphasis: { focus: 'series' },
-            },
-        ],
+        series,
     };
 });
 
@@ -490,7 +610,7 @@ const catsEmpty = computed(() => !cats.value || !cats.value.length);
 
 function onCatsClick(e) {
     const item = e.data;
-    if (!item) return;
+    if (!item || e.seriesName === 'Période précédente') return;
     const b = period.range;
     if (!drillParent.value && item.category) {
         // racine ⇒ détail des sous-catégories
@@ -593,6 +713,11 @@ function loadStats() {
 }
 
 watch(() => [scope.params, period.params], loadStats, { deep: true });
+// Case « Comparer » seule : seuls les graphes comparés se rechargent.
+watch(() => period.compareActive, () => {
+    loadMonthly();
+    loadCategories();
+});
 onMounted(() => {
     loadSummary();
     loadStats();
@@ -650,6 +775,9 @@ onMounted(() => {
                         </Column>
                         <Column field="Dépenses" header="Dépenses" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data['Dépenses']) }}</template>
+                        </Column>
+                        <Column v-if="prevMonthly" field="Dépenses (préc.)" header="Dépenses (préc.)" class="text-right">
+                            <template #body="{ data }">{{ formatMoney(data['Dépenses (préc.)']) }}</template>
                         </Column>
                         <Column field="Récurrent attendu" header="Récurrent attendu" class="text-right">
                             <template #body="{ data }">
