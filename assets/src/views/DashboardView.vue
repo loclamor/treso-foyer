@@ -952,7 +952,7 @@ onMounted(() => {
                     <template #title>Virements à vérifier</template>
                     <template #content>
                         <p class="big-number">{{ summary.pendingTransfersCount }}</p>
-                        <p><RouterLink :to="{ name: 'transfers' }">Voir les virements internes</RouterLink></p>
+                        <p><RouterLink :to="{ name: 'transfers', query: { status: 'auto' } }">Voir les virements à vérifier</RouterLink></p>
                     </template>
                 </Card>
                 <Card>

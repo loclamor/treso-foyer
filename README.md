@@ -110,7 +110,7 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 ```
 - Pipeline (voir [ADR 0006](docs/adr/0006-categorisation.md)) : règles du foyer (priorité décroissante), sinon similarité `pg_trgm` (seuil 0.6) avec les opérations catégorisées manuellement de même signe. Les opérations manuelles et les virements internes appariés ne sont jamais modifiés. Les sorties n'affichent que des compteurs.
 - `app:import` enchaîne automatiquement l'appariement des virements internes puis la catégorisation des opérations non catégorisées (et des opérations enrichies non manuelles) après un import réel ; `--no-post-process` désactive ce post-traitement.
-- Les virements internes appariés (montants opposés, ±3 jours, deux comptes du foyer) sont catégorisés « Mouvements internes › Virements entre comptes du foyer » (source « Virement interne détecté »), voir [ADR 0009](docs/adr/0009-multi-comptes-foyer.md).
+- Les virements internes appariés (montants opposés, ±3 jours, deux comptes du foyer) sont catégorisés « Mouvements internes › Virements entre comptes du foyer » (source « Virement interne détecté »), voir [ADR 0009](docs/adr/0009-multi-comptes-foyer.md). Ils sont « à vérifier » jusqu'à validation (Réglages › Virements internes : « Valider » ou « Tout valider ») ; « Défaire » dissocie un appariement faux.
 
 ## Véhicules
 - Réglages › Véhicules : créer les véhicules du foyer (dates d'acquisition / de cession, plaque, caractéristiques) et saisir les relevés kilométriques depuis la fiche du véhicule.

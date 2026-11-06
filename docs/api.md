@@ -168,9 +168,11 @@ Détection automatique (voir [ADR 0012](adr/0012-recurrences.md)) : groupes (com
 ## Virements internes
 | Méthode | Route | Notes |
 |---|---|---|
-| GET | `/api/transfers` | `[InternalTransfer]` paginé |
+| GET | `/api/transfers` | `[InternalTransfer]` paginé ; `status=auto` (à vérifier) ou `confirmed`, absent = tous (400 sinon) |
 | POST | `/api/transfers/match` | ⇒ `{"matched": n, "ambiguous": n}` |
-| DELETE | `/api/transfers/{id}` | défait l'appariement ⇒ `204` |
+| POST | `/api/transfers/{id}/confirm` | valide un virement détecté (`status: "confirmed"`) ⇒ `InternalTransfer` ; il sort de `pendingTransfersCount` |
+| POST | `/api/transfers/confirm-all` | valide tous les virements `auto` du foyer ⇒ `{"confirmedCount": n}` (idempotent) |
+| DELETE | `/api/transfers/{id}` | défait l'appariement (validé ou non) ⇒ `204` |
 
 ## Budgets (utilisés à l'étape 9)
 `GET/POST /api/budgets`, `PATCH/DELETE /api/budgets/{id}` (corps : champs de `Budget` avec `categoryId`, `memberId`, `accountId`).

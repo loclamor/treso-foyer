@@ -1,13 +1,15 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import Paginator from 'primevue/paginator';
+import SelectButton from 'primevue/selectbutton';
 import Tag from 'primevue/tag';
 import Skeleton from 'primevue/skeleton';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import { useScopeStore } from '@/stores/scope';
-import { deleteTransfer, listTransfers, matchTransfers } from '@/api/transfers';
+import { confirmAllTransfers, confirmTransfer, deleteTransfer, listTransfers, matchTransfers } from '@/api/transfers';
 import { apiMessage } from '@/api/http';
 import { formatDate } from '@/utils/format';
 import MoneyAmount from '@/components/MoneyAmount.vue';
@@ -15,6 +17,17 @@ import MoneyAmount from '@/components/MoneyAmount.vue';
 const scope = useScopeStore();
 const toast = useToast();
 const confirm = useConfirm();
+const route = useRoute();
+const router = useRouter();
+
+const STATUS_OPTIONS = [
+    { label: 'À vérifier', value: 'auto' },
+    { label: 'Validés', value: 'confirmed' },
+    { label: 'Tous', value: 'all' },
+];
+const status = ref(['auto', 'confirmed'].includes(route.query.status) ? route.query.status : 'all');
+const confirming = ref({});
+const confirmingAll = ref(false);
 
 const transfers = ref([]);
 const total = ref(0);
@@ -28,6 +41,7 @@ async function load() {
     try {
         const res = await listTransfers({
             ...scope.params,
+            ...(status.value !== 'all' ? { status: status.value } : {}),
             page: Math.floor(first.value / rows.value) + 1,
             perPage: rows.value,
         });
@@ -44,6 +58,54 @@ function onPage(event) {
     first.value = event.first;
     rows.value = event.rows;
     load();
+}
+
+watch(status, (s) => {
+    first.value = 0;
+    router.replace({ query: s === 'all' ? {} : { status: s } });
+    load();
+});
+
+async function validate(t) {
+    confirming.value[t.id] = true;
+    try {
+        const updated = await confirmTransfer(t.id);
+        if (status.value === 'auto') {
+            // sort du filtre « À vérifier »
+            transfers.value = transfers.value.filter((x) => x.id !== t.id);
+            total.value -= 1;
+        } else {
+            Object.assign(t, updated);
+        }
+        toast.add({ severity: 'success', summary: 'Virement validé', life: 2500 });
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Validation impossible', detail: apiMessage(e), life: 6000 });
+    } finally {
+        confirming.value[t.id] = false;
+    }
+}
+
+function validateAll() {
+    confirm.require({
+        header: 'Tout valider',
+        message: 'Valider tous les virements détectés automatiquement (pas seulement ceux affichés) ? Ils ne seront plus comptés « à vérifier ». Un virement validé peut toujours être défait.',
+        icon: 'pi pi-check-circle',
+        acceptLabel: 'Tout valider',
+        rejectLabel: 'Annuler',
+        accept: async () => {
+            confirmingAll.value = true;
+            try {
+                const res = await confirmAllTransfers();
+                toast.add({ severity: 'success', summary: 'Virements validés', detail: `${res.confirmedCount} virement(s) validé(s).`, life: 5000 });
+                first.value = 0;
+                load();
+            } catch (e) {
+                toast.add({ severity: 'error', summary: 'Validation impossible', detail: apiMessage(e), life: 6000 });
+            } finally {
+                confirmingAll.value = false;
+            }
+        },
+    });
 }
 
 watch(() => scope.params, () => {
@@ -96,21 +158,42 @@ onMounted(load);
     <div>
         <div class="page-header">
             <h1>Virements internes</h1>
-            <Button label="Relancer l’appariement" icon="pi pi-refresh" severity="secondary" outlined :loading="matching" @click="rematch" />
+            <div class="header-actions">
+                <Button
+                    v-if="status === 'auto' && total > 0"
+                    :label="`Tout valider (${total})`"
+                    icon="pi pi-check-circle"
+                    :loading="confirmingAll"
+                    @click="validateAll"
+                />
+                <Button label="Relancer l’appariement" icon="pi pi-refresh" severity="secondary" outlined :loading="matching" @click="rematch" />
+            </div>
         </div>
-        <p class="text-muted">Appariements détectés entre vos comptes : vérifiez-les, ou défaites ceux qui sont faux.</p>
+        <p class="text-muted">Appariements détectés entre vos comptes : validez-les, ou défaites ceux qui sont faux.</p>
+        <SelectButton v-model="status" :options="STATUS_OPTIONS" option-label="label" option-value="value" :allow-empty="false" aria-label="Statut des virements" class="status-filter" />
 
         <div v-if="loading" class="list">
             <Skeleton v-for="i in 3" :key="i" height="6rem" class="item-skeleton" />
         </div>
 
-        <p v-else-if="!transfers.length" class="empty-state">Aucun virement interne détecté dans ce périmètre.</p>
+        <p v-else-if="!transfers.length" class="empty-state">{{ status === 'auto' ? 'Aucun virement à vérifier.' : 'Aucun virement interne détecté dans ce périmètre.' }}</p>
 
         <div v-else class="list">
             <div v-for="t in transfers" :key="t.id" class="transfer-card">
                 <div class="transfer-head">
-                    <Tag :value="t.status === 'confirmed' ? 'Confirmé' : 'Détecté automatiquement'" :severity="t.status === 'confirmed' ? 'success' : 'info'" />
+                    <Tag :value="t.status === 'confirmed' ? 'Validé' : 'À vérifier'" :severity="t.status === 'confirmed' ? 'success' : 'info'" />
                     <span class="text-muted">#{{ t.id }}</span>
+                    <Button
+                        v-if="t.status === 'auto'"
+                        label="Valider"
+                        icon="pi pi-check"
+                        size="small"
+                        severity="success"
+                        text
+                        :loading="!!confirming[t.id]"
+                        :aria-label="'Valider le virement ' + t.id"
+                        @click="validate(t)"
+                    />
                     <Button label="Défaire" icon="pi pi-times" size="small" severity="danger" text :aria-label="'Défaire le virement ' + t.id" @click="unpair(t)" />
                 </div>
                 <div class="transfer-ops">
@@ -126,7 +209,7 @@ onMounted(load);
             </div>
         </div>
 
-        <Paginator v-if="total > rows" :first="first" :rows="rows" :total-records="total" @page="onPage" />
+        <Paginator v-if="total > 10" :first="first" :rows="rows" :total-records="total" :rows-per-page-options="[10, 25, 50, 100]" @page="onPage" />
     </div>
 </template>
 
@@ -137,6 +220,14 @@ onMounted(load);
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+}
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.status-filter {
+    margin-bottom: 1rem;
 }
 .list {
     display: flex;
