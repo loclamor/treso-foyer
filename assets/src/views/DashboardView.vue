@@ -15,9 +15,9 @@ import { useCategoriesStore } from '@/stores/categories';
 import { getSummary } from '@/api/summary';
 import { getBalance, getCategoriesStats, getMonthly, getOverview } from '@/api/stats';
 import { apiMessage } from '@/api/http';
-import { formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
+import { escapeHtml, formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
 import { chartColors, useChartTheme, baseTooltip, baseLegend, baseGrid, valueAxis, categoryAxis, categoryAxisY, barItemStyle } from '@/charts/theme';
-import { colorForCategory, foldToOthers, OTHERS_LABEL, slotColor } from '@/charts/palette';
+import { colorForCategory, foldToOthers, OTHERS_LABEL, slotColor, withAlpha } from '@/charts/palette';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import KpiTile from '@/components/KpiTile.vue';
 import ChartCard from '@/components/ChartCard.vue';
@@ -250,21 +250,10 @@ function currentIndex(m) {
     return m.estimate ? m.months.indexOf(m.estimate.month) : -1;
 }
 
-// Échappement HTML des libellés (données utilisateur) injectés dans le formatter de l'infobulle.
-function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
-
 // 'AAAA-MM-JJ' → 'jj/mm' (date courte dans l'infobulle).
 function shortDate(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ''));
     return m ? `${m[3]}/${m[2]}` : String(iso ?? '');
-}
-
-// Couleur hex #rrggbb + alpha 0..1.
-function withAlpha(hex, alpha) {
-    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
-    return `${hex}${a}`;
 }
 
 function incomeEstimateSeries(m, c, idx) {

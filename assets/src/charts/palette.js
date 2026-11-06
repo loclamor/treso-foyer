@@ -65,3 +65,9 @@ export function foldToOthers(series, mode, label = OTHERS_LABEL) {
     }
     return folded;
 }
+
+// Couleur hex #rrggbb + alpha 0..1 (#rrggbbaa) : versions atténuées (période précédente, hachuré).
+export function withAlpha(hex, alpha) {
+    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+    return `${hex}${a}`;
+}

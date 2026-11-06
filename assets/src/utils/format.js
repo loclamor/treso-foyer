@@ -86,3 +86,8 @@ export function monthBounds(ym) {
     const last = new Date(y, m, 0).getDate();
     return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(last)}` };
 }
+
+// Échappement HTML des données utilisateur injectées dans un formatter d'infobulle ECharts.
+export function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}

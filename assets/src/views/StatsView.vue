@@ -19,7 +19,7 @@ import {
     getVehiclesStats,
 } from '@/api/stats';
 import { apiMessage } from '@/api/http';
-import { formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent } from '@/utils/format';
+import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
 import {
     chartColors,
     useChartTheme,
@@ -31,7 +31,7 @@ import {
     categoryAxisY,
     barItemStyle,
 } from '@/charts/theme';
-import { colorForCategory, slotColor, SEQUENTIAL_BLUE, DEFICIT_COLOR } from '@/charts/palette';
+import { colorForCategory, slotColor, SEQUENTIAL_BLUE, DEFICIT_COLOR, withAlpha } from '@/charts/palette';
 import { fr as frLocale } from '@/locale/fr';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import ChartCard from '@/components/ChartCard.vue';
@@ -138,6 +138,7 @@ const compareTableRows = computed(() =>
 
 // ---------- 2. top commerçants ----------
 const merchants = ref(null);
+const prevMerchants = ref(null); // période précédente (case « Comparer » du filtre), null si inactive
 const loadingMerchants = ref(true);
 const merchantsError = ref('');
 
@@ -145,7 +146,15 @@ async function loadMerchants() {
     loadingMerchants.value = true;
     merchantsError.value = '';
     try {
-        merchants.value = await getMerchantsStats(scope.params, period.params, { direction: direction.value, limit: 15 });
+        // Période précédente : limite large pour retrouver les commerçants du top courant
+        // (ceux absents valent 0).
+        const prevParams = period.previousParams;
+        const [cur, prev] = await Promise.all([
+            getMerchantsStats(scope.params, period.params, { direction: direction.value, limit: 15 }),
+            prevParams ? getMerchantsStats(scope.params, prevParams, { direction: direction.value, limit: 200 }) : Promise.resolve(null),
+        ]);
+        merchants.value = cur;
+        prevMerchants.value = prev;
     } catch (e) {
         merchantsError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
@@ -165,27 +174,65 @@ const merchantsOption = computed(() => {
         itemStyle: { color: colorForCategory(it.category, theme.mode.value), borderRadius: 4 },
     }));
     const labels = rows.map((r) => r.name).reverse();
+    const curName = direction.value === 'expense' ? 'Dépenses' : 'Revenus';
+    const series = [
+        {
+            name: curName,
+            type: 'bar',
+            data: rows.map((r) => ({ value: r.value, itemStyle: r.itemStyle, key: r.key })).reverse(),
+            barMaxWidth: 22,
+        },
+    ];
+    const hasPrev = prevMerchants.value !== null;
+    const tooltip = { ...baseTooltip(c), trigger: hasPrev ? 'axis' : 'item', axisPointer: { type: 'shadow' } };
+    if (hasPrev) {
+        const prevByKey = new Map(prevMerchants.value.map((it) => [it.key, it.total]));
+        series.push({
+            name: PREV_NAME,
+            type: 'bar',
+            data: rows.map((r) => ({
+                value: prevByKey.get(r.key) ?? 0,
+                key: r.key,
+                itemStyle: { color: withAlpha(colorForCategory(r.category, theme.mode.value), 0.35), borderRadius: 4 },
+            })).reverse(),
+            barMaxWidth: 22,
+            barGap: '15%',
+            emphasis: { disabled: true },
+        });
+        tooltip.formatter = (params) => comparisonTooltip(params, curName);
+    }
     return {
-        tooltip: { ...baseTooltip(c), trigger: 'item', axisPointer: { type: 'shadow' } },
+        tooltip,
         grid: baseGrid({ left: 8, right: 48, top: 8, bottom: 8 }),
         xAxis: valueAxis(c),
         yAxis: categoryAxisY(c, labels),
-        series: [
-            {
-                name: direction.value === 'expense' ? 'Dépenses' : 'Revenus',
-                type: 'bar',
-                data: rows.map((r) => ({ value: r.value, itemStyle: r.itemStyle, key: r.key })).reverse(),
-                barMaxWidth: 22,
-            },
-        ],
+        series,
     };
 });
+
+// Infobulle « axe » des barres comparées : valeur courante, précédente (avec la plage) et variation.
+const PREV_NAME = 'Période précédente';
+function comparisonTooltip(params, curName) {
+    const list = Array.isArray(params) ? params : [params];
+    const cur = list.find((p) => p.seriesName === curName);
+    const prv = list.find((p) => p.seriesName === PREV_NAME);
+    const curV = cur?.value ?? 0;
+    const prvV = prv?.value ?? 0;
+    const delta = prvV ? Math.round(((curV - prvV) / Math.abs(prvV)) * 100) : null;
+    const r = period.previousRange;
+    return [
+        `<strong>${escapeHtml(list[0]?.axisValueLabel ?? list[0]?.name ?? '')}</strong>`,
+        `${cur?.marker ?? ''} Période : <strong>${formatMoney(curV)}</strong>`,
+        `${prv?.marker ?? ''} Précédente${r ? ` (${formatDate(r.from)} → ${formatDate(r.to)})` : ''} : ${formatMoney(prvV)}`,
+        delta === null ? '' : `<span style="opacity:.7">Variation : ${delta >= 0 ? '+' : ''}${delta} %</span>`,
+    ].filter(Boolean).join('<br/>');
+}
 
 const merchantsEmpty = computed(() => !merchants.value || !merchants.value.length);
 
 function onMerchantClick(e) {
     const key = e.data?.key;
-    if (!key) return;
+    if (!key || e.seriesName === PREV_NAME) return;
     router.push({
         name: 'operations',
         query: { merchant: key, direction: direction.value === 'expense' ? 'debit' : 'credit', from: period.range.from, to: period.range.to },
@@ -371,18 +418,29 @@ const calendarTableRows = computed(() =>
 // ---------- 5. évolution d'un poste ----------
 const trendCategoryId = ref(null);
 const trend = ref(null);
+const prevTrend = ref(null); // période précédente alignée mois par mois, null si inactive
 const loadingTrend = ref(false);
 const trendError = ref('');
 
 async function loadTrend() {
     if (!trendCategoryId.value) {
         trend.value = null;
+        prevTrend.value = null;
         return;
     }
     loadingTrend.value = true;
     trendError.value = '';
     try {
-        trend.value = await getCategoryTrend(scope.params, period.params, trendCategoryId.value);
+        // Évolution mensuelle : période précédente jusqu'à la fin de son dernier mois.
+        const prevParams = period.previousParams
+            ? { from: period.previousParams.from, to: monthBounds(period.previousParams.to.slice(0, 7)).to }
+            : null;
+        const [cur, prev] = await Promise.all([
+            getCategoryTrend(scope.params, period.params, trendCategoryId.value),
+            prevParams ? getCategoryTrend(scope.params, prevParams, trendCategoryId.value) : Promise.resolve(null),
+        ]);
+        trend.value = cur;
+        prevTrend.value = prev;
     } catch (e) {
         trendError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
@@ -405,8 +463,36 @@ const trendOption = computed(() => {
     const c = chartColors(theme.mode.value);
     const labels = t.months.map((mo) => formatMonth(mo));
     const color = colorForCategory(t.category, theme.mode.value);
+    const p = prevTrend.value;
+    const tooltip = baseTooltip(c);
+    const extra = [];
+    if (p) {
+        // Mois i précédent dessiné au mois i courant ; l'infobulle donne son vrai mois.
+        extra.push({
+            id: 'prev',
+            name: PREV_NAME,
+            type: 'line',
+            data: t.months.map((_, i) => p.values?.[i] ?? null),
+            symbolSize: 5,
+            lineStyle: { width: 2, color: withAlpha(color, 0.4) },
+            itemStyle: { color: withAlpha(color, 0.4) },
+        });
+        tooltip.formatter = (params) => {
+            const list = Array.isArray(params) ? params : [params];
+            const i = list[0]?.dataIndex ?? 0;
+            return [
+                `<strong>${escapeHtml(list[0]?.axisValueLabel ?? '')}</strong>`,
+                ...list.map((q) => {
+                    const label = q.seriesId === 'prev'
+                        ? `${PREV_NAME}${p.months?.[i] ? ` (${formatMonth(p.months[i])})` : ''}`
+                        : escapeHtml(q.seriesName);
+                    return `${q.marker} ${label} : <strong>${q.value == null ? '—' : formatMoney(q.value)}</strong>`;
+                }),
+            ].join('<br/>');
+        };
+    }
     return {
-        tooltip: baseTooltip(c),
+        tooltip,
         legend: baseLegend(c),
         grid: baseGrid(),
         xAxis: categoryAxis(c, labels),
@@ -428,6 +514,7 @@ const trendOption = computed(() => {
                 lineStyle: { width: 2, type: 'dashed', color: c.muted },
                 itemStyle: { color: c.muted },
             },
+            ...extra,
         ],
     };
 });
@@ -581,6 +668,11 @@ watch([direction, compare], () => {
     loadMerchants();
 });
 watch(trendCategoryId, loadTrend);
+// Case « Comparer à la période précédente » : graphes comparés seulement.
+watch(() => period.compareActive, () => {
+    loadMerchants();
+    loadTrend();
+});
 onMounted(async () => {
     if (!vehiclesStore.loaded) await vehiclesStore.refresh().catch(() => {});
     loadAll();
