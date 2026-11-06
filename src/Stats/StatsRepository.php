@@ -345,10 +345,11 @@ final class StatsRepository
     /**
      * Top commerçants pour une direction (clé de groupe coalesce(merchant, normalized_label)).
      *
-     * @param list<int>|null $accountIds
+     * @param list<int>|null    $accountIds
+     * @param list<string>|null $keys       restreint aux clés de groupe données (null = toutes)
      * @return list<array{key: string, merchant: ?string, total: int, count: int, categoryId: ?int}> triés par total desc
      */
-    public function merchants(Household $household, ?array $accountIds, StatsPeriod $period, string $direction, int $limit): array
+    public function merchants(Household $household, ?array $accountIds, StatsPeriod $period, string $direction, int $limit, ?array $keys = null): array
     {
         $sign = AmountClassifier::EXPENSE === $direction ? '-o.amount' : 'o.amount';
         $kind = AmountClassifier::kindExpr();
@@ -357,13 +358,20 @@ final class StatsRepository
         $params['limit'] = $limit;
         $types['direction'] = ParameterType::STRING;
         $types['limit'] = ParameterType::INTEGER;
+        // Restriction optionnelle à des clés de groupe données (comparaison avec une autre période).
+        $keysSql = '';
+        if (null !== $keys) {
+            $keysSql = ' AND COALESCE(o.merchant, o.normalized_label) IN (:keys)';
+            $params['keys'] = $keys;
+            $types['keys'] = ArrayParameterType::STRING;
+        }
 
         // 1re requête : agrégats par groupe, limités.
         $sql = $cte."\n"
             ."SELECT COALESCE(o.merchant, o.normalized_label) AS k, MAX(o.merchant) AS merchant,\n"
             ."       COUNT(*) AS cnt, COALESCE(SUM($sign), 0) AS total\n"
             .$this->fromWhere($accountIds)."\n"
-            ."AND $kind = :direction\n"
+            ."AND $kind = :direction$keysSql\n"
             ."GROUP BY 1\n"
             ."ORDER BY total DESC, k ASC\n"
             ."LIMIT :limit";
@@ -374,7 +382,7 @@ final class StatsRepository
             $cte."\n"
             ."SELECT COALESCE(o.merchant, o.normalized_label) AS k, o.category_id AS cid, COUNT(*) AS cnt\n"
             .$this->fromWhere($accountIds)."\n"
-            ."AND $kind = :direction AND o.category_id IS NOT NULL\n"
+            ."AND $kind = :direction AND o.category_id IS NOT NULL$keysSql\n"
             ."GROUP BY 1, 2",
             $params,
             $types,

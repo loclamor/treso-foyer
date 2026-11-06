@@ -266,6 +266,15 @@ final class StatsApiTest extends ApiTestCase
         $rows = $this->decode($this->json($client, 'GET', $this->statsUri('merchants', ['limit' => 2])));
         self::assertCount(2, $rows);
 
+        // keys[] : restreint aux groupes donnés (comparaison avec une autre période).
+        $rows = $this->decode($this->json($client, 'GET', $this->statsUri('merchants', ['keys' => ['BOULANGER', 'EDF', 'ABSENT']])));
+        self::assertSame(['EDF', 'BOULANGER'], array_column($rows, 'key'));
+        self::assertSame(200, $rows[1]['total']);
+
+        // keys[] vide ou de plus de 50 clés ⇒ 400.
+        $this->json($client, 'GET', $this->statsUri('merchants', ['keys' => array_map(static fn (int $i): string => 'K'.$i, range(1, 51))]));
+        self::assertResponseStatusCodeSame(400);
+
         // direction=income.
         $rows = $this->decode($this->json($client, 'GET', $this->statsUri('merchants', ['direction' => 'income'])));
         self::assertCount(1, $rows);

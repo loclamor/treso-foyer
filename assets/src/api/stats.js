@@ -43,9 +43,10 @@ export async function getCategoriesStats(scopeParams, range, { direction = 'expe
 }
 
 // [{key, merchant, total, count, category}]
-export async function getMerchantsStats(scopeParams, range, { direction = 'expense', limit = 15 } = {}) {
+// keys : restreint aux clés données (≤ 50), ex. période précédente des commerçants du top courant.
+export async function getMerchantsStats(scopeParams, range, { direction = 'expense', limit = 15, keys = null } = {}) {
     const { data } = await http.get('/stats/merchants', {
-        params: buildParams(scopeParams, range, { direction, limit }),
+        params: buildParams(scopeParams, range, { direction, limit, keys }),
     });
     return data;
 }

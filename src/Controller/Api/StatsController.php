@@ -252,8 +252,19 @@ final class StatsController extends AbstractController
             throw new BadRequestException('Paramètre limit invalide (entier 1-50 attendu).', 'invalid_query');
         }
 
+        // keys[] : restreint aux groupes donnés (au plus 50), ex. totaux d'une période précédente
+        // pour les commerçants du top courant.
+        $keys = null;
+        if ($request->query->has('keys')) {
+            $rawKeys = $request->query->all()['keys'];
+            if (!is_array($rawKeys) || [] === $rawKeys || count($rawKeys) > 50) {
+                throw new BadRequestException('Paramètre keys invalide (liste de 1 à 50 clés attendue).', 'invalid_query');
+            }
+            $keys = array_values(array_map('strval', $rawKeys));
+        }
+
         $categories = $this->categoryMap($entityManager, $household);
-        $rows = $statsRepository->merchants($household, $accountIds, $period, $direction, $limit);
+        $rows = $statsRepository->merchants($household, $accountIds, $period, $direction, $limit, $keys);
 
         return new JsonResponse(array_map(
             static fn (array $row): array => [

@@ -146,13 +146,16 @@ async function loadMerchants() {
     loadingMerchants.value = true;
     merchantsError.value = '';
     try {
-        // Période précédente : limite large pour retrouver les commerçants du top courant
-        // (ceux absents valent 0).
+        const cur = await getMerchantsStats(scope.params, period.params, { direction: direction.value, limit: 15 });
+        // Période précédente : totaux des MÊMES commerçants (filtre keys ; absents ⇒ 0).
         const prevParams = period.previousParams;
-        const [cur, prev] = await Promise.all([
-            getMerchantsStats(scope.params, period.params, { direction: direction.value, limit: 15 }),
-            prevParams ? getMerchantsStats(scope.params, prevParams, { direction: direction.value, limit: 200 }) : Promise.resolve(null),
-        ]);
+        const keys = cur.map((it) => it.key);
+        let prev = null;
+        if (prevParams) {
+            prev = keys.length
+                ? await getMerchantsStats(scope.params, prevParams, { direction: direction.value, limit: keys.length, keys })
+                : [];
+        }
         merchants.value = cur;
         prevMerchants.value = prev;
     } catch (e) {
