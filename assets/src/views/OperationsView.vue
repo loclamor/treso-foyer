@@ -32,6 +32,8 @@ const route = useRoute();
 const router = useRouter();
 const scope = useScopeStore();
 const vehiclesStore = useVehiclesStore();
+// Colonne « Véhicule » seulement si le foyer a des véhicules.
+const hasVehicles = computed(() => vehiclesStore.list.length > 0);
 const toast = useToast();
 
 // ---------- état ----------
@@ -551,14 +553,18 @@ onMounted(() => {
             </Column>
             <Column v-if="showAccountColumn" field="account" header="Compte" style="width: 9rem">
                 <template #body="{ data }">
-                    <span :title="data.account?.label">{{ data.account?.numberMasked }}</span>
+                    <span :title="data.account?.numberMasked">{{ data.account?.alias ?? data.account?.numberMasked }}</span>
                 </template>
             </Column>
             <Column field="merchant" header="Libellé" sortable>
                 <template #body="{ data }">
+                    <!-- Commerçant en 1re ligne, libellé brut en 2nde ligne (côte à côte, le commerçant
+                         était tronqué à quelques lettres). -->
                     <div class="label-cell">
-                        <strong v-if="data.merchant" class="merchant">{{ data.merchant }}</strong>
-                        <span class="raw-label" :title="data.rawLabel">{{ data.rawLabel }}</span>
+                        <div class="label-text">
+                            <strong v-if="data.merchant" class="merchant" :title="data.merchant">{{ data.merchant }}</strong>
+                            <span class="raw-label" :title="data.rawLabel">{{ data.rawLabel }}</span>
+                        </div>
                         <i
                             v-if="data.labelSource"
                             class="pi pi-file"
@@ -579,15 +585,15 @@ onMounted(() => {
                     <CategoryTag :category="data.category" clickable @click="openCategorize(data)" />
                 </template>
             </Column>
-            <Column field="vehicle" header="Véhicule" style="width: 10rem">
+            <Column v-if="hasVehicles" field="vehicle" header="Véhicule" style="width: 10rem">
                 <template #body="{ data }">
                     <VehicleTag :vehicle="data.vehicle" :source="data.vehicleSource" />
                 </template>
             </Column>
-            <Column field="categorizationSource" header="Source" style="width: 8.5rem">
+            <Column field="categorizationSource" header="Source" style="width: 7.5rem">
                 <template #body="{ data }"><SourceBadge :source="data.categorizationSource" /></template>
             </Column>
-            <Column field="amount" header="Montant" sortable style="width: 10rem" body-class="text-right">
+            <Column field="amount" header="Montant" sortable style="width: 8.5rem" body-class="text-right">
                 <template #body="{ data }"><MoneyAmount :amount="data.amount" /></template>
             </Column>
 
@@ -739,9 +745,13 @@ onMounted(() => {
     min-width: 0;
     overflow: hidden;
 }
+.label-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+}
 .label-cell .merchant {
-    flex-shrink: 0;
-    max-width: 45%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

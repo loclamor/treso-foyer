@@ -309,16 +309,21 @@ function recurringExpectedSeries(m, c, roots, idx) {
             key = `root:${root.category?.id ?? 'others'}`;
             name = root.name;
             color = root.color;
-        } else if (rootId === null) {
-            key = 'root:others';
-            name = OTHERS_LABEL;
-            color = c.others;
         } else {
-            // racine absente du graphe (ex. plus de dépenses sur la période) : couleur via le référentiel
-            const cat = categoriesStore.byId.get(rootId);
-            key = `root:${rootId}`;
-            name = cat?.name ?? `Poste #${rootId}`;
-            color = colorForCategory(cat ?? null, theme.mode.value);
+            const cat = rootId === null ? null : categoriesStore.byId.get(rootId);
+            const slot = Number(cat?.chartSlot);
+            if (cat && Number.isInteger(slot) && slot >= 1 && slot <= 8) {
+                // racine à emplacement absente du graphe (aucune dépense réelle sur la période)
+                key = `root:${rootId}`;
+                name = cat.name;
+                color = colorForCategory(cat, theme.mode.value);
+            } else {
+                // sans emplacement de couleur ⇒ repliée dans « Autres », comme les barres réelles
+                const others = roots.find((r) => r.others);
+                key = 'root:others';
+                name = others?.name ?? OTHERS_LABEL;
+                color = others?.color ?? c.others;
+            }
         }
         const g = groups.get(key) ?? { name, color, remaining: 0 };
         g.remaining += b.remaining;
@@ -380,7 +385,7 @@ function monthlyTooltip(c, m, prev, roots, prevRoots, expectedByName) {
             row.prev = r.values?.[i] ?? 0;
             rows.set(r.name, row);
         }
-        for (const [name, exp] of expectedByName) {
+        for (const [name, exp] of showExpected ? expectedByName : []) {
             const row = rows.get(name) ?? { color: c.others, cur: 0, prev: 0, exp: 0 };
             row.exp = exp;
             rows.set(name, row);
@@ -482,7 +487,12 @@ const monthlyOption = computed(() => {
     const legend = baseLegend(c);
     // Les séries « (attendu) » n'apparaissent pas dans la légende.
     // Les postes de la période précédente partagent le nom du poste courant (une seule entrée).
-    legend.data = [...new Set(series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name))];
+    // Pastille = couleur du poste courant (sinon celle, atténuée, de la 1re série du même nom :
+    // la période précédente, placée en tête pour être à gauche).
+    const rootColor = new Map(roots.map((r) => [r.name, r.color]));
+    legend.data = [...new Set(series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name))].map((name) =>
+        rootColor.has(name) ? { name, itemStyle: { color: rootColor.get(name) } } : name,
+    );
     return {
         tooltip: monthlyTooltip(c, m, prevMonthly.value, roots, prevMonthlyRoots.value, expectedByName),
         legend,
@@ -791,7 +801,8 @@ onMounted(() => {
             >
                 <VChart :option="monthlyOption" aria-label="Dépenses mensuelles par poste et revenus" @click="onMonthlyClick" />
                 <template #table>
-                    <DataTable :value="monthlyTableRows" size="small" scrollable scroll-height="320px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="monthlyTableRows" size="small" scrollable scroll-height="320px">
+                        <template #empty>Aucune donnée</template>
                         <Column field="month" header="Mois" />
                         <Column v-for="r in monthlyRoots" :key="r.name" :field="r.name" :header="r.name" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data[r.name]) }}</template>
@@ -841,7 +852,8 @@ onMounted(() => {
                 </template>
                 <VChart :option="catsOption" aria-label="Répartition des dépenses par poste" @click="onCatsClick" />
                 <template #table>
-                    <DataTable :value="cats ?? []" size="small" scrollable scroll-height="320px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="cats ?? []" size="small" scrollable scroll-height="320px">
+                        <template #empty>Aucune donnée</template>
                         <Column header="Poste">
                             <template #body="{ data }">
                                 <span class="cat-dot" :style="{ background: colorForCategory(data.category, theme.mode.value) }" aria-hidden="true" />
@@ -874,7 +886,8 @@ onMounted(() => {
             >
                 <VChart :option="balanceOption" aria-label="Évolution du solde" />
                 <template #table>
-                    <DataTable :value="balanceTableRows" size="small" scrollable scroll-height="300px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="balanceTableRows" size="small" scrollable scroll-height="300px">
+                        <template #empty>Aucune donnée</template>
                         <Column field="date" header="Date" />
                         <Column field="Solde total" header="Solde total" class="text-right">
                             <template #body="{ data }">
@@ -977,7 +990,8 @@ onMounted(() => {
             <Card class="section">
                 <template #title>Comptes</template>
                 <template #content>
-                    <DataTable :value="summary.accounts" size="small" :empty-message="'Aucun compte'">
+                    <DataTable :value="summary.accounts" size="small">
+                        <template #empty>Aucun compte</template>
                         <Column field="alias" header="Alias" />
                         <Column field="label" header="Libellé" />
                         <Column field="numberMasked" header="Numéro" />

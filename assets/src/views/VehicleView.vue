@@ -312,7 +312,8 @@ onMounted(async () => {
                 >
                     <VChart :option="donutOption" aria-label="Donut des dépenses par catégorie" />
                     <template #table>
-                        <DataTable :value="donutRows" size="small" scrollable scroll-height="280px" :empty-message="'Aucune donnée'">
+                        <DataTable :value="donutRows" size="small" scrollable scroll-height="280px">
+                            <template #empty>Aucune donnée</template>
                             <Column header="Catégorie">
                                 <template #body="{ data }">
                                     <span class="cat-dot" :style="{ background: colorForCategory(data.category, theme.mode.value) }" aria-hidden="true" />
@@ -328,7 +329,8 @@ onMounted(async () => {
             </div>
 
             <h2>Dernières opérations</h2>
-            <DataTable :value="ops" :loading="loadingOps" size="small" data-key="id" :empty-message="'Aucune opération pour ce véhicule.'">
+            <DataTable :value="ops" :loading="loadingOps" size="small" data-key="id">
+                <template #empty>Aucune opération pour ce véhicule.</template>
                 <Column field="date" header="Date" style="width: 7.5rem">
                     <template #body="{ data }">{{ formatDate(data.date) }}</template>
                 </Column>
@@ -356,7 +358,8 @@ onMounted(async () => {
                 <h2>Relevés kilométriques</h2>
                 <Button label="Ajouter un relevé" icon="pi pi-plus" size="small" @click="openReadingCreate" />
             </div>
-            <DataTable :value="readings" :loading="loadingReadings" size="small" data-key="id" :empty-message="'Aucun relevé. Ajoutez le compteur actuel pour calculer les km parcourus.'">
+            <DataTable :value="readings" :loading="loadingReadings" size="small" data-key="id">
+                <template #empty>Aucun relevé. Ajoutez le compteur actuel pour calculer les km parcourus.</template>
                 <Column field="date" header="Date" style="width: 8rem">
                     <template #body="{ data }">{{ formatDate(data.date) }}</template>
                 </Column>

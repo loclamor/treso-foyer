@@ -3,7 +3,7 @@
 // re-render complet à chaque changement d'option (notMerge) pour suivre le mode sombre.
 // Infobulle : rendue dans <body> (jamais rognée par la carte) et positionnée pour rester
 // entièrement dans la fenêtre (à droite du curseur, sinon à gauche ; bornée en haut/bas).
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import VChart from 'vue-echarts';
 import '@/charts/echarts';
 
@@ -14,6 +14,17 @@ const props = defineProps({
 const emit = defineEmits(['click']);
 
 const root = ref(null);
+const chart = ref(null);
+
+// L'infobulle vit dans <body> : la masquer quand la page défile (sinon elle reste figée).
+function hideTip() {
+    chart.value?.dispatchAction?.({ type: 'hideTip' });
+}
+onMounted(() => window.addEventListener('scroll', hideTip, { passive: true, capture: true }));
+onBeforeUnmount(() => {
+    window.removeEventListener('scroll', hideTip, { capture: true });
+    hideTip();
+});
 const MARGIN = 8; // marge minimale au bord de la fenêtre
 const OFFSET = 16; // écart au curseur
 
@@ -56,6 +67,7 @@ const effectiveOption = computed(() => {
 <template>
     <div ref="root" class="vchart">
         <VChart
+            ref="chart"
             class="vchart-inner"
             :option="effectiveOption"
             autoresize

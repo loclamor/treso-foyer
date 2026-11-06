@@ -253,42 +253,53 @@ onMounted(async () => {
             </div>
         </div>
 
-        <DataTable :value="rules" :loading="loading" data-key="id" :empty-message="'Aucune règle'">
-            <Column field="priority" header="Priorité" sortable style="width: 7rem" />
-            <Column header="Catégorie" style="width: 12rem">
+        <DataTable :value="rules" :loading="loading" data-key="id">
+            <template #empty>Aucune règle</template>
+            <!-- Colonnes regroupées (13 colonnes de largeur fixe débordaient de la carte) :
+                 champ + type, montant min–max, compte + véhicule. -->
+            <Column field="priority" header="Priorité" sortable style="white-space: nowrap" />
+            <Column header="Catégorie">
                 <template #body="{ data }"><CategoryTag :category="data.category" /></template>
             </Column>
-            <Column header="Champ" style="width: 9rem">
-                <template #body="{ data }">{{ FIELD_LABELS[data.matchField] ?? data.matchField }}</template>
-            </Column>
-            <Column header="Type" style="width: 11rem">
-                <template #body="{ data }">{{ TYPE_LABELS[data.matchType] ?? data.matchType }}</template>
+            <Column header="Champ">
+                <template #body="{ data }">
+                    {{ FIELD_LABELS[data.matchField] ?? data.matchField }}
+                    <br />
+                    <small class="text-muted">{{ TYPE_LABELS[data.matchType] ?? data.matchType }}</small>
+                </template>
             </Column>
             <Column field="pattern" header="Motif">
                 <template #body="{ data }"><code class="pattern" :title="data.pattern">{{ data.pattern }}</code></template>
             </Column>
-            <Column header="Sens" style="width: 7rem">
+            <Column header="Sens" style="white-space: nowrap">
                 <template #body="{ data }">{{ DIRECTION_LABELS[data.direction] ?? data.direction }}</template>
             </Column>
-            <Column header="Montant min" style="width: 9rem">
-                <template #body="{ data }"><MoneyAmount v-if="data.amountMin != null" :amount="data.amountMin" /><span v-else class="text-muted">—</span></template>
+            <Column header="Montant" style="white-space: nowrap">
+                <template #body="{ data }">
+                    <template v-if="data.amountMin != null || data.amountMax != null">
+                        <MoneyAmount v-if="data.amountMin != null" :amount="data.amountMin" /><span v-else class="text-muted">…</span>
+                        –
+                        <MoneyAmount v-if="data.amountMax != null" :amount="data.amountMax" /><span v-else class="text-muted">…</span>
+                    </template>
+                    <span v-else class="text-muted">—</span>
+                </template>
             </Column>
-            <Column header="Montant max" style="width: 9rem">
-                <template #body="{ data }"><MoneyAmount v-if="data.amountMax != null" :amount="data.amountMax" /><span v-else class="text-muted">—</span></template>
+            <Column header="Restrictions">
+                <template #body="{ data }">
+                    <template v-if="data.account || data.vehicle">
+                        <div v-if="data.account"><i class="pi pi-credit-card text-muted" /> {{ data.account.alias ?? data.account.numberMasked }}</div>
+                        <div v-if="data.vehicle"><i class="pi pi-car text-muted" /> {{ data.vehicle.name }}</div>
+                    </template>
+                    <span v-else class="text-muted">—</span>
+                </template>
             </Column>
-            <Column header="Compte" style="width: 9rem">
-                <template #body="{ data }">{{ data.account?.numberMasked ?? '—' }}</template>
-            </Column>
-            <Column header="Véhicule" style="width: 9rem">
-                <template #body="{ data }">{{ data.vehicle?.name ?? '—' }}</template>
-            </Column>
-            <Column header="Activée" style="width: 6rem">
+            <Column header="Active">
                 <template #body="{ data }">
                     <ToggleSwitch v-model="data.enabled" :aria-label="'Activer/désactiver la règle ' + data.pattern" @update:model-value="toggleEnabled(data)" />
                 </template>
             </Column>
-            <Column field="matchCount" header="Appliquée à" style="width: 8rem" />
-            <Column header="Actions" style="width: 7rem">
+            <Column field="matchCount" header="Opér." style="white-space: nowrap" body-class="text-right" />
+            <Column header="Actions" style="white-space: nowrap">
                 <template #body="{ data }">
                     <Button icon="pi pi-pencil" text rounded size="small" :aria-label="'Modifier la règle ' + data.pattern" @click="openEdit(data)" />
                     <Button icon="pi pi-trash" text rounded size="small" severity="danger" :aria-label="'Supprimer la règle ' + data.pattern" @click="remove(data)" />
@@ -413,7 +424,7 @@ onMounted(async () => {
 <style scoped>
 .pattern {
     display: inline-block;
-    max-width: 28rem;
+    max-width: 13rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

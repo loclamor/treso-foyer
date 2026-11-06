@@ -201,7 +201,8 @@ async function setChartSlot(cat, slot) {
             <Button label="Nouvelle catégorie" icon="pi pi-plus" @click="openCreate(null)" />
         </div>
 
-        <TreeTable :value="nodes" v-model:expanded-keys="expandedKeys" data-key="key" :empty-message="'Aucune catégorie'">
+        <TreeTable :value="nodes" v-model:expanded-keys="expandedKeys" data-key="key">
+            <template #empty>Aucune catégorie</template>
             <Column field="name" header="Nom" expander>
                 <template #body="{ node }">
                     <span class="cat-name" :class="{ archived: node.data.archived }">

@@ -129,7 +129,7 @@ onMounted(load);
                 <template #body="{ data }">{{ formatDate(data.date) }}</template>
             </Column>
             <Column header="Compte" style="width: 8rem">
-                <template #body="{ data }">{{ data.account?.numberMasked }}</template>
+                <template #body="{ data }">{{ data.account?.alias ?? data.account?.numberMasked }}</template>
             </Column>
             <Column header="Libellé">
                 <template #body="{ data }">
@@ -160,7 +160,7 @@ onMounted(load);
                 <div class="dup-compare">
                     <div class="dup-panel">
                         <h3>Opération #{{ data.id }}</h3>
-                        <p>{{ formatDate(data.date) }} · <MoneyAmount :amount="data.amount" /> · {{ data.account?.numberMasked }}</p>
+                        <p>{{ formatDate(data.date) }} · <MoneyAmount :amount="data.amount" /> · {{ data.account?.alias ?? data.account?.numberMasked }}</p>
                         <p><strong v-if="data.merchant">{{ data.merchant }}</strong> {{ data.rawLabel }}</p>
                         <p><CategoryTag :category="data.category" /> <SourceBadge :source="data.categorizationSource" /></p>
                     </div>
@@ -170,7 +170,7 @@ onMounted(load);
                             <p>
                                 {{ formatDate(refs[data.duplicateOfId].date) }} ·
                                 <MoneyAmount :amount="refs[data.duplicateOfId].amount" /> ·
-                                {{ refs[data.duplicateOfId].account?.numberMasked }}
+                                {{ refs[data.duplicateOfId].account?.alias ?? refs[data.duplicateOfId].account?.numberMasked }}
                             </p>
                             <p>
                                 <strong v-if="refs[data.duplicateOfId].merchant">{{ refs[data.duplicateOfId].merchant }}</strong>

@@ -88,7 +88,8 @@ onMounted(async () => {
     <div>
         <h1>Comptes</h1>
 
-        <DataTable :value="accountsStore.list" data-key="id" :empty-message="'Aucun compte'">
+        <DataTable :value="accountsStore.list" data-key="id">
+            <template #empty>Aucun compte</template>
             <Column field="alias" header="Alias" />
             <Column field="label" header="Libellé" />
             <Column field="numberMasked" header="Numéro" />

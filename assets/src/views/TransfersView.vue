@@ -116,7 +116,7 @@ onMounted(load);
                 <div class="transfer-ops">
                     <div v-for="op in t.operations" :key="op.id" class="op-line">
                         <span class="nowrap">{{ formatDate(op.date) }}</span>
-                        <span class="nowrap">{{ op.account?.numberMasked }}</span>
+                        <span class="nowrap">{{ op.account?.alias ?? op.account?.numberMasked }}</span>
                         <MoneyAmount :amount="op.amount" />
                         <span class="op-label" :title="op.rawLabel">
                             <strong v-if="op.merchant">{{ op.merchant }}</strong> {{ op.rawLabel }}
@@ -163,9 +163,10 @@ onMounted(load);
     display: flex;
     align-items: center;
     gap: 0.9rem;
-    flex-wrap: wrap;
 }
+/* Libellé tronqué sur la même ligne (en retour à la ligne, il ressemblait à une 3e opération). */
 .op-label {
+    flex: 1 1 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

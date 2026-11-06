@@ -107,7 +107,7 @@ onMounted(load);
                         <Tag :severity="STATUS[r.status]?.severity ?? 'secondary'" :value="STATUS[r.status]?.label ?? r.status" />
                         <strong>{{ r.filename }}</strong>
                         <span class="text-muted">
-                            <template v-if="r.account">· {{ r.account.numberMasked }}</template>
+                            <template v-if="r.account">· {{ r.account.alias ?? r.account.numberMasked }}</template>
                             <template v-if="r.periodStart">· {{ formatDate(r.periodStart) }} → {{ formatDate(r.periodEnd) }}</template>
                             · +{{ r.added }} / ignorées {{ r.skipped }} / enrichies {{ r.enriched }} / doublons {{ r.probableDuplicates }}
                         </span>
@@ -148,7 +148,7 @@ onMounted(load);
                         </template>
                     </Column>
                     <Column header="Compte" style="width: 9rem">
-                        <template #body="{ data }">{{ data.account?.numberMasked ?? '—' }}</template>
+                        <template #body="{ data }">{{ data.account?.alias ?? data.account?.numberMasked ?? '—' }}</template>
                     </Column>
                     <Column header="Période" style="width: 12rem">
                         <template #body="{ data }">{{ formatDate(data.periodStart) }} → {{ formatDate(data.periodEnd) }}</template>

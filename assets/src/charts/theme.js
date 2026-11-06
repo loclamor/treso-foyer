@@ -41,7 +41,17 @@ export const CHART_FONT = "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 
 export function baseTooltip(colors, { trigger = 'axis', valueFormatter = (v) => formatMoney(v) } = {}) {
     return {
         trigger,
-        axisPointer: trigger === 'axis' ? { type: 'cross', lineStyle: { color: colors.muted, width: 1 }, crossStyle: { color: colors.muted, width: 1 } } : undefined,
+        axisPointer: trigger === 'axis'
+            ? {
+                type: 'cross',
+                lineStyle: { color: colors.muted, width: 1 },
+                crossStyle: { color: colors.muted, width: 1 },
+                // Libellé du réticule : valeur numérique (axe des montants, X ou Y) en euros ; catégories inchangées.
+                label: {
+                    formatter: (p) => (typeof p.value === 'number' ? valueFormatter(p.value) : p.value),
+                },
+            }
+            : undefined,
         backgroundColor: colors.surface,
         borderColor: colors.grid,
         borderWidth: 1,

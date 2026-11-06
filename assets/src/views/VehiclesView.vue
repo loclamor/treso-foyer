@@ -326,7 +326,8 @@ onMounted(async () => {
             </div>
         </div>
 
-        <DataTable :value="vehiclesStore.list" data-key="id" :empty-message="'Aucun véhicule'">
+        <DataTable :value="vehiclesStore.list" data-key="id">
+            <template #empty>Aucun véhicule</template>
             <Column header="Nom">
                 <template #body="{ data }">
                     <RouterLink :to="{ name: 'vehicle', params: { id: data.id } }" class="vehicle-link">

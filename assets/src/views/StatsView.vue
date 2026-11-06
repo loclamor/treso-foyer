@@ -719,7 +719,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
             >
                 <VChart :option="compareOption" aria-label="Comparaison par poste, période vs comparaison" />
                 <template #table>
-                    <DataTable :value="compareTableRows" size="small" scrollable scroll-height="320px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="compareTableRows" size="small" scrollable scroll-height="320px">
+                        <template #empty>Aucune donnée</template>
                         <Column field="name" header="Poste" />
                         <Column field="total" :header="compareMeta.comparableFrom ? `Période (${formatDate(compareMeta.comparableFrom)} → ${formatDate(compareMeta.comparableTo)})` : 'Période'" class="text-right">
                             <template #body="{ data }">{{ formatMoney(data.total) }}</template>
@@ -753,7 +754,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
             >
                 <VChart :option="vehiclesOption" aria-label="Dépenses par véhicule" @click="onVehicleClick" />
                 <template #table>
-                    <DataTable :value="vehicleRows" size="small" scrollable scroll-height="280px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="vehicleRows" size="small" scrollable scroll-height="280px">
+                        <template #empty>Aucune donnée</template>
                         <Column header="Véhicule">
                             <template #body="{ data }">
                                 <RouterLink :to="{ name: 'vehicle', params: { id: data.vehicle.id } }">{{ data.vehicle.name }}</RouterLink>
@@ -790,7 +792,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
             >
                 <VChart :option="merchantsOption" aria-label="Top commerçants" @click="onMerchantClick" />
                 <template #table>
-                    <DataTable :value="merchants ?? []" size="small" scrollable scroll-height="380px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="merchants ?? []" size="small" scrollable scroll-height="380px">
+                        <template #empty>Aucune donnée</template>
                         <Column header="Commerçant">
                             <template #body="{ data }">
                                 <span class="cat-dot" :style="{ background: colorForCategory(data.category, theme.mode.value) }" aria-hidden="true" />
@@ -819,7 +822,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
             >
                 <VChart :option="sankeyOption" aria-label="Sankey revenus vers postes" />
                 <template #table>
-                    <DataTable :value="sankeyTableRows" size="small" scrollable scroll-height="380px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="sankeyTableRows" size="small" scrollable scroll-height="380px">
+                        <template #empty>Aucune donnée</template>
                         <Column field="source" header="De" />
                         <Column field="target" header="Vers" />
                         <Column field="value" header="Montant" class="text-right">
@@ -851,7 +855,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                 </template>
                 <VChart :option="calendarOption" aria-label="Calendrier des dépenses" />
                 <template #table>
-                    <DataTable :value="calendarTableRows" size="small" scrollable scroll-height="280px" :empty-message="'Aucune donnée'">
+                    <DataTable :value="calendarTableRows" size="small" scrollable scroll-height="280px">
+                        <template #empty>Aucune donnée</template>
                         <Column field="date" header="Date">
                             <template #body="{ data }">{{ formatDate(data.date) }}</template>
                         </Column>
@@ -882,7 +887,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                 </template>
                 <VChart :option="trendOption" aria-label="Évolution mensuelle du poste" />
                 <template #table>
-                    <DataTable :value="trend?.months.map((mo, i) => ({ month: mo, value: trend.values[i], count: trend.counts[i] })) ?? []" size="small" scrollable scroll-height="300px" :empty-message="'Choisissez un poste'">
+                    <DataTable :value="trend?.months.map((mo, i) => ({ month: mo, value: trend.values[i], count: trend.counts[i] })) ?? []" size="small" scrollable scroll-height="300px">
+                        <template #empty>Choisissez un poste</template>
                         <Column header="Mois">
                             <template #body="{ data }">{{ formatMonth(data.month) }}</template>
                         </Column>
@@ -914,8 +920,8 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                         size="small"
                         scrollable
                         scroll-height="300px"
-                        :empty-message="'Aucune donnée'"
                     >
+                        <template #empty>Aucune donnée</template>
                         <Column field="date" header="Date">
                             <template #body="{ data }">{{ formatDate(data.date) }}</template>
                         </Column>

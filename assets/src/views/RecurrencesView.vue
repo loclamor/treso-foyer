@@ -297,54 +297,53 @@ onMounted(() => {
             sort-mode="single"
             removable-sort
             table-class="recurrences-table"
-            :table-style="{ tableLayout: 'fixed', width: '100%', minWidth: '60rem' }"
+            :table-style="{ minWidth: '56rem' }"
             scrollable
         >
+            <!-- Mise en page automatique (largeurs fixes cumulées > largeur de la carte ⇒ colonnes
+                 écrasées) : libellé + compte dans la 1re colonne, sens porté par la couleur du montant. -->
             <Column field="merchant" header="Libellé" sortable>
-                <template #body="{ data }"><strong>{{ data.merchant }}</strong></template>
-            </Column>
-            <Column header="Compte" style="width: 8rem">
-                <template #body="{ data }">{{ data.account?.alias ?? '—' }}</template>
-            </Column>
-            <Column header="Catégorie" style="width: 12rem">
-                <template #body="{ data }"><CategoryTag :category="data.category" /></template>
-            </Column>
-            <Column header="Sens" style="width: 7rem">
                 <template #body="{ data }">
-                    <Tag :value="DIRECTION_LABELS[data.direction] ?? data.direction" :severity="DIRECTION_SEVERITY[data.direction] ?? 'secondary'" />
+                    <div class="merchant-cell">
+                        <strong class="merchant-name" :title="data.merchant">{{ data.merchant }}</strong>
+                        <small class="text-muted">
+                            {{ data.account?.alias ?? '—' }} ·
+                            <RouterLink :to="{ name: 'operations', query: { recurringSeriesId: data.id } }">{{ data.occurrences }} opération{{ data.occurrences > 1 ? 's' : '' }}</RouterLink>
+                        </small>
+                    </div>
                 </template>
             </Column>
-            <Column header="Fréquence" style="width: 11rem">
+            <Column header="Catégorie">
+                <template #body="{ data }"><CategoryTag :category="data.category" /></template>
+            </Column>
+            <Column header="Fréquence" style="white-space: nowrap">
                 <template #body="{ data }">
                     <span v-tooltip.top="activeMonthsTooltip(data) || undefined">{{ frequencyText(data) }}</span>
                 </template>
             </Column>
-            <Column field="expectedAmount" header="Montant attendu" sortable style="width: 10rem" body-class="text-right">
+            <Column field="expectedAmount" header="Montant attendu" sortable style="white-space: nowrap" body-class="text-right">
                 <template #body="{ data }">
-                    {{ formatMoney(data.expectedAmount) }}
+                    <span :class="['money', data.direction === 'income' ? 'amount-credit' : 'amount-debit']" v-tooltip.top="DIRECTION_LABELS[data.direction]">
+                        {{ data.direction === 'income' ? '+' : '−' }}{{ formatMoney(data.expectedAmount) }}
+                    </span>
+                    <br />
                     <small v-if="data.amountTolerance" class="text-muted">± {{ formatMoney(data.amountTolerance) }}</small>
                 </template>
             </Column>
-            <Column field="lastOccurrence" header="Dernière" sortable style="width: 8rem">
-                <template #body="{ data }">{{ formatDate(data.lastOccurrence) }}</template>
-            </Column>
-            <Column field="nextExpected" header="Prochaine" sortable style="width: 9rem">
+            <Column field="nextExpected" header="Prochaine" sortable style="white-space: nowrap">
                 <template #body="{ data }">
                     {{ formatDate(data.nextExpected) }}
                     <Tag v-if="data.overdue" value="En retard" severity="danger" class="overdue-tag" />
+                    <br />
+                    <small class="text-muted">dernière {{ formatDate(data.lastOccurrence) }}</small>
                 </template>
             </Column>
-            <Column field="occurrences" header="Opérations" sortable style="width: 8rem">
-                <template #body="{ data }">
-                    <RouterLink :to="{ name: 'operations', query: { recurringSeriesId: data.id } }">{{ data.occurrences }}</RouterLink>
-                </template>
-            </Column>
-            <Column field="status" header="Statut" sortable style="width: 9rem">
+            <Column field="status" header="Statut" sortable style="white-space: nowrap">
                 <template #body="{ data }">
                     <Tag :value="data.statusLabel ?? data.status" :severity="STATUS_SEVERITY[data.status] ?? 'secondary'" />
                 </template>
             </Column>
-            <Column header="Actions" style="width: 13rem">
+            <Column header="Actions" style="white-space: nowrap">
                 <template #body="{ data }">
                     <div class="row-actions">
                         <Button v-if="data.status === 'detected'" icon="pi pi-check" text rounded size="small" aria-label="Confirmer" v-tooltip.top="'Confirmer'" @click="setStatus(data, 'confirmed')" />
@@ -414,6 +413,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.merchant-cell {
+    display: flex;
+    flex-direction: column;
+    max-width: 13rem;
+}
+.merchant-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .page-header {
     display: flex;
     align-items: center;
