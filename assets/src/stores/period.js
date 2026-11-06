@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { getSummary } from '@/api/summary';
 
 // Plage de dates partagée tableau de bord / statistiques, synchronisée avec la query string
 // (?period=last12 ou ?from=…&to=… pour « Personnalisé »).
@@ -21,6 +22,21 @@ export const PRESET_KEYS = ['month', 'lastMonth', 'last3', 'last6', 'last12', 'y
 export const usePeriodStore = defineStore('period', () => {
     const preset = ref('last12'); // défaut : 12 derniers mois
     const custom = ref({ from: null, to: null }); // 'YYYY-MM-DD'
+    // Date de la plus ancienne opération du foyer ('YYYY-MM-DD'), borne de « Tout l'historique ».
+    const firstDate = ref(null);
+    let firstDatePromise = null;
+
+    // Charge (une seule fois) la date de la plus ancienne opération du foyer.
+    function loadFirstDate() {
+        firstDatePromise ??= getSummary({})
+            .then((s) => {
+                firstDate.value = s.firstDate ?? null;
+            })
+            .catch(() => {
+                firstDatePromise = null; // nouvel essai au prochain appel
+            });
+        return firstDatePromise;
+    }
 
     // Plage résolue {from, to} en ISO (dates locales).
     const range = computed(() => {
@@ -41,8 +57,14 @@ export const usePeriodStore = defineStore('period', () => {
                 return { from: `${t.getFullYear()}-01-01`, to: iso(t) };
             case 'lastYear':
                 return { from: `${t.getFullYear() - 1}-01-01`, to: `${t.getFullYear() - 1}-12-31` };
-            case 'all':
-                return { from: '1900-01-01', to: iso(t) };
+            case 'all': {
+                // Premier jour du mois de la plus ancienne opération ; repli sur 12 mois tant
+                // qu'elle n'est pas connue (aucune opération, ou chargement en cours).
+                if (!firstDate.value) {
+                    return { from: iso(firstOfMonth(new Date(t.getFullYear(), t.getMonth() - 11))), to: iso(t) };
+                }
+                return { from: `${firstDate.value.slice(0, 7)}-01`, to: iso(t) };
+            }
             case 'custom':
                 return { from: custom.value.from, to: custom.value.to };
             case 'last12':
@@ -69,6 +91,7 @@ export const usePeriodStore = defineStore('period', () => {
 
     function setPreset(p) {
         if (PRESET_KEYS.includes(p)) preset.value = p;
+        if (p === 'all') loadFirstDate();
     }
 
     function setCustom(from, to) {
@@ -83,8 +106,9 @@ export const usePeriodStore = defineStore('period', () => {
             preset.value = 'custom';
         } else if (q.period && PRESET_KEYS.includes(String(q.period))) {
             preset.value = String(q.period);
+            if (preset.value === 'all') loadFirstDate();
         }
     }
 
-    return { preset, custom, range, params, query, setPreset, setCustom, applyQuery };
+    return { preset, custom, firstDate, range, params, query, setPreset, setCustom, applyQuery, loadFirstDate };
 });
