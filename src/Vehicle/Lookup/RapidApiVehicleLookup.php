@@ -13,8 +13,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * GET https://api-de-plaque-d-immatriculation-france.p.rapidapi.com/?plaque={PLAQUE}
  * avec les en-têtes x-rapidapi-host et x-rapidapi-key.
  *
- * Le format exact de la réponse n'étant pas documenté, le mappage est défensif :
- * clés usuelles recherchées à plat ou sous « data », insensible à la casse.
+ * Réponse réelle : {"code", "error", "message", "data": {"AWN_marque", "AWN_modele", …}}.
+ * Le mappage reste défensif : clés usuelles recherchées à plat ou sous « data »,
+ * insensible à la casse, préfixe « AWN_ » ignoré.
  * La plaque et la clé API ne sont jamais journalisées.
  */
 final class RapidApiVehicleLookup implements VehicleLookup
@@ -91,6 +92,26 @@ final class RapidApiVehicleLookup implements VehicleLookup
             );
         }
 
+        // Le fournisseur signale aussi ses erreurs dans le corps, avec un HTTP 200 :
+        // {"code": 404, "error": true, "message": "…"}.
+        if (true === ($data['error'] ?? false)) {
+            $code = is_numeric($data['code'] ?? null) ? (int) $data['code'] : 0;
+            throw match (true) {
+                429 === $code => new VehicleLookupException(
+                    'Le quota de l’API de recherche par plaque est atteint.',
+                    VehicleLookupException::REASON_QUOTA,
+                ),
+                in_array($code, [401, 403], true) || $code >= 500 => new VehicleLookupException(
+                    'Le service de recherche par plaque est indisponible.',
+                    VehicleLookupException::REASON_UNAVAILABLE,
+                ),
+                default => new VehicleLookupException(
+                    'Aucun véhicule trouvé pour cette plaque.',
+                    VehicleLookupException::REASON_NOT_FOUND,
+                ),
+            };
+        }
+
         // Le fournisseur peut imbriquer les champs sous « data ».
         $nested = $data['data'] ?? $data['Data'] ?? null;
         $sources = is_array($nested) ? [$data, $nested] : [$data];
@@ -144,9 +165,13 @@ final class RapidApiVehicleLookup implements VehicleLookup
         return null;
     }
 
-    /** Minuscules, sans accents, uniquement les caractères alphanumériques. */
+    /**
+     * Minuscules, sans accents, uniquement les caractères alphanumériques.
+     * Le préfixe « AWN_ » du fournisseur (auto-ways.net : AWN_marque, AWN_modele…) est retiré.
+     */
     private function normalizeKey(string $key): string
     {
+        $key = preg_replace('/^AWN_/i', '', $key) ?? $key;
         $lower = mb_strtolower($key, 'UTF-8');
         $ascii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $lower);
         if (false === $ascii) {

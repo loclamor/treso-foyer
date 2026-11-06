@@ -83,6 +83,77 @@ final class RapidApiVehicleLookupTest extends TestCase
         self::assertSame('2019-11-03', $result->firstRegistrationAt?->format('Y-m-d'));
     }
 
+    /** Forme réelle de la réponse auto-ways.net (clés « AWN_ » sous « data »), valeurs fictives. */
+    public function testLookupMapsAutoWaysPrefixedKeys(): void
+    {
+        $body = json_encode([
+            'code' => 200,
+            'country' => 'FR',
+            'query' => self::PLAQUE_FICTIVE,
+            'error' => false,
+            'message' => 'Succès',
+            'data' => [
+                'AWN_VIN' => 'VF7XXXXXXXXXXXXXX',
+                'AWN_date_cg' => '01-02-2016',
+                'AWN_date_mise_en_circulation' => '30-04-2015',
+                'AWN_date_mise_en_circulation_us' => '2015-04-30',
+                'AWN_energie' => 'ESSENCE',
+                'AWN_energie_code' => 1,
+                'AWN_finition' => 'II 1.0 VTI 68 LIVE 5P',
+                'AWN_immat' => self::PLAQUE_FICTIVE,
+                'AWN_label' => 'CITROEN C1 1.0 VTI 69',
+                'AWN_marque' => 'CITROEN',
+                'AWN_marque_code' => 'CI',
+                'AWN_modele' => 'C1',
+                'AWN_modele_code' => 'INCONNU',
+                'AWN_numero_de_serie' => '123456',
+                'AWN_puissance_KW' => '50',
+                'AWN_puissance_chevaux' => '68',
+                'AWN_puissance_fiscale' => '4',
+                'AWN_version' => '1.0 VTI 69',
+            ],
+        ]);
+        self::assertIsString($body);
+        $client = new MockHttpClient([new MockResponse($body, ['http_code' => 200])]);
+        $lookup = new RapidApiVehicleLookup($client, self::CLE_TEST);
+
+        $result = $lookup->lookup(self::PLAQUE_FICTIVE);
+
+        self::assertSame('CITROEN', $result->make);
+        self::assertSame('C1', $result->model);
+        self::assertSame('1.0 VTI 69', $result->version);
+        self::assertSame('petrol', $result->energy);
+        self::assertSame(4, $result->fiscalPower);
+        self::assertSame('2015-04-30', $result->firstRegistrationAt?->format('Y-m-d'));
+        self::assertSame('VF7XXXXXXXXXXXXXX', $result->vin);
+    }
+
+    #[DataProvider('provideErrorsInBody')]
+    public function testErrorFlagInBodyWithHttp200(int $code, string $expectedReason): void
+    {
+        $body = json_encode(['code' => $code, 'error' => true, 'message' => 'Erreur', 'data' => []]);
+        self::assertIsString($body);
+        $client = new MockHttpClient([new MockResponse($body, ['http_code' => 200])]);
+        $lookup = new RapidApiVehicleLookup($client, self::CLE_TEST);
+
+        try {
+            $lookup->lookup(self::PLAQUE_FICTIVE);
+            self::fail('VehicleLookupException attendue.');
+        } catch (VehicleLookupException $e) {
+            self::assertSame($expectedReason, $e->reason);
+        }
+    }
+
+    /** @return iterable<string, array{int, string}> */
+    public static function provideErrorsInBody(): iterable
+    {
+        yield 'introuvable' => [404, VehicleLookupException::REASON_NOT_FOUND];
+        yield 'plaque invalide' => [400, VehicleLookupException::REASON_NOT_FOUND];
+        yield 'quota' => [429, VehicleLookupException::REASON_QUOTA];
+        yield 'clé refusée' => [403, VehicleLookupException::REASON_UNAVAILABLE];
+        yield 'erreur serveur' => [500, VehicleLookupException::REASON_UNAVAILABLE];
+    }
+
     public function testNotFoundOn404AndMessageHasNoPlate(): void
     {
         $client = new MockHttpClient([new MockResponse('{"error":"not found"}', ['http_code' => 404])]);
