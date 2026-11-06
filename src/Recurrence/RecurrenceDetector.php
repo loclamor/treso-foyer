@@ -39,7 +39,7 @@ final class RecurrenceDetector
 {
     private const int WINDOW_MONTHS = 36;
     private const int CHUNK_SIZE = 1000;
-    /** Rattachement des groupes satellites (libellé CSV ≠ PDF) : voir sync(), étape 2 bis. */
+    /** Rattachement des groupes satellites (libellé CSV ≠ PDF) : voir sync(), étape 2 ter. */
     private const int SATELLITE_MAX_OPERATIONS = 2;
     private const int SATELLITE_MAX_AGE_DAYS = 92;
     private const float SATELLITE_MIN_SIMILARITY = 0.6;
@@ -57,7 +57,7 @@ final class RecurrenceDetector
 
         // 1. Lecture des opérations de la fenêtre, classées dépense/revenu (virements internes exclus).
         $rows = $connection->fetchAllAssociative(
-            'SELECT o.id, o.date, o.account_id, o.merchant, o.normalized_label, o.category_id,
+            'SELECT o.id, o.date, o.account_id, o.merchant_group, o.merchant, o.normalized_label, o.category_id,
                     '.AmountClassifier::expenseAmountExpr().' AS expense,
                     '.AmountClassifier::incomeAmountExpr().' AS income
              FROM operation o
@@ -73,6 +73,8 @@ final class RecurrenceDetector
 
         /** @var array<string, list<array{id: int, date: \DateTimeImmutable, amount: int, categoryId: ?int}>> $groups */
         $groups = [];
+        /** @var array<string, array{0: string, 1: string}> $regrouped clé brute d'une variante => [clé de groupe, matchKey du groupe] */
+        $regrouped = [];
         foreach ($rows as $row) {
             $expense = (int) $row['expense'];
             $income = (int) $row['income'];
@@ -85,8 +87,13 @@ final class RecurrenceDetector
             } else {
                 continue; // virement interne, catégorie « transfer », montant nul…
             }
-            $matchKey = (string) ($row['merchant'] ?? $row['normalized_label']);
+            // Variantes d'un même commerçant regroupées (App\Merchant\MerchantGrouper).
+            $matchKey = (string) ($row['merchant_group'] ?? $row['merchant'] ?? $row['normalized_label']);
             $key = $row['account_id'].'|'.$direction->value.'|'.$matchKey;
+            $rawKey = (string) ($row['merchant'] ?? $row['normalized_label']);
+            if ($rawKey !== $matchKey) {
+                $regrouped[$row['account_id'].'|'.$direction->value.'|'.$rawKey] = [$key, $matchKey];
+            }
             $groups[$key][] = [
                 'id' => (int) $row['id'],
                 'date' => new \DateTimeImmutable((string) $row['date']),
@@ -116,7 +123,44 @@ final class RecurrenceDetector
             $seriesById[(int) $series['id']] = $series;
         }
 
-        // 2 bis. Analyse de chaque groupe, puis rattachement des groupes « satellites » : une ou
+        // 2 bis. Séries indexées sur une variante de commerçant désormais regroupée (MerchantGrouper) :
+        // ré-indexées sur la clé du groupe (statut confirmé/ignoré et corrections conservés) ; si une
+        // série existe déjà pour le groupe, une série « detected » en double est supprimée.
+        foreach ($seriesByKey as $key => $series) {
+            if (isset($groups[$key]) || !isset($regrouped[$key])) {
+                continue;
+            }
+            [$targetKey, $targetMatchKey] = $regrouped[$key];
+            $seriesId = (int) $series['id'];
+            if (!isset($seriesByKey[$targetKey])) {
+                if (!$dryRun) {
+                    $connection->executeStatement(
+                        'UPDATE recurring_series SET match_key = :matchKey, updated_at = :updatedAt WHERE id = :id',
+                        ['matchKey' => $targetMatchKey, 'updatedAt' => $today->format('Y-m-d H:i:s'), 'id' => $seriesId],
+                        ['matchKey' => ParameterType::STRING, 'updatedAt' => ParameterType::STRING, 'id' => ParameterType::INTEGER],
+                    );
+                }
+                $series['match_key'] = $targetMatchKey;
+                $seriesByKey[$targetKey] = $series;
+                $seriesById[$seriesId] = $series;
+                ++$report->updated;
+            } elseif (RecurrenceStatus::Detected->value === $series['status']) {
+                if (!$dryRun) {
+                    $connection->executeStatement(
+                        'DELETE FROM recurring_series WHERE id = :id',
+                        ['id' => $seriesId],
+                        ['id' => ParameterType::INTEGER],
+                    );
+                }
+                unset($seriesById[$seriesId]);
+                ++$report->removed;
+            } else {
+                continue; // série confirmée/ignorée en conflit : laissée telle quelle
+            }
+            unset($seriesByKey[$key]);
+        }
+
+        // 2 ter. Analyse de chaque groupe, puis rattachement des groupes « satellites » : une ou
         // deux opérations récentes dont la clé diffère légèrement de celle d'une série (libellé
         // d'un export CSV ≠ libellé du relevé PDF, tant que le PDF n'est pas importé). Critères :
         // même compte et même sens, similarité trigramme ≥ 0.6, postérieures à la dernière

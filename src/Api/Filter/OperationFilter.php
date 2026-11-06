@@ -219,8 +219,9 @@ final class OperationFilter
                 ->setParameter('qRaw', '%'.self::escapeLike(mb_strtolower($this->q)).'%');
         }
         if (null !== $this->merchant) {
-            // Clé de groupe « commerçant » (cf. /api/merchants) : commerçant, ou libellé normalisé à défaut.
-            $qb->andWhere('COALESCE(o.merchant, o.normalizedLabel) = :merchant')->setParameter('merchant', $this->merchant);
+            // Clé « commerçant » : clé brute (commerçant, ou libellé normalisé à défaut — cf. /api/merchants)
+            // OU clé représentative d'un groupe de variantes (top commerçants) ⇒ toutes ses variantes.
+            $qb->andWhere('(COALESCE(o.merchant, o.normalizedLabel) = :merchant OR o.merchantGroup = :merchant)')->setParameter('merchant', $this->merchant);
         }
         if ('debit' === $this->direction) {
             $qb->andWhere('o.amount < 0');

@@ -119,6 +119,7 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 
 ## Récurrences
 - Les dépenses et revenus récurrents (loyer, énergie, abonnements, impôts mensualisés, salaire…) sont **détectés automatiquement** à partir de l'historique (36 mois) : `make sf c='app:recurrences:detect'` (ajoutez `--dry-run` pour simuler), relancé automatiquement après chaque import (`app:import` / `POST /api/imports`). Détails : [ADR 0012](docs/adr/0012-recurrences.md).
+- Les variantes de libellé d'un même commerçant (export CSV ≠ relevé PDF, ponctuation, troncature) sont regroupées pour le top commerçants et les récurrences : `make sf c='app:merchants:group'` (`--dry-run` pour simuler), relancé automatiquement après chaque import. Détails : [ADR 0013](docs/adr/0013-regroupement-commercants.md).
 - Les séries détectées alimentent l'estimation du mois en cours du graphe mensuel (échéances restantes + partie variable) et sont gérables via l'API (`GET/PATCH /api/recurrences`, `POST /api/recurrences/detect`) — l'écran dédié arrive dans un lot front séparé.
 
 ## Tests

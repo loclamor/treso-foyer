@@ -12,6 +12,7 @@ use App\Enum\CategorizationSource;
 use App\Enum\ImportFormat;
 use App\Enum\ImportStatus;
 use App\Enum\TransferStatus;
+use App\Merchant\MerchantGrouper;
 use App\Tests\Support\TestClock;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -238,6 +239,34 @@ final class StatsApiTest extends ApiTestCase
         self::assertSame(300000, $rows[0]['total']);
         self::assertSame(2, $rows[0]['count']);
         self::assertEqualsWithDelta(1.0, $rows[0]['share'], 1e-9);
+    }
+
+    public function testMerchantsGroupsLabelVariants(): void
+    {
+        $courses = $this->category('Alimentation › Courses');
+        // Même enseigne, libellé PDF et libellé CSV différents (ponctuation).
+        $this->addOperation($this->account, '2026-01-05', -1000, 'ACHAT CB MP*SUPERMARCHE', 'MP*SUPERMARCHE', $courses);
+        $this->addOperation($this->account, '2026-01-12', -1000, 'ACHAT CB MP*SUPERMARCHE', 'MP*SUPERMARCHE', $courses);
+        $this->addOperation($this->account, '2026-02-03', -500, 'ACHAT CB MP SUPERMARCHE', 'MP SUPERMARCHE', $courses);
+        $report = static::getContainer()->get(MerchantGrouper::class)->sync($this->household);
+        self::assertSame(1, $report->groups);
+        self::assertSame(3, $report->updated);
+        // Idempotence.
+        self::assertSame(0, static::getContainer()->get(MerchantGrouper::class)->sync($this->household)->updated);
+        $client = $this->client();
+
+        $rows = $this->decode($this->json($client, 'GET', $this->statsUri('merchants', ['direction' => 'expense'])));
+        self::assertCount(1, $rows);
+        self::assertSame('MP*SUPERMARCHE', $rows[0]['key']);
+        self::assertSame('MP*SUPERMARCHE', $rows[0]['merchant']);
+        self::assertSame(2500, $rows[0]['total']);
+        self::assertSame(3, $rows[0]['count']);
+
+        // Filtre opérations par la clé représentative ⇒ toutes les variantes ; par une variante ⇒ elle seule.
+        $data = $this->decode($this->json($client, 'GET', '/api/operations?merchant='.rawurlencode('MP*SUPERMARCHE')));
+        self::assertSame(3, $data['total']);
+        $data = $this->decode($this->json($client, 'GET', '/api/operations?merchant='.rawurlencode('MP SUPERMARCHE')));
+        self::assertSame(1, $data['total']);
     }
 
     public function testMerchants(): void

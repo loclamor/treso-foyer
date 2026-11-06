@@ -16,3 +16,4 @@ Chaque décision technique structurante est consignée ici (format court : conte
 | [0010](0010-visualisation.md) | Visualisation : ECharts, couleurs par catégorie (8 emplacements validés), vue tableau | Acceptée |
 | [0011](0011-vehicules.md) | Véhicules : axe d'analyse indépendant, plaque, recherche externe optionnelle | Acceptée |
 | [0012](0012-recurrences.md) | Récurrences : détection automatique (dépenses/revenus), séries gérées, prévision du mois en cours | Acceptée |
+| [0013](0013-regroupement-commercants.md) | Regroupement des variantes de commerçant (CSV/PDF, ponctuation, troncature) | Acceptée |

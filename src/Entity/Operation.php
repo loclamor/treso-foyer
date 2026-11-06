@@ -21,6 +21,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_operation_account_date', columns: ['account_id', 'date'])]
 #[ORM\Index(name: 'idx_operation_category', columns: ['category_id'])]
 #[ORM\Index(name: 'idx_operation_merchant', columns: ['merchant'])]
+#[ORM\Index(name: 'idx_operation_merchant_group', columns: ['merchant_group'])]
 #[ORM\Index(name: 'idx_operation_vehicle', columns: ['vehicle_id'])]
 #[ORM\Index(name: 'idx_operation_normalized_label_trgm', columns: ['normalized_label'])]
 class Operation
@@ -54,6 +55,13 @@ class Operation
 
     #[ORM\Column(length: 120, nullable: true)]
     private ?string $merchant = null;
+
+    /**
+     * Clé représentative du groupe de variantes du commerçant (CSV/PDF, ponctuation…), calculée
+     * par App\Merchant\MerchantGrouper ; NULL pour un commerçant sans variante.
+     */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $merchantGroup = null;
 
     #[ORM\Column(length: 64, unique: true)]
     private string $fingerprint;
@@ -263,6 +271,17 @@ class Operation
         $this->normalizedLabel = $normalizedLabel;
 
         return $this;
+    }
+
+    public function getMerchantGroup(): ?string
+    {
+        return $this->merchantGroup;
+    }
+
+    /** Clé de regroupement effective : groupe, sinon commerçant, sinon libellé normalisé. */
+    public function getMerchantKey(): string
+    {
+        return $this->merchantGroup ?? $this->merchant ?? $this->normalizedLabel;
     }
 
     public function getMerchant(): ?string

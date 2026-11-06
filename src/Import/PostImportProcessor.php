@@ -9,6 +9,7 @@ use App\Categorization\Categorizer;
 use App\Categorization\InternalTransferMatcher;
 use App\Entity\Household;
 use App\Entity\Operation;
+use App\Merchant\MerchantGrouper;
 use App\Recurrence\RecurrenceDetector;
 use App\Repository\OperationRepository;
 use App\Vehicle\VehicleAssigner;
@@ -31,6 +32,7 @@ final class PostImportProcessor
         private readonly VehicleAssigner $vehicleAssigner,
         private readonly RecurrenceDetector $recurrenceDetector,
         private readonly ClockInterface $clock,
+        private readonly MerchantGrouper $merchantGrouper,
     ) {
     }
 
@@ -56,6 +58,9 @@ final class PostImportProcessor
         // fait des clear() : le VehicleAssigner travaille en DBAL, hors UnitOfWork).
         $this->entityManager->flush();
         $vehicleReport = $this->vehicleAssigner->sync($household);
+
+        // Regroupement des variantes de commerçant (CSV/PDF), utilisé par la détection des récurrences.
+        $this->merchantGrouper->sync($household);
 
         // Détection des récurrences après le flush (DBAL, hors UnitOfWork), à la date du jour.
         $recurrenceReport = $this->recurrenceDetector->sync($household, $this->clock->now());

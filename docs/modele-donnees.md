@@ -38,12 +38,12 @@ erDiagram
 | `Account` | Compte bancaire | `alias` unique par foyer, type `personal`/`joint`, titulaires 1..n |
 | `ImportBatch` | Un fichier importé | `sha256` unique → un fichier n'est jamais importé deux fois |
 | `Statement` | Soldes d'un relevé | ouverture (PDF) / clôture ; sert au contrôle de cohérence et à l'historique de solde |
-| `Operation` | Ligne de relevé | `fingerprint` unique (compte, date, montant, libellé normalisé, rang d'occurrence) ; index GIN `pg_trgm` sur `normalized_label` ; statut de doublon probable |
+| `Operation` | Ligne de relevé | `fingerprint` unique (compte, date, montant, libellé normalisé, rang d'occurrence) ; index GIN `pg_trgm` sur `normalized_label` ; statut de doublon probable ; `merchant_group` = clé représentative des variantes du commerçant (ADR 0013) |
 | `Category` | Poste de dépense/revenu, arbre à 2 niveaux | `kind` : `expense` / `income` / `transfer` (exclu des dépenses) ; unicité (foyer, parent, nom) avec `NULLS NOT DISTINCT` ; `vehicleRelated` = poste lié à un véhicule (carburant, entretien, assurance auto, péages & parking) |
 | `CategorizationRule` | Règle automatique | champ commerçant/libellé, contient/commence par/exact/regex, sens, bornes de montant (valeur absolue), compte optionnel, priorité ; `matches()` pur et testé |
 | `InternalTransfer` | Paire de virements entre comptes du foyer | exclue des stats consolidées |
 | `Budget` | Budget mensuel d'un poste | portée foyer / personne / compte |
-| `RecurringSeries` | Dépense/revenu récurrent détecté (ADR 0012) | unicité (compte, `matchKey` = `coalesce(merchant, normalized_label)`, `direction`) ; fréquence (ajout de `bimonthly`), montant attendu **toujours positif** ± tolérance, `lastOccurrence`/`nextExpected`, `activeMonths` (mois 1..12 actifs ou null), statut `detected`/`confirmed`/`ignored`/`ended` |
+| `RecurringSeries` | Dépense/revenu récurrent détecté (ADR 0012) | unicité (compte, `matchKey` = `coalesce(merchant_group, merchant, normalized_label)`, `direction`) ; fréquence (ajout de `bimonthly`), montant attendu **toujours positif** ± tolérance, `lastOccurrence`/`nextExpected`, `activeMonths` (mois 1..12 actifs ou null), statut `detected`/`confirmed`/`ignored`/`ended` |
 | `Vehicle` | Véhicule du foyer | plaque toujours stockée normalisée (SIV `AA-123-AA`, FNI sans séparateurs), unicité (foyer, nom) et (foyer, plaque) ; période de service `acquiredAt`/`disposedAt` (`isActiveOn()`), conducteur principal, données brutes d'une API de plaque (`lookupData`/`lookupAt`) |
 | `OdometerReading` | Relevé de compteur d'un véhicule | un relevé par (véhicule, date), `km` ≥ 0 |
 

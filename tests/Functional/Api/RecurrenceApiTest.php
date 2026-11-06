@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Api;
 
+use App\Merchant\MerchantGrouper;
 use App\Tests\Support\TestClock;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -70,6 +71,33 @@ final class RecurrenceApiTest extends ApiTestCase
         // Idempotence.
         $report = $this->decode($this->json($client, 'POST', '/api/recurrences/detect'));
         self::assertSame(['created' => 0, 'updated' => 0, 'ended' => 0, 'removed' => 0, 'linked' => 0], $report);
+    }
+
+    public function testConfirmedSeriesIsRekeyedWhenItsMerchantJoinsAGroup(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $this->seedRecurringData();
+        $client = $this->client();
+        $this->json($client, 'POST', '/api/recurrences/detect');
+        $edf = $this->firstSeries(['direction' => 'expense']);
+        $data = $this->decode($this->json($client, 'PATCH', '/api/recurrences/'.$edf['id'], ['expectedAmount' => 91000]));
+        self::assertSame('confirmed', $data['status']);
+
+        // Variante « EDF. » plus fréquente : elle devient la clé représentative du groupe.
+        $energie = $this->category('Logement › Énergie');
+        foreach (['2025-11-05', '2025-12-05', '2026-01-05', '2026-02-05', '2026-03-05', '2026-04-05', '2026-05-05'] as $date) {
+            $this->addOperation($this->account, $date, -90000, 'PRELEVEMENT EDF.', 'EDF.', $energie);
+        }
+        static::getContainer()->get(MerchantGrouper::class)->sync($this->household);
+        $report = $this->decode($this->json($client, 'POST', '/api/recurrences/detect'));
+        self::assertSame(0, $report['created']);
+        self::assertSame(0, $report['removed']);
+
+        // Même série (id), statut et correction conservés, toutes les variantes liées.
+        $data = $this->decode($this->json($client, 'GET', '/api/recurrences/'.$edf['id']));
+        self::assertSame('confirmed', $data['status']);
+        self::assertSame(91000, $data['expectedAmount']);
+        self::assertSame(13, $data['occurrences']);
     }
 
     public function testDetectedSeriesRemovedWhenPatternNoLongerRecognised(): void

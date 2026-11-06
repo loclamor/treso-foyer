@@ -343,7 +343,8 @@ final class StatsRepository
     }
 
     /**
-     * Top commerçants pour une direction (clé de groupe coalesce(merchant, normalized_label)).
+     * Top commerçants pour une direction (clé de groupe coalesce(merchant_group, merchant, normalized_label) :
+     * les variantes d'un même commerçant sont regroupées, voir App\Merchant\MerchantGrouper).
      *
      * @param list<int>|null    $accountIds
      * @param list<string>|null $keys       restreint aux clés de groupe données (null = toutes)
@@ -361,14 +362,14 @@ final class StatsRepository
         // Restriction optionnelle à des clés de groupe données (comparaison avec une autre période).
         $keysSql = '';
         if (null !== $keys) {
-            $keysSql = ' AND COALESCE(o.merchant, o.normalized_label) IN (:keys)';
+            $keysSql = ' AND COALESCE(o.merchant_group, o.merchant, o.normalized_label) IN (:keys)';
             $params['keys'] = $keys;
             $types['keys'] = ArrayParameterType::STRING;
         }
 
         // 1re requête : agrégats par groupe, limités.
         $sql = $cte."\n"
-            ."SELECT COALESCE(o.merchant, o.normalized_label) AS k, MAX(o.merchant) AS merchant,\n"
+            ."SELECT COALESCE(o.merchant_group, o.merchant, o.normalized_label) AS k, CASE WHEN MAX(o.merchant) IS NULL THEN NULL ELSE COALESCE(MAX(o.merchant_group), MAX(o.merchant)) END AS merchant,\n"
             ."       COUNT(*) AS cnt, COALESCE(SUM($sign), 0) AS total\n"
             .$this->fromWhere($accountIds)."\n"
             ."AND $kind = :direction$keysSql\n"
@@ -380,7 +381,7 @@ final class StatsRepository
         // 2e requête : catégorie majoritaire par groupe (agrégat, pas les opérations brutes).
         $catRows = $this->connection()->fetchAllAssociative(
             $cte."\n"
-            ."SELECT COALESCE(o.merchant, o.normalized_label) AS k, o.category_id AS cid, COUNT(*) AS cnt\n"
+            ."SELECT COALESCE(o.merchant_group, o.merchant, o.normalized_label) AS k, o.category_id AS cid, COUNT(*) AS cnt\n"
             .$this->fromWhere($accountIds)."\n"
             ."AND $kind = :direction AND o.category_id IS NOT NULL$keysSql\n"
             ."GROUP BY 1, 2",
