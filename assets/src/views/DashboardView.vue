@@ -344,73 +344,100 @@ function recurringExpectedSeries(m, c, roots, idx) {
     }));
 }
 
-// Infobulle du graphe mensuel : détaille les estimations du mois en cours.
-function monthlyTooltip(c, m, prev) {
+// Infobulle du graphe mensuel : TABLEAU compact, une ligne par poste, colonnes côte à côte
+// « mois courant | attendu (récurrent restant, mois en cours) | mois précédent », puis totaux,
+// estimation et prochaines échéances (listes courtes). Construite depuis les données (pas
+// depuis params) pour couvrir aussi les postes absents d'une des deux périodes.
+const TIP_MAX_EXPENSE_ITEMS = 4;
+const TIP_MAX_INCOME_ITEMS = 3;
+const TIP_LABEL_MAX = 24;
+
+function tipLabel(s) {
+    const t = String(s ?? '');
+    return escapeHtml(t.length > TIP_LABEL_MAX ? `${t.slice(0, TIP_LABEL_MAX - 1)}…` : t);
+}
+
+function monthlyTooltip(c, m, prev, roots, prevRoots, expectedByName) {
     const t = baseTooltip(c);
-    const estimate = m.estimate;
-    if (!estimate && !prev) return t;
     t.formatter = (params) => {
-        const all = (Array.isArray(params) ? params : [params]).filter((p) => {
-            const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
-            return v !== null && v !== undefined;
-        });
-        if (!all.length) return '';
-        const list = all.filter((p) => !isPrevSeriesId(p.seriesId));
-        const prevList = all.filter((p) => isPrevSeriesId(p.seriesId));
-        const head = all[0].axisValueLabel ?? String(all[0].name ?? '');
-        const dataIndex = all[0].dataIndex;
-        const isCurrent = !!estimate && m.months[dataIndex] === estimate.month;
-        const lines = list.map((p) => {
-            const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
-            if (p.seriesName === EXPENSE_ESTIMATE_NAME) {
-                return `${p.marker} Dépenses estimées : <strong>${formatMoney(estimate.expense)}</strong> (dépensé à date : ${formatMoney(estimate.spent)})`;
-            }
-            if (p.seriesName === INCOME_ESTIMATE_NAME) {
-                if (!isCurrent) return null; // point de départ du segment = revenus réels du mois précédent
-                return `${p.marker} Revenus estimés : <strong>${formatMoney(v)}</strong> (reçu à date : ${formatMoney(estimate.received)})`;
-            }
-            return `${p.marker} ${p.seriesName} : <strong>${formatMoney(v)}</strong>`;
-        }).filter(Boolean);
-        if (prev && prevList.length) {
-            const prevMonth = prev.months[dataIndex];
-            const prevExpense = prev.expense[dataIndex] ?? 0;
-            const curExpense = m.expense[dataIndex] ?? 0;
-            const delta = prevExpense ? Math.round(((curExpense - prevExpense) / prevExpense) * 100) : null;
-            lines.push(`<strong>Période précédente — ${prevMonth ? formatMonth(prevMonth) : ''}</strong>`);
-            lines.push(`Dépenses : <strong>${formatMoney(prevExpense)}</strong>${delta === null ? '' : ` <span style="opacity:.7">(${delta >= 0 ? '+' : ''}${delta} % depuis)</span>`}`);
-            for (const p of prevList) {
-                const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
-                if (!v) continue;
-                const label = p.seriesName === PREV_INCOME_NAME ? 'Revenus' : escapeHtml(p.seriesName);
-                lines.push(`<span style="opacity:.75">${p.marker} ${label} : ${formatMoney(v)}</span>`);
+        const list = Array.isArray(params) ? params : [params];
+        if (!list.length) return '';
+        const i = list[0].dataIndex;
+        const estimate = m.estimate;
+        const isCurrent = !!estimate && m.months[i] === estimate.month;
+        const showExpected = isCurrent && expectedByName.size > 0;
+        const prevMonth = prev?.months?.[i] ?? null;
+        const money = (v) => (v ? formatMoney(v) : '—');
+        const dot = (color) => `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:${color}"></span>`;
+        const td = 'style="padding:1px 0 1px 12px;text-align:right;white-space:nowrap"';
+        const tdMuted = 'style="padding:1px 0 1px 12px;text-align:right;white-space:nowrap;opacity:.65"';
+
+        // Postes : union période courante + précédente (même nom ⇒ même ligne).
+        const rows = new Map();
+        for (const r of roots) rows.set(r.name, { color: r.color, cur: r.values[i] ?? 0, prev: 0, exp: 0 });
+        for (const r of prevRoots) {
+            const row = rows.get(r.name) ?? { color: r.color, cur: 0, prev: 0, exp: 0 };
+            row.prev = r.values?.[i] ?? 0;
+            rows.set(r.name, row);
+        }
+        for (const [name, exp] of expectedByName) {
+            const row = rows.get(name) ?? { color: c.others, cur: 0, prev: 0, exp: 0 };
+            row.exp = exp;
+            rows.set(name, row);
+        }
+
+        const head = [`<th style="text-align:left;font-weight:600">${escapeHtml(formatMonth(m.months[i]))}</th>`, `<th ${td}>Réel</th>`];
+        if (showExpected) head.push(`<th ${td}>Attendu</th>`);
+        if (prev) head.push(`<th ${tdMuted}>${prevMonth ? escapeHtml(formatMonth(prevMonth)) : 'Préc.'}</th>`);
+
+        const body = [];
+        for (const [name, r] of rows) {
+            if (!r.cur && !r.prev && !r.exp) continue;
+            const cells = [`<td style="white-space:nowrap">${dot(r.color)}${escapeHtml(name)}</td>`, `<td ${td}>${money(r.cur)}</td>`];
+            if (showExpected) cells.push(`<td ${td}>${money(r.exp)}</td>`);
+            if (prev) cells.push(`<td ${tdMuted}>${money(r.prev)}</td>`);
+            body.push(`<tr>${cells.join('')}</tr>`);
+        }
+        const sep = 'style="border-top:1px solid rgba(128,128,128,.35)"';
+        const totalExpected = showExpected ? [...expectedByName.values()].reduce((a, b) => a + b, 0) : 0;
+        const totalCells = [`<td style="font-weight:600">Dépenses</td>`, `<td ${td}><strong>${money(m.expense[i])}</strong></td>`];
+        if (showExpected) totalCells.push(`<td ${td}>${money(totalExpected)}</td>`);
+        if (prev) totalCells.push(`<td ${tdMuted}>${money(prev.expense?.[i])}</td>`);
+        body.push(`<tr ${sep}>${totalCells.join('')}</tr>`);
+        const incomeCells = [`<td style="font-weight:600">Revenus</td>`, `<td ${td}>${money(m.income[i])}</td>`];
+        if (showExpected) incomeCells.push(`<td ${td}>${money(estimate.recurring?.income?.remaining)}</td>`);
+        if (prev) incomeCells.push(`<td ${tdMuted}>${money(prev.income?.[i])}</td>`);
+        body.push(`<tr>${incomeCells.join('')}</tr>`);
+
+        const parts = [`<table style="border-collapse:collapse;font-size:12px"><thead><tr>${head.join('')}</tr></thead><tbody>${body.join('')}</tbody></table>`];
+
+        if (prev) {
+            const pe = prev.expense?.[i] ?? 0;
+            const ce = isCurrent ? estimate.expense : (m.expense[i] ?? 0);
+            if (pe) {
+                const delta = Math.round(((ce - pe) / pe) * 100);
+                parts.push(`<div style="opacity:.7;margin-top:4px">Dépenses${isCurrent ? ' estimées' : ''} vs ${escapeHtml(formatMonth(prevMonth))} : ${delta >= 0 ? '+' : ''}${delta} %</div>`);
             }
         }
         if (isCurrent) {
-            lines.push(`<span style="opacity:.7">Moyenne des ${estimate.basisMonths} derniers mois complets</span>`);
-            const recurring = estimate.recurring ?? null;
-            const variable = estimate.variable ?? null;
-            const expItems = (recurring?.expense?.items ?? []).filter((it) => !it.paid);
-            const incItems = (recurring?.income?.items ?? []).filter((it) => !it.paid);
-            const MAX_ITEMS = 8;
+            const variable = estimate.variable ?? {};
+            parts.push(
+                `<div style="margin-top:6px"><strong>Estimation fin de mois</strong> : dépenses ${formatMoney(estimate.expense)} · revenus ${formatMoney(estimate.income)}</div>`
+                + `<div style="opacity:.7">dont variable restant ${formatMoney(variable.expenseRemaining ?? 0)} (moyenne ${estimate.basisMonths} mois)</div>`,
+            );
+            const expItems = (estimate.recurring?.expense?.items ?? []).filter((it) => !it.paid);
+            const incItems = (estimate.recurring?.income?.items ?? []).filter((it) => !it.paid);
+            const itemLine = (it) => `${shortDate(it.expectedDate)} ${tipLabel(it.merchant)} <strong>${formatMoney(it.amount)}</strong>`;
             if (expItems.length) {
-                lines.push('<strong>Échéances attendues</strong>');
-                for (const it of expItems.slice(0, MAX_ITEMS)) {
-                    lines.push(`• ${shortDate(it.expectedDate)} — ${escapeHtml(it.merchant)} : <strong>${formatMoney(it.amount)}</strong>`);
-                }
-                if (expItems.length > MAX_ITEMS) lines.push(`… et ${expItems.length - MAX_ITEMS} autre(s)`);
+                const more = expItems.length > TIP_MAX_EXPENSE_ITEMS ? ` · +${expItems.length - TIP_MAX_EXPENSE_ITEMS} autres` : '';
+                parts.push(`<div style="margin-top:6px"><strong>Prochaines échéances</strong></div><div style="opacity:.85">${expItems.slice(0, TIP_MAX_EXPENSE_ITEMS).map(itemLine).join('<br/>')}${more}</div>`);
             }
             if (incItems.length) {
-                lines.push('<strong>Revenus attendus</strong>');
-                for (const it of incItems.slice(0, MAX_ITEMS)) {
-                    lines.push(`• ${shortDate(it.expectedDate)} — ${escapeHtml(it.merchant)} : <strong>${formatMoney(it.amount)}</strong>`);
-                }
-                if (incItems.length > MAX_ITEMS) lines.push(`… et ${incItems.length - MAX_ITEMS} autre(s)`);
+                const more = incItems.length > TIP_MAX_INCOME_ITEMS ? ` · +${incItems.length - TIP_MAX_INCOME_ITEMS} autres` : '';
+                parts.push(`<div style="margin-top:6px"><strong>Revenus attendus</strong></div><div style="opacity:.85">${incItems.slice(0, TIP_MAX_INCOME_ITEMS).map(itemLine).join('<br/>')}${more}</div>`);
             }
-            lines.push(
-                `<span style="opacity:.7">Dépensé à date : ${formatMoney(estimate.spent)} · récurrent restant : ${formatMoney(recurring?.expense?.remaining ?? 0)} · variable restant : ${formatMoney(variable?.expenseRemaining ?? 0)} (moyenne ${estimate.basisMonths} mois)</span>`,
-            );
         }
-        return [head, ...lines].join('<br/>');
+        return parts.join('');
     };
     return t;
 }
@@ -434,7 +461,10 @@ const monthlyOption = computed(() => {
     })));
     const idx = currentIndex(m);
     // Hachuré « (attendu) » : récurrent restant du mois en cours, au-dessus de la pile réelle.
-    if (idx !== -1) series.push(...recurringExpectedSeries(m, c, roots, idx));
+    const recurringSeries = idx !== -1 ? recurringExpectedSeries(m, c, roots, idx) : [];
+    series.push(...recurringSeries);
+    // Récurrent restant par poste (nom du poste) pour la colonne « Attendu » de l'infobulle.
+    const expectedByName = new Map(recurringSeries.map((rs) => [rs.name.slice(0, -RECURRING_SUFFIX.length), rs.data[idx] ?? 0]));
     // Ligne des revenus sur le MÊME axe (une seule échelle en €) ; mois en cours retiré
     // (incomplet) quand une estimation le remplace.
     series.push({
@@ -454,7 +484,7 @@ const monthlyOption = computed(() => {
     // Les postes de la période précédente partagent le nom du poste courant (une seule entrée).
     legend.data = [...new Set(series.filter((s) => !isRecurringSeriesId(s.id)).map((s) => s.name))];
     return {
-        tooltip: monthlyTooltip(c, m, prevMonthly.value),
+        tooltip: monthlyTooltip(c, m, prevMonthly.value, roots, prevMonthlyRoots.value, expectedByName),
         legend,
         grid: baseGrid(),
         xAxis: categoryAxis(c, labels),
