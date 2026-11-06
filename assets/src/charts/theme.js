@@ -85,9 +85,17 @@ export function categoryAxisY(colors, labels) {
     };
 }
 
+// Légende sur UNE ligne (défilante si elle déborde) : la grille ne réserve qu'une ligne en bas
+// (baseGrid bottom: 36), une légende sur 2 lignes chevaucherait les libellés de l'axe X.
 export function baseLegend(colors, overrides = {}) {
     return {
+        type: 'scroll',
         bottom: 0,
+        left: 8,
+        right: 8,
+        pageIconColor: colors.inkSecondary,
+        pageIconInactiveColor: colors.muted,
+        pageTextStyle: { color: colors.inkSecondary, fontFamily: CHART_FONT },
         icon: 'rect',
         itemWidth: 12,
         itemHeight: 8,
