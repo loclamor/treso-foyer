@@ -180,32 +180,48 @@ const monthlyRoots = computed(() => {
     return foldToOthers(series, theme.mode.value);
 });
 
-// Série « Estimation fin de mois » : pointillés neutres, valeurs null partout sauf au mois
-// précédent (dépense réelle) et au mois en cours (estimate.expense) pour tracer un segment.
-const ESTIMATE_NAME = 'Estimation fin de mois';
+// Estimations du mois en cours (mois incomplet) :
+// - revenus : la ligne réelle s'arrête au mois précédent ; un segment en pointillés part de
+//   son dernier point et rejoint l'estimation du mois en cours (estimate.income) ;
+// - dépenses : barre fantôme en pointillés (estimate.expense) superposée à la pile du mois.
+const INCOME_ESTIMATE_NAME = 'Revenus estimés';
+const EXPENSE_ESTIMATE_NAME = 'Dépenses estimées';
 
-function estimateSeries(m, c) {
-    const est = m.estimate;
-    if (!est) return null;
-    const idx = m.months.indexOf(est.month);
-    if (idx === -1) return null;
+function currentIndex(m) {
+    return m.estimate ? m.months.indexOf(m.estimate.month) : -1;
+}
+
+function incomeEstimateSeries(m, c, idx) {
     const prevIdx = idx - 1;
     const data = m.months.map((mo, i) => {
-        if (i === idx) return { value: est.expense, symbolSize: 8 }; // symbole sur le mois en cours
-        if (i === prevIdx) return { value: m.expense[prevIdx], symbolSize: 0 };
+        if (i === idx) return { value: m.estimate.income, symbolSize: 8 };
+        if (i === prevIdx) return { value: m.income[prevIdx], symbolSize: 0 };
         return null;
     });
     return {
-        name: ESTIMATE_NAME,
+        name: INCOME_ESTIMATE_NAME,
         type: 'line',
         data,
         connectNulls: false,
-        lineStyle: { width: 2, type: 'dashed', color: c.muted }, // neutre, pas une couleur de catégorie
-        itemStyle: { color: c.muted },
+        lineStyle: { width: 2, type: 'dashed', color: c.inkSecondary },
+        itemStyle: { color: c.inkSecondary },
     };
 }
 
-// Infobulle du graphe mensuel : ajoute la ligne d'explication de l'estimation.
+function expenseEstimateSeries(m, c, idx) {
+    return {
+        name: EXPENSE_ESTIMATE_NAME,
+        type: 'bar',
+        barGap: '-100%', // superposée à la pile du même mois
+        barMaxWidth: 26,
+        z: 1,
+        data: m.months.map((mo, i) => (i === idx ? m.estimate.expense : null)),
+        itemStyle: { color: 'transparent', borderColor: c.muted, borderWidth: 1.5, borderType: 'dashed' },
+        emphasis: { disabled: true },
+    };
+}
+
+// Infobulle du graphe mensuel : détaille les estimations du mois en cours.
 function monthlyTooltip(c, estimate) {
     const t = baseTooltip(c);
     if (!estimate) return t;
@@ -216,13 +232,19 @@ function monthlyTooltip(c, estimate) {
         });
         if (!list.length) return '';
         const head = list[0].axisValueLabel ?? String(list[0].name ?? '');
+        const isCurrent = list.some((p) => p.seriesName === EXPENSE_ESTIMATE_NAME);
         const lines = list.map((p) => {
             const v = p.value !== null && typeof p.value === 'object' ? p.value.value : p.value;
-            if (p.seriesName === ESTIMATE_NAME) {
-                return `${p.marker} Estimation : <strong>${formatMoney(v)}</strong> (moyenne des ${estimate.basisMonths} derniers mois complets ; dépensé à date : ${formatMoney(estimate.spent)})`;
+            if (p.seriesName === EXPENSE_ESTIMATE_NAME) {
+                return `${p.marker} Dépenses estimées : <strong>${formatMoney(v)}</strong> (dépensé à date : ${formatMoney(estimate.spent)})`;
+            }
+            if (p.seriesName === INCOME_ESTIMATE_NAME) {
+                if (!isCurrent) return null; // point de départ du segment = revenus réels du mois précédent
+                return `${p.marker} Revenus estimés : <strong>${formatMoney(v)}</strong> (reçu à date : ${formatMoney(estimate.received)})`;
             }
             return `${p.marker} ${p.seriesName} : <strong>${formatMoney(v)}</strong>`;
-        });
+        }).filter(Boolean);
+        if (isCurrent) lines.push(`<span style="opacity:.7">Moyenne des ${estimate.basisMonths} derniers mois complets</span>`);
         return [head, ...lines].join('<br/>');
     };
     return t;
@@ -243,17 +265,21 @@ const monthlyOption = computed(() => {
         itemStyle: barItemStyle(r.color, c.surface),
         emphasis: { focus: 'series' },
     }));
-    // Ligne des revenus sur le MÊME axe (une seule échelle en €).
+    const idx = currentIndex(m);
+    // Ligne des revenus sur le MÊME axe (une seule échelle en €) ; mois en cours retiré
+    // (incomplet) quand une estimation le remplace.
     series.push({
         name: 'Revenus',
         type: 'line',
-        data: m.income,
+        data: idx === -1 ? m.income : m.income.map((v, i) => (i === idx ? null : v)),
         symbolSize: 8,
         lineStyle: { width: 2, color: c.inkSecondary },
         itemStyle: { color: c.inkSecondary },
     });
-    const estimate = estimateSeries(m, c);
-    if (estimate) series.push(estimate);
+    if (idx !== -1) {
+        if (idx > 0) series.push(incomeEstimateSeries(m, c, idx));
+        series.push(expenseEstimateSeries(m, c, idx));
+    }
     return {
         tooltip: monthlyTooltip(c, m.estimate),
         legend: baseLegend(c),
@@ -269,6 +295,7 @@ const monthlyEmpty = computed(() => !monthly.value || !monthly.value.months?.len
 // Clic sur un segment ⇒ opérations du mois cliqué pour cette racine.
 function onMonthlyClick(e) {
     if (e.componentType !== 'series' || e.seriesType !== 'bar' || !monthly.value) return;
+    if (e.seriesName === EXPENSE_ESTIMATE_NAME) return;
     const root = monthlyRoots.value[e.seriesIndex];
     const month = monthly.value.months[e.dataIndex];
     const b = monthBounds(month);

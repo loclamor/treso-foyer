@@ -803,8 +803,9 @@ final class StatsApiTest extends ApiTestCase
         self::assertSame(['2026-09', '2026-10', '2026-11'], $data['months']);
         self::assertSame([1000, 3000, 500], $data['expense']);
         // k = 2 mois complets (sept, oct) avec opérations ⇒ moyenne (1000+3000)/2 = 2000.
+        // Revenus : aucun en sept/oct ⇒ moyenne 0, reçu à date 50000 ⇒ income = 50000.
         self::assertSame(
-            ['month' => '2026-11', 'spent' => 500, 'average' => 2000, 'expense' => 2000, 'basisMonths' => 2],
+            ['month' => '2026-11', 'spent' => 500, 'average' => 2000, 'expense' => 2000, 'received' => 50000, 'incomeAverage' => 0, 'income' => 50000, 'basisMonths' => 2],
             $data['estimate'],
         );
     }
@@ -821,9 +822,28 @@ final class StatsApiTest extends ApiTestCase
 
         // k = 1 (octobre) ⇒ moyenne 1000, mais dépensé à date 5000 > moyenne ⇒ expense = 5000.
         self::assertSame(
-            ['month' => '2026-11', 'spent' => 5000, 'average' => 1000, 'expense' => 5000, 'basisMonths' => 1],
+            ['month' => '2026-11', 'spent' => 5000, 'average' => 1000, 'expense' => 5000, 'received' => 0, 'incomeAverage' => 0, 'income' => 0, 'basisMonths' => 1],
             $data['estimate'],
         );
+    }
+
+    public function testMonthlyEstimateIncomeUsesAverageWhenSalaryNotYetReceived(): void
+    {
+        TestClock::freeze('2026-11-05');
+        $courses = $this->category('Alimentation › Courses');
+        $salaires = $this->category('Revenus › Salaires');
+        $this->addOperation($this->account, '2026-09-28', 200000, 'VIREMENT EMPLOYEUR SEPT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-10-28', 300000, 'VIREMENT EMPLOYEUR OCT', 'EMPLOYEUR', $salaires);
+        $this->addOperation($this->account, '2026-10-10', -1000, 'ACHAT CB OCT', 'MONSHOP', $courses);
+        $this->addOperation($this->account, '2026-11-02', 1000, 'REMBOURSEMENT', 'MONSHOP', $salaires);
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/monthly?from=2026-09-01&to=2026-11-30'));
+
+        // k = 2 (sept, oct) ⇒ revenus moyens (200000+300000)/2 = 250000 > reçu à date 1000.
+        self::assertSame(1000, $data['estimate']['received']);
+        self::assertSame(250000, $data['estimate']['incomeAverage']);
+        self::assertSame(250000, $data['estimate']['income']);
     }
 
     public function testMonthlyEstimateAbsentWithoutCurrentMonth(): void

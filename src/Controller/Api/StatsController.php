@@ -98,21 +98,26 @@ final class StatsController extends AbstractController
         $data = $statsRepository->monthly($household, $accountIds, $period);
 
         // Estimation du mois en cours (présent seulement s'il fait partie de la série) :
-        // spent = dépense à date, average = moyenne des k derniers mois complets (k ≤ 12),
-        // expense = max(spent, average) ; null si aucune opération avant le mois en cours.
+        // spent / received = dépense / revenu à date, average / incomeAverage = moyennes des
+        // k derniers mois complets (k ≤ 12), expense / income = max(à date, moyenne) ;
+        // null si aucune opération avant le mois en cours.
         $estimate = null;
         $currentMonth = $now->format('Y-m');
         $currentIndex = array_search($currentMonth, $data['months'], true);
         if (false !== $currentIndex) {
-            $average = $statsRepository->monthlyExpenseAverage($household, $accountIds, StatsPeriod::firstOfMonth($now));
-            if (null !== $average) {
+            $averages = $statsRepository->monthlyAverages($household, $accountIds, StatsPeriod::firstOfMonth($now));
+            if (null !== $averages) {
                 $spent = $data['expense'][$currentIndex];
+                $received = $data['income'][$currentIndex];
                 $estimate = [
                     'month' => $currentMonth,
                     'spent' => $spent,
-                    'average' => $average['average'],
-                    'expense' => max($spent, $average['average']),
-                    'basisMonths' => $average['basisMonths'],
+                    'average' => $averages['expense'],
+                    'expense' => max($spent, $averages['expense']),
+                    'received' => $received,
+                    'incomeAverage' => $averages['income'],
+                    'income' => max($received, $averages['income']),
+                    'basisMonths' => $averages['basisMonths'],
                 ];
             }
         }

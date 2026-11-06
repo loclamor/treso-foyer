@@ -259,20 +259,21 @@ final class StatsRepository
     }
 
     /**
-     * Moyenne mensuelle des dépenses des k derniers mois complets précédant le mois de
+     * Moyennes mensuelles des dépenses et des revenus des k derniers mois complets précédant le mois de
      * $currentMonthFirst (k ≤ 12, bornés au premier mois ayant au moins une opération dans
      * le périmètre ; même périmètre comptes et même classification que `expense`).
      *
      * @param list<int>|null $accountIds
-     * @return array{average: int, basisMonths: int}|null null si aucune opération avant le mois en cours (k = 0)
+     * @return array{expense: int, income: int, basisMonths: int}|null null si aucune opération avant le mois en cours (k = 0)
      */
-    public function monthlyExpenseAverage(Household $household, ?array $accountIds, \DateTimeImmutable $currentMonthFirst): ?array
+    public function monthlyAverages(Household $household, ?array $accountIds, \DateTimeImmutable $currentMonthFirst): ?array
     {
         // Toutes les opérations du périmètre strictement avant le mois en cours.
         $period = new StatsPeriod(new \DateTimeImmutable('1900-01-01'), $currentMonthFirst->modify('-1 day'));
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $sql = $cte."\n"
-            ."SELECT date_trunc('month', o.date)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e\n"
+            ."SELECT date_trunc('month', o.date)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e,\n"
+            ."COALESCE(SUM(".AmountClassifier::incomeAmountExpr()."), 0) AS i\n"
             .$this->fromWhere($accountIds)."\n"
             ."GROUP BY 1\n"
             ."ORDER BY 1";
@@ -290,15 +291,21 @@ final class StatsRepository
         $k = ((int) $currentMonthFirst->format('Y') - (int) $bound->format('Y')) * 12
             + ((int) $currentMonthFirst->format('n') - (int) $bound->format('n'));
 
-        $total = 0;
+        $expense = 0;
+        $income = 0;
         foreach ($rows as $row) {
             $month = new \DateTimeImmutable((string) $row['m']);
             if ($month >= $bound) {
-                $total += (int) $row['e'];
+                $expense += (int) $row['e'];
+                $income += (int) $row['i'];
             }
         }
 
-        return ['average' => (int) round($total / $k), 'basisMonths' => $k];
+        return [
+            'expense' => (int) round($expense / $k),
+            'income' => (int) round($income / $k),
+            'basisMonths' => $k,
+        ];
     }
 
     /**
