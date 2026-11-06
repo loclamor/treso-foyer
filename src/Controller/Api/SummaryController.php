@@ -56,12 +56,14 @@ final class SummaryController extends AbstractController
             $types,
         ) ?: ['total' => 0, 'categorized' => 0, 'probable' => 0, 'first_date' => null, 'last_date' => null];
 
-        // Opérations de catégories vehicleRelated sans véhicule affecté (« à traiter » véhicule).
+        // Opérations de catégories vehicleRelated sans véhicule affecté (« à traiter » véhicule),
+        // hors opérations marquées « ignorées ».
         $vehicleUnassigned = (int) $connection->fetchOne(
             "SELECT COUNT(*) FROM operation o
              JOIN account a ON a.id = o.account_id
              JOIN category c ON c.id = o.category_id
-             WHERE a.household_id = :household$scopeSql AND c.vehicle_related = true AND o.vehicle_id IS NULL",
+             WHERE a.household_id = :household$scopeSql AND c.vehicle_related = true AND o.vehicle_id IS NULL
+               AND o.vehicle_source IS DISTINCT FROM 'ignored'",
             $params,
             $types,
         );

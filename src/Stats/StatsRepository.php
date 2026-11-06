@@ -653,12 +653,12 @@ final class StatsRepository
             $types,
         );
 
-        // Non affectées : catégories vehicleRelated sans véhicule.
+        // Non affectées : catégories vehicleRelated sans véhicule, hors opérations « ignorées ».
         $unassignedRow = $this->connection()->fetchAssociative(
             $cte."\n"
             ."SELECT COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total\n"
             .$this->fromWhere($accountIds)."\n"
-            ."$expense AND o.vehicle_id IS NULL AND c.vehicle_related = true",
+            ."$expense AND o.vehicle_id IS NULL AND c.vehicle_related = true AND o.vehicle_source IS DISTINCT FROM 'ignored'",
             $params,
             $types,
         ) ?: ['cnt' => 0, 'total' => 0];

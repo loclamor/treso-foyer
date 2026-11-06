@@ -69,7 +69,7 @@ const filters = reactive({
     maxEuros: '',
     source: null,
     duplicateStatus: null,
-    vehicle: null, // null | 'unassigned' | id de véhicule
+    vehicle: null, // null | 'unassigned' | 'ignored' | id de véhicule
     recurringSeriesId: null, // id de série récurrente (lien depuis l'écran Récurrences)
 });
 
@@ -94,6 +94,7 @@ const duplicateOptions = [
 const vehicleFilterOptions = computed(() => [
     { label: 'Tous les véhicules', value: null },
     { label: 'Non affectées (catégories véhicule)', value: 'unassigned' },
+    { label: 'Ignorées', value: 'ignored' },
     ...vehiclesStore.list.map((v) => ({ label: v.archived ? `${v.name} (archivé)` : v.name, value: v.id })),
 ]);
 
@@ -118,6 +119,7 @@ function initFromQuery() {
     if (q.duplicateStatus) filters.duplicateStatus = String(q.duplicateStatus);
     if (q.vehicleId) filters.vehicle = Number(q.vehicleId);
     if (q.vehicleUnassigned === '1' || q.vehicleUnassigned === 'true') filters.vehicle = 'unassigned';
+    if (q.vehicleIgnored === '1' || q.vehicleIgnored === 'true') filters.vehicle = 'ignored';
     if (q.recurringSeriesId) filters.recurringSeriesId = Number(q.recurringSeriesId);
     if (q.page) first.value = (Number(q.page) - 1) * rows.value;
     if (q.perPage) rows.value = Number(q.perPage);
@@ -141,6 +143,7 @@ function buildQuery() {
     if (filters.source) query.source = filters.source;
     if (filters.duplicateStatus) query.duplicateStatus = filters.duplicateStatus;
     if (filters.vehicle === 'unassigned') query.vehicleUnassigned = '1';
+    else if (filters.vehicle === 'ignored') query.vehicleIgnored = '1';
     else if (filters.vehicle) query.vehicleId = filters.vehicle;
     if (filters.recurringSeriesId) query.recurringSeriesId = filters.recurringSeriesId;
     const page = Math.floor(first.value / rows.value) + 1;
@@ -173,6 +176,7 @@ function buildParams() {
     if (filters.source) params.source = filters.source;
     if (filters.duplicateStatus) params.duplicateStatus = filters.duplicateStatus;
     if (filters.vehicle === 'unassigned') params.vehicleUnassigned = 1;
+    else if (filters.vehicle === 'ignored') params.vehicleIgnored = 1;
     else if (filters.vehicle) params.vehicleId = filters.vehicle;
     if (filters.recurringSeriesId) params.recurringSeriesId = filters.recurringSeriesId;
     return params;
@@ -189,7 +193,7 @@ async function load() {
         sums.value = res.sums ?? { debit: 0, credit: 0 };
         for (const op of res.items) {
             notes[op.id] = op.note ?? '';
-            vehicleEdits[op.id] = op.vehicle?.id ?? null;
+            vehicleEdits[op.id] = op.vehicleSource === 'ignored' ? 'ignored' : op.vehicle?.id ?? null;
         }
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Chargement impossible', detail: apiMessage(e, 'Les opérations n’ont pas pu être chargées.'), life: 6000 });
@@ -325,10 +329,17 @@ async function applyBulk() {
 async function saveVehicle(op) {
     savingVehicle[op.id] = true;
     try {
-        // vehicleId null = retrait de l'affectation manuelle (resync auto ensuite).
+        // vehicleId null = retrait de l'affectation manuelle ou réactivation (resync auto ensuite) ;
+        // 'ignored' = opération volontairement sans véhicule.
         const updated = await assignOperationVehicle(op.id, vehicleEdits[op.id] ?? null);
         Object.assign(op, updated);
-        toast.add({ severity: 'success', summary: 'Véhicule mis à jour', detail: updated.vehicle ? `Affectée à « ${updated.vehicle.name} ».` : 'Affectation retirée.', life: 3000 });
+        vehicleEdits[op.id] = updated.vehicleSource === 'ignored' ? 'ignored' : updated.vehicle?.id ?? null;
+        const detail = updated.vehicle
+            ? `Affectée à « ${updated.vehicle.name} ».`
+            : updated.vehicleSource === 'ignored'
+              ? 'Opération ignorée : elle ne sera plus proposée à l’affectation.'
+              : 'Affectation retirée.';
+        toast.add({ severity: 'success', summary: 'Véhicule mis à jour', detail, life: 3000 });
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Affectation impossible', detail: apiMessage(e), life: 6000 });
     } finally {
@@ -532,6 +543,7 @@ onMounted(() => {
             lazy
             paginator
             :rows="rows"
+            :rows-per-page-options="[25, 50, 100, 200]"
             :first="first"
             :total-records="total"
             :loading="loading"
@@ -616,9 +628,9 @@ onMounted(() => {
                         />
                     </div>
                     <div class="note-block">
-                        <label :for="'vehicle-' + data.id">Véhicule (« Aucun » retire l'affectation)</label>
+                        <label :for="'vehicle-' + data.id">Véhicule (« Aucun » retire l'affectation ou réactive une opération ignorée)</label>
                         <div class="vehicle-row">
-                            <VehiclePicker :id="'vehicle-' + data.id" v-model="vehicleEdits[data.id]" />
+                            <VehiclePicker :id="'vehicle-' + data.id" v-model="vehicleEdits[data.id]" allow-ignore />
                             <Button
                                 size="small"
                                 label="Affecter"
@@ -661,8 +673,8 @@ onMounted(() => {
 
         <Dialog v-model:visible="bulkVehicleVisible" modal header="Affecter la sélection à un véhicule" :style="{ width: '30rem' }" :draggable="false">
             <div class="field">
-                <label for="bulk-vehicle-picker">Véhicule pour les {{ selectionCount }} opérations sélectionnées (« Aucun » retire l'affectation)</label>
-                <VehiclePicker id="bulk-vehicle-picker" v-model="bulkVehicleId" />
+                <label for="bulk-vehicle-picker">Véhicule pour les {{ selectionCount }} opérations sélectionnées (« Aucun » retire l'affectation ou réactive, « Ignorer » les sort du compteur « à affecter »)</label>
+                <VehiclePicker id="bulk-vehicle-picker" v-model="bulkVehicleId" allow-ignore />
             </div>
             <template #footer>
                 <Button label="Annuler" severity="secondary" text @click="bulkVehicleVisible = false" />

@@ -176,6 +176,15 @@ class Operation
         return $this;
     }
 
+    /** Marque l'opération comme volontairement sans véhicule (vehicleSource « ignored »). */
+    public function ignoreVehicle(): static
+    {
+        $this->vehicle = null;
+        $this->vehicleSource = VehicleSource::Ignored;
+
+        return $this;
+    }
+
     public function unassignVehicle(): static
     {
         $this->vehicle = null;

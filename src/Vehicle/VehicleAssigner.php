@@ -15,10 +15,10 @@ use Doctrine\ORM\EntityManagerInterface;
  * Synchronise l'axe véhicule de toutes les opérations non manuelles d'un foyer
  * (voir docs/adr/0006-categorisation.md, « Axe véhicule ») :
  *
- * - candidats = opérations dont `vehicleSource` ≠ `manual` ayant une catégorie
+ * - candidats = opérations dont `vehicleSource` ∉ {`manual`, `ignored`} ayant une catégorie
  *   `vehicleRelated`, OU une règle appliquée désignant un véhicule, OU un véhicule
  *   déjà affecté (pour pouvoir retirer une affectation devenue caduque) ;
- * - les affectations `manual` ne sont JAMAIS modifiées ;
+ * - les affectations `manual` et les opérations `ignored` ne sont JAMAIS modifiées ;
  * - traitement idempotent.
  *
  * Efficace sur ~10 000 opérations : une seule lecture scalaire (DBAL), puis des
@@ -59,7 +59,7 @@ final class VehicleAssigner
                 LEFT JOIN categorization_rule r ON r.id = o.applied_rule_id
                 LEFT JOIN category c ON c.id = o.category_id
                 WHERE a.household_id = :household::int
-                  AND (o.vehicle_source IS NULL OR o.vehicle_source <> 'manual')
+                  AND (o.vehicle_source IS NULL OR o.vehicle_source NOT IN ('manual', 'ignored'))
                   AND (c.vehicle_related = true OR r.vehicle_id IS NOT NULL OR o.vehicle_id IS NOT NULL)
                 ORDER BY o.id
                 SQL,

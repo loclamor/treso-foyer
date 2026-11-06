@@ -5,7 +5,7 @@ import { VEHICLE_TYPE_ICONS, VEHICLE_SOURCE_LABELS, VEHICLE_SOURCE_ICONS } from 
 // Pastille véhicule (VehicleRef) avec indicateur de source d'affectation (manual/rule/auto).
 const props = defineProps({
     vehicle: { type: Object, default: null }, // VehicleRef {id, name, type, archived}
-    source: { type: String, default: null }, // vehicleSource : manual|rule|auto|null
+    source: { type: String, default: null }, // vehicleSource : manual|rule|auto|ignored|null
     clickable: { type: Boolean, default: false },
 });
 const emit = defineEmits(['click']);
@@ -39,6 +39,10 @@ function onClick() {
             v-tooltip.top="sourceLabel"
             :aria-label="sourceLabel"
         />
+    </span>
+    <span v-else-if="source === 'ignored'" class="veh-tag veh-none" v-tooltip.top="sourceLabel">
+        <i class="pi pi-eye-slash" aria-hidden="true" />
+        Ignorée
     </span>
     <span v-else class="veh-tag veh-none">—</span>
 </template>

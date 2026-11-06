@@ -11,6 +11,7 @@ use App\Entity\RecurringSeries;
 use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
+use App\Enum\VehicleSource;
 use App\Util\Text;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
@@ -47,6 +48,7 @@ final class OperationFilter
         public readonly string $order,
         public readonly ?int $vehicleId,
         public readonly bool $vehicleUnassigned,
+        public readonly bool $vehicleIgnored,
         public readonly ?int $recurringSeriesId,
     ) {
     }
@@ -124,6 +126,7 @@ final class OperationFilter
             }
         }
         $vehicleUnassigned = in_array((string) $request->query->get('vehicleUnassigned', '0'), ['1', 'true'], true);
+        $vehicleIgnored = in_array((string) $request->query->get('vehicleIgnored', '0'), ['1', 'true'], true);
 
         $recurringSeriesId = null;
         $rawRecurringSeriesId = $request->query->get('recurringSeriesId');
@@ -163,6 +166,7 @@ final class OperationFilter
             order: $order,
             vehicleId: $vehicleId,
             vehicleUnassigned: $vehicleUnassigned,
+            vehicleIgnored: $vehicleIgnored,
             recurringSeriesId: $recurringSeriesId,
         );
     }
@@ -188,6 +192,7 @@ final class OperationFilter
             order: $this->order,
             vehicleId: $this->vehicleId,
             vehicleUnassigned: $this->vehicleUnassigned,
+            vehicleIgnored: $this->vehicleIgnored,
             recurringSeriesId: $this->recurringSeriesId,
         );
     }
@@ -244,11 +249,16 @@ final class OperationFilter
             $qb->andWhere('o.vehicle = :vehicleId')->setParameter('vehicleId', $this->vehicleId);
         }
         if ($this->vehicleUnassigned) {
-            // Opérations de catégorie vehicleRelated sans véhicule (jointure propre : l'alias « c »
-            // est posé par l'appelant sur le select final).
+            // Opérations de catégorie vehicleRelated sans véhicule, hors « ignorées » (jointure
+            // propre : l'alias « c » est posé par l'appelant sur le select final).
             $qb->leftJoin('o.category', 'fvc')
                 ->andWhere('o.vehicle IS NULL')
-                ->andWhere('fvc.vehicleRelated = true');
+                ->andWhere('fvc.vehicleRelated = true')
+                ->andWhere('o.vehicleSource IS NULL OR o.vehicleSource <> :vehicleIgnoredSource')
+                ->setParameter('vehicleIgnoredSource', VehicleSource::Ignored);
+        }
+        if ($this->vehicleIgnored) {
+            $qb->andWhere('o.vehicleSource = :vehicleIgnoredOnly')->setParameter('vehicleIgnoredOnly', VehicleSource::Ignored);
         }
         if (null !== $this->recurringSeriesId) {
             $qb->andWhere('o.recurringSeries = :recurringSeriesId')->setParameter('recurringSeriesId', $this->recurringSeriesId);

@@ -115,6 +115,20 @@ final class VehicleAssignerTest extends KernelTestCase
         self::assertSame(['vehicle_id' => $vehicle->getId(), 'vehicle_source' => VehicleSource::Auto->value], $this->vehicleState($operation->getId()));
     }
 
+    public function testIgnoredOperationIsNeverTouched(): void
+    {
+        $carburant = $this->category('Transport › Carburant');
+        $this->vehicle('Clio');
+        $operation = $this->persistOperation('2026-03-10', 'ACHAT CB TOTAL 10.03.26', $carburant);
+        $operation->ignoreVehicle();
+        $this->entityManager->flush();
+
+        $report = $this->assigner->sync($this->household);
+
+        self::assertSame(0, $report->processed);
+        self::assertSame(['vehicle_id' => null, 'vehicle_source' => VehicleSource::Ignored->value], $this->vehicleState($operation->getId()));
+    }
+
     public function testRuleWithVehicleWinsOverAuto(): void
     {
         $carburant = $this->category('Transport › Carburant');

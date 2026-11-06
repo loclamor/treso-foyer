@@ -328,6 +328,63 @@ final class OperationApiTest extends ApiTestCase
         }
     }
 
+    public function testIgnoreVehicleThenReactivate(): void
+    {
+        $vehicle = $this->createVehicleViaApi();
+        $carburant = $this->category('Transport › Carburant');
+        $op = $this->addOperation($this->account, '2026-03-02', -5000, 'ESSENCE STATION I', 'STATIONI', $carburant, CategorizationSource::Manual);
+        $client = $this->client();
+        $url = '/api/operations/'.(int) $op->getId().'/vehicle';
+
+        // ignore ⇒ sans véhicule, source « ignored », même avec un seul véhicule actif (pas de resync auto).
+        $response = $this->json($client, 'POST', $url, ['vehicleId' => null, 'ignore' => true]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertNull($data['vehicle']);
+        self::assertSame('ignored', $data['vehicleSource']);
+
+        // Une resynchronisation (ex. modification d'un véhicule) ne la touche pas.
+        $this->json($client, 'PATCH', '/api/vehicles/'.(int) $vehicle['id'], ['name' => 'Clio 2']);
+        self::assertSame('ignored', $this->decode($this->json($client, 'GET', '/api/operations/'.(int) $op->getId()))['vehicleSource']);
+
+        // Exclue de « à affecter » et du compteur, listée par vehicleIgnored=1.
+        self::assertSame(0, $this->decode($this->json($client, 'GET', '/api/operations?vehicleUnassigned=1'))['total']);
+        self::assertSame(0, $this->decode($this->json($client, 'GET', '/api/summary'))['vehicleUnassignedCount']);
+        $data = $this->decode($this->json($client, 'GET', '/api/operations?vehicleIgnored=1'));
+        self::assertSame(1, $data['total']);
+        self::assertSame((int) $op->getId(), $data['items'][0]['id']);
+
+        // ignore + vehicleId ⇒ 422.
+        $response = $this->json($client, 'POST', $url, ['vehicleId' => (int) $vehicle['id'], 'ignore' => true]);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+
+        // vehicleId null sans ignore ⇒ réactivée : l'affectation auto reprend.
+        $data = $this->decode($this->json($client, 'POST', $url, ['vehicleId' => null]));
+        self::assertSame((int) $vehicle['id'], $data['vehicle']['id']);
+        self::assertSame('auto', $data['vehicleSource']);
+    }
+
+    public function testBulkIgnoreVehicle(): void
+    {
+        $this->createVehicleViaApi('Clio');
+        $this->createVehicleViaApi('Zoe'); // deux véhicules actifs ⇒ pas d'affectation auto
+        $carburant = $this->category('Transport › Carburant');
+        $op1 = $this->addOperation($this->account, '2026-03-02', -5000, 'ESSENCE B1', 'STATIONB', $carburant, CategorizationSource::Manual);
+        $op2 = $this->addOperation($this->account, '2026-03-03', -4000, 'ESSENCE B2', 'STATIONB', $carburant, CategorizationSource::Manual);
+        $client = $this->client();
+        self::assertSame(2, $this->decode($this->json($client, 'GET', '/api/summary'))['vehicleUnassignedCount']);
+
+        $response = $this->json($client, 'POST', '/api/operations/bulk-vehicle', ['ids' => [(int) $op1->getId(), (int) $op2->getId()], 'ignore' => true]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertSame(2, $this->decode($response)['updatedCount']);
+        self::assertSame(0, $this->decode($this->json($client, 'GET', '/api/summary'))['vehicleUnassignedCount']);
+        self::assertSame(2, $this->decode($this->json($client, 'GET', '/api/operations?vehicleIgnored=1'))['total']);
+
+        // Réactivation en masse : de nouveau « à affecter ».
+        $this->json($client, 'POST', '/api/operations/bulk-vehicle', ['ids' => [(int) $op1->getId(), (int) $op2->getId()], 'vehicleId' => null]);
+        self::assertSame(2, $this->decode($this->json($client, 'GET', '/api/summary'))['vehicleUnassignedCount']);
+    }
+
     public function testListFiltersVehicleIdAndVehicleUnassigned(): void
     {
         $vehicle = $this->createVehicleViaApi();

@@ -119,8 +119,12 @@ final class OperationController extends AbstractController
         $household = $householdProvider->get();
         $operation = $this->findOperation($entityManager, $household, $id);
 
-        if (null === $input->vehicleId) {
-            // Retire l'affectation manuelle puis resynchronise l'axe véhicule.
+        if ($input->ignore) {
+            // Opération volontairement sans véhicule : sort du compteur « à affecter ».
+            $operation->ignoreVehicle();
+            $entityManager->flush();
+        } elseif (null === $input->vehicleId) {
+            // Retire l'affectation manuelle (ou « ignorée ») puis resynchronise l'axe véhicule.
             $operation->unassignVehicle();
             $entityManager->flush();
             $vehicleAssigner->sync($household);
@@ -153,7 +157,9 @@ final class OperationController extends AbstractController
             ->getQuery()->getResult();
         foreach ($operations as $operation) {
             \assert($operation instanceof Operation);
-            if (null === $vehicle) {
+            if ($input->ignore) {
+                $operation->ignoreVehicle();
+            } elseif (null === $vehicle) {
                 $operation->unassignVehicle();
             } else {
                 $operation->assignVehicle($vehicle, VehicleSource::Manual);

@@ -67,14 +67,19 @@ export async function deleteOdometerReading(id) {
 
 // ---------- affectation des opérations ----------
 
-// Affectation manuelle (vehicleSource 'manual') ; vehicleId null = retrait puis resynchronisation auto.
+// Affectation manuelle (vehicleSource 'manual') ; vehicleId null = retrait (ou réactivation d'une
+// opération ignorée) puis resynchronisation auto ; vehicleId 'ignored' = marquage « ignorée ».
+function vehiclePayload(vehicleId) {
+    return vehicleId === 'ignored' ? { vehicleId: null, ignore: true } : { vehicleId };
+}
+
 export async function assignOperationVehicle(id, vehicleId) {
-    const { data } = await http.post(`/operations/${id}/vehicle`, { vehicleId });
+    const { data } = await http.post(`/operations/${id}/vehicle`, vehiclePayload(vehicleId));
     return data; // Operation
 }
 
 // {ids, vehicleId} ⇒ {updatedCount} (même sémantique que l'affectation unitaire).
 export async function bulkAssignVehicle(ids, vehicleId) {
-    const { data } = await http.post('/operations/bulk-vehicle', { ids, vehicleId });
+    const { data } = await http.post('/operations/bulk-vehicle', { ids, ...vehiclePayload(vehicleId) });
     return data;
 }

@@ -555,6 +555,8 @@ final class StatsApiTest extends ApiTestCase
         $op4->assignVehicle($vehicle, \App\Enum\VehicleSource::Manual);
         // Non affectée (catégorie vehicleRelated sans véhicule).
         $this->addOperation($this->account, '2026-01-20', -1000, 'PEAGE AUTOROUTE', 'AUTOROUTE', $carburant, CategorizationSource::Manual);
+        // Ignorée ⇒ ni affectée ni comptée en « non affectée ».
+        $this->addOperation($this->account, '2026-01-21', -2500, 'PEAGE ANCIEN', 'AUTOROUTE', $carburant, CategorizationSource::Manual)->ignoreVehicle();
         // Virement interne affecté au véhicule ⇒ exclu (kind transfer).
         $op5 = $this->addOperation($this->account, '2026-01-28', -10000, 'VIR INTERNE', 'VIRIN', $mouvements);
         $transfer = new InternalTransfer(TransferStatus::Auto);

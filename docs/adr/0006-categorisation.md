@@ -30,7 +30,7 @@ Les opérations catégorisées **manuellement** (`source = manual`) et les opér
 
 L'affectation d'une opération à un véhicule est un axe **indépendant de la catégorie**, synchronisé par `App\Vehicle\VehicleAssigner::sync()` après chaque catégorisation (une fois les changements flushés — le `Categorizer` fait des `clear()`, le `VehicleAssigner` travaille donc en DBAL pur, hors UnitOfWork) : post-import (`PostImportProcessor`), `app:categorize`, `POST /api/categorization/run`, catégorisation manuelle (`ManualCategorizer`, point central couvrant opération et commerçant), catégorisation en masse, fusion de doublon et suppression de règle.
 
-Règle appliquée à chaque opération dont `vehicleSource` ≠ `manual` (les affectations manuelles ne sont **jamais** modifiées), décidée par la classe pure `App\Vehicle\VehicleAssignmentPolicy` :
+Règle appliquée à chaque opération dont `vehicleSource` ∉ {`manual`, `ignored`} (les affectations manuelles et les opérations « ignorées » ne sont **jamais** modifiées), décidée par la classe pure `App\Vehicle\VehicleAssignmentPolicy` :
 
 1. la règle appliquée (`appliedRule`) désigne un véhicule ⇒ ce véhicule, source `rule` ;
 2. sinon, catégorie `vehicleRelated` (`Category::vehicleRelated`) et **exactement un** véhicule du foyer actif à la date de l'opération (`Vehicle::isActiveOn`, bornes `acquiredAt`/`disposedAt` inclusives) ⇒ ce véhicule, source `auto` ;

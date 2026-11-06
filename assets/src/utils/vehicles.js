@@ -47,10 +47,15 @@ export const VEHICLE_SOURCE_LABELS = {
     manual: 'Affectation manuelle',
     rule: 'Affectation par règle',
     auto: 'Affectation automatique',
+    ignored: 'Ignorée (volontairement sans véhicule)',
 };
 
 export const VEHICLE_SOURCE_ICONS = {
     manual: 'pi pi-user',
     rule: 'pi pi-bolt',
     auto: 'pi pi-cog',
+    ignored: 'pi pi-eye-slash',
 };
+
+// Valeur spéciale du VehiclePicker : « ignorer » (vehicleSource 'ignored').
+export const VEHICLE_IGNORED = 'ignored';

@@ -114,7 +114,7 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 
 ## Véhicules
 - Réglages › Véhicules : créer les véhicules du foyer (dates d'acquisition / de cession, plaque, caractéristiques) et saisir les relevés kilométriques depuis la fiche du véhicule.
-- Les opérations des catégories « liées à un véhicule » (par défaut Transport › Carburant, Entretien véhicule, Assurance auto, Péages & parking) sont affectées automatiquement au véhicule s'il est le seul actif à leur date ; sinon via une règle désignant un véhicule, ou à la main (Opérations, unitaire ou en masse). Détails : [ADR 0011](docs/adr/0011-vehicules.md).
+- Les opérations des catégories « liées à un véhicule » (par défaut Transport › Carburant, Entretien véhicule, Assurance auto, Péages & parking) sont affectées automatiquement au véhicule s'il est le seul actif à leur date ; sinon via une règle désignant un véhicule, ou à la main (Opérations, unitaire ou en masse). Une opération impossible à affecter peut être « ignorée » (même sélecteur) : elle sort du compteur « à affecter » ; filtre « Ignorées » pour les retrouver, « Aucun » pour les réactiver. Détails : [ADR 0011](docs/adr/0011-vehicules.md).
 - Pré-remplissage depuis la plaque (optionnel, service externe) : dans `.env.local`, `VEHICLE_LOOKUP_PROVIDER=rapidapi` et `VEHICLE_LOOKUP_TOKEN=<clé RapidAPI « API Plaque Immatriculation France »>`, puis `make cc`. Désactivé par défaut.
 
 ## Récurrences

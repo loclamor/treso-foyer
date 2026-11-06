@@ -6,7 +6,10 @@ namespace App\Api\Input;
 
 use Symfony\Component\Validator\Constraints as Assert;
 
-/** Corps de POST /api/operations/bulk-vehicle (affectation manuelle, ou remise à null si vehicleId null). */
+/**
+ * Corps de POST /api/operations/bulk-vehicle : affectation manuelle, remise à null si vehicleId null,
+ * ou marquage « ignorée » si ignore true (avec vehicleId null).
+ */
 final class BulkVehicleAssignInput
 {
     public function __construct(
@@ -16,6 +19,13 @@ final class BulkVehicleAssignInput
         public readonly array $ids = [],
         #[Assert\Positive(message: 'vehicleId doit être un identifiant positif.')]
         public readonly ?int $vehicleId = null,
+        public readonly bool $ignore = false,
     ) {
+    }
+
+    #[Assert\IsTrue(message: 'ignore ne peut pas être combiné avec un vehicleId.')]
+    public function isIgnoreConsistent(): bool
+    {
+        return !$this->ignore || null === $this->vehicleId;
     }
 }

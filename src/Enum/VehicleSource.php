@@ -10,6 +10,8 @@ enum VehicleSource: string
     case Manual = 'manual';
     case Rule = 'rule';
     case Auto = 'auto';
+    /** Opération volontairement laissée sans véhicule : sort du compteur « à affecter », jamais resynchronisée. */
+    case Ignored = 'ignored';
 
     public function label(): string
     {
@@ -17,6 +19,7 @@ enum VehicleSource: string
             self::Manual => 'Manuelle',
             self::Rule => 'Règle',
             self::Auto => 'Automatique',
+            self::Ignored => 'Ignorée',
         };
     }
 }
