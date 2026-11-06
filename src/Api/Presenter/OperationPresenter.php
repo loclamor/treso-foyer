@@ -21,6 +21,11 @@ final class OperationPresenter
         return [
             'id' => (int) $operation->getId(),
             'date' => $operation->getDate()->format('Y-m-d'),
+            // Date effective = date réelle de la dépense (spentAt) sinon date du relevé (ADR 0014).
+            'effectiveDate' => $operation->getEffectiveDate()->format('Y-m-d'),
+            'spentAt' => $operation->getSpentAt()?->format('Y-m-d'),
+            'awaitingStatement' => $operation->isAwaitingStatement(),
+            'reconciledAt' => $operation->getReconciledAt()?->format('c'),
             'amount' => $operation->getAmount(),
             'rawLabel' => $operation->getRawLabel(),
             'normalizedLabel' => $operation->getNormalizedLabel(),

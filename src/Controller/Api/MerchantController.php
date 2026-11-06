@@ -64,6 +64,8 @@ final class MerchantController extends AbstractController
         $pagination = Pagination::fromRequest($request);
         $connection = $entityManager->getConnection();
 
+        // first_date / last_date sur la date effective COALESCE(spent_at, date) (ADR 0014).
+        $eff = Operation::effectiveDateSql('o');
         $groupSql = "SELECT COALESCE(o.merchant, o.normalized_label) AS grp,
                             MAX(o.merchant) AS merchant,
                             (o.amount < 0) AS debit,
@@ -71,8 +73,8 @@ final class MerchantController extends AbstractController
                             SUM(o.amount) AS total,
                             MIN(o.amount) AS min_amount,
                             MAX(o.amount) AS max_amount,
-                            MIN(o.date) AS first_date,
-                            MAX(o.date) AS last_date,
+                            MIN($eff) AS first_date,
+                            MAX($eff) AS last_date,
                             MIN(o.raw_label) AS sample_label
                      FROM operation o
                      JOIN account a ON a.id = o.account_id
@@ -253,15 +255,17 @@ final class MerchantController extends AbstractController
         if (in_array((string) $request->query->get('uncategorized', '0'), ['1', 'true'], true)) {
             $conditions[] = 'o.category_id IS NULL';
         }
+        // from/to portent sur la date effective (COALESCE(spent_at, date), ADR 0014).
+        $eff = Operation::effectiveDateSql('o');
         $from = $request->query->get('from');
         if (null !== $from && '' !== $from) {
-            $conditions[] = 'o.date >= :from';
+            $conditions[] = $eff.' >= :from';
             $params['from'] = new \DateTimeImmutable((string) $from);
             $types['from'] = Types::DATE_IMMUTABLE;
         }
         $to = $request->query->get('to');
         if (null !== $to && '' !== $to) {
-            $conditions[] = 'o.date <= :to';
+            $conditions[] = $eff.' <= :to';
             $params['to'] = new \DateTimeImmutable((string) $to);
             $types['to'] = Types::DATE_IMMUTABLE;
         }

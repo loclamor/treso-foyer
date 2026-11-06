@@ -54,6 +54,8 @@ final class InternalTransferMatcher
                 WHERE d.amount < 0
                   AND d.internal_transfer_id IS NULL
                   AND c.internal_transfer_id IS NULL
+                  AND NOT d.awaiting_statement
+                  AND NOT c.awaiting_statement
                   AND d.date >= c.date - make_interval(days => :days::int)
                   AND d.date <= c.date + make_interval(days => :days::int)
                   AND (d.categorization_source IS DISTINCT FROM 'manual' OR d.category_id = :transferCategory::int)

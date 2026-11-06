@@ -41,6 +41,7 @@ final class StatementImporter
         private readonly AccountResolver $accountResolver,
         private readonly LabelNormalizer $labelNormalizer,
         private readonly OperationFingerprinter $fingerprinter,
+        private readonly CardDateExtractor $cardDateExtractor = new CardDateExtractor(),
     ) {
     }
 
@@ -225,6 +226,14 @@ final class StatementImporter
                                 $existingOperation = $this->entityManager->find(Operation::class, (int) $known['id']);
                                 if ($existingOperation instanceof Operation) {
                                     $existingOperation->enrichLabel($operation->rawLabel, $normalized[$i]->normalized, $normalized[$i]->merchant, $batch);
+                                    // Date réelle extraite du nouveau libellé (jamais sur une ligne
+                                    // déjà rapprochée d'une saisie manuelle : son spentAt vient de la saisie).
+                                    if (null === $existingOperation->getReconciledAt()) {
+                                        $existingOperation->setSpentAt($this->cardDateExtractor->guard(
+                                            $this->cardDateExtractor->extract($operation->rawLabel),
+                                            $existingOperation->getDate(),
+                                        ));
+                                    }
                                     $enriched++;
                                     continue;
                                 }
@@ -244,6 +253,11 @@ final class StatementImporter
                         $entity->setMerchant($normalized[$i]->merchant);
                         $entity->setOccurrenceIndex($occurrences[$i]);
                         $entity->setLabelSource($parsed->format);
+                        // Date réelle de la dépense extraite du libellé CB (« JJ.MM.AA »), avec garde-fous.
+                        $entity->setSpentAt($this->cardDateExtractor->guard(
+                            $this->cardDateExtractor->extract($operation->rawLabel),
+                            $operation->date,
+                        ));
                         $this->entityManager->persist($entity);
                         $added++;
                         $addedOperations[] = [$entity, $normalized[$i]];
@@ -263,6 +277,7 @@ final class StatementImporter
                                   AND o.import_batch_id IS DISTINCT FROM :batch
                                   AND o.amount = :amount
                                   AND o.date BETWEEN :dayBefore AND :dayAfter
+                                  AND NOT o.awaiting_statement
                                   AND similarity(o.normalized_label, :label) >= :threshold
                                 ORDER BY similarity(o.normalized_label, :label) DESC
                                 LIMIT 1

@@ -13,9 +13,10 @@ import Dialog from 'primevue/dialog';
 import Card from 'primevue/card';
 import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
+import { useConfirm } from 'primevue/useconfirm';
 import { useScopeStore } from '@/stores/scope';
 import { useVehiclesStore } from '@/stores/vehicles';
-import { bulkCategorize, listOperations, patchOperation } from '@/api/operations';
+import { bulkCategorize, deleteOperation, listOperations, patchOperation } from '@/api/operations';
 import { listRecurrences } from '@/api/recurrences';
 import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
@@ -27,11 +28,14 @@ import SourceBadge from '@/components/SourceBadge.vue';
 import VehicleTag from '@/components/VehicleTag.vue';
 import VehiclePicker from '@/components/VehiclePicker.vue';
 import CategorizeDialog from '@/components/CategorizeDialog.vue';
+import ManualEntryDialog from '@/components/ManualEntryDialog.vue';
+import ReconcileDialog from '@/components/ReconcileDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
 const scope = useScopeStore();
 const vehiclesStore = useVehiclesStore();
+const confirm = useConfirm();
 // Colonne « Véhicule » seulement si le foyer a des véhicules.
 const hasVehicles = computed(() => vehiclesStore.list.length > 0);
 const toast = useToast();
@@ -71,6 +75,7 @@ const filters = reactive({
     duplicateStatus: null,
     vehicle: null, // null | 'unassigned' | 'ignored' | id de véhicule
     recurringSeriesId: null, // id de série récurrente (lien depuis l'écran Récurrences)
+    awaitingOnly: false, // filtre « En attente de relevé » (saisies manuelles non rapprochées)
 });
 
 const directionOptions = [
@@ -121,6 +126,7 @@ function initFromQuery() {
     if (q.vehicleUnassigned === '1' || q.vehicleUnassigned === 'true') filters.vehicle = 'unassigned';
     if (q.vehicleIgnored === '1' || q.vehicleIgnored === 'true') filters.vehicle = 'ignored';
     if (q.recurringSeriesId) filters.recurringSeriesId = Number(q.recurringSeriesId);
+    filters.awaitingOnly = q.awaitingStatement === '1' || q.awaitingStatement === 'true';
     if (q.page) first.value = (Number(q.page) - 1) * rows.value;
     if (q.perPage) rows.value = Number(q.perPage);
     if (q.sort) sortField.value = String(q.sort);
@@ -146,6 +152,7 @@ function buildQuery() {
     else if (filters.vehicle === 'ignored') query.vehicleIgnored = '1';
     else if (filters.vehicle) query.vehicleId = filters.vehicle;
     if (filters.recurringSeriesId) query.recurringSeriesId = filters.recurringSeriesId;
+    if (filters.awaitingOnly) query.awaitingStatement = '1';
     const page = Math.floor(first.value / rows.value) + 1;
     if (page > 1) query.page = page;
     if (rows.value !== 25) query.perPage = rows.value;
@@ -179,6 +186,7 @@ function buildParams() {
     else if (filters.vehicle === 'ignored') params.vehicleIgnored = 1;
     else if (filters.vehicle) params.vehicleId = filters.vehicle;
     if (filters.recurringSeriesId) params.recurringSeriesId = filters.recurringSeriesId;
+    if (filters.awaitingOnly) params.awaitingStatement = 1;
     return params;
 }
 
@@ -253,6 +261,7 @@ function resetFilters() {
     filters.duplicateStatus = null;
     filters.vehicle = null;
     filters.recurringSeriesId = null;
+    filters.awaitingOnly = false;
     onFilterChange();
 }
 
@@ -387,6 +396,55 @@ async function saveNote(op) {
     }
 }
 
+// ---------- saisies manuelles (création / modification / rapprochement / suppression) ----------
+const entryDialogVisible = ref(false);
+const editingEntry = ref(null); // null = création
+const reconcileVisible = ref(false);
+const reconcileEntry = ref(null);
+
+function openCreateEntry() {
+    editingEntry.value = null;
+    entryDialogVisible.value = true;
+}
+
+function openEditEntry(op) {
+    editingEntry.value = op;
+    entryDialogVisible.value = true;
+}
+
+function openReconcile(op) {
+    reconcileEntry.value = op;
+    reconcileVisible.value = true;
+}
+
+function onEntrySaved() {
+    load();
+}
+
+function onReconciled() {
+    load();
+}
+
+function confirmDeleteEntry(op) {
+    confirm.require({
+        header: 'Supprimer la saisie',
+        message: `Supprimer la saisie « ${op.rawLabel} » du ${formatDate(op.spentAt ?? op.date)} ? Elle n'est pas encore rapprochée d'un relevé et sera définitivement supprimée.`,
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Supprimer',
+        rejectLabel: 'Annuler',
+        acceptClass: 'p-button-danger',
+        accept: async () => {
+            try {
+                await deleteOperation(op.id);
+                toast.add({ severity: 'success', summary: 'Saisie supprimée', life: 3000 });
+                load();
+            } catch (e) {
+                toast.add({ severity: 'error', summary: 'Suppression impossible', detail: apiMessage(e), life: 6000 });
+            }
+        },
+    });
+}
+
 // ---------- divers ----------
 const showAccountColumn = computed(() => scope.current.type !== 'account');
 
@@ -402,6 +460,7 @@ onMounted(() => {
     <div>
         <div class="page-header">
             <h1>Opérations</h1>
+            <Button label="Saisir une dépense" icon="pi pi-plus" @click="openCreateEntry" />
             <Button
                 :label="showFilters ? 'Masquer les filtres' : 'Filtres'"
                 icon="pi pi-filter"
@@ -470,6 +529,10 @@ onMounted(() => {
                     <div class="field field-check">
                         <Checkbox id="f-uncat" v-model="filters.uncategorized" binary @update:model-value="onFilterChange" />
                         <label for="f-uncat">Non catégorisées uniquement</label>
+                    </div>
+                    <div class="field field-check">
+                        <Checkbox id="f-awaiting" v-model="filters.awaitingOnly" binary @update:model-value="onFilterChange" />
+                        <label for="f-awaiting">En attente de relevé (saisies manuelles)</label>
                     </div>
                     <div class="field">
                         <label for="f-q">Recherche</label>
@@ -561,7 +624,20 @@ onMounted(() => {
             <Column selection-mode="multiple" style="width: 3rem" aria-label="Sélection multiple" />
             <Column expander style="width: 3rem" aria-label="Déplier la ligne" />
             <Column field="date" header="Date" sortable style="width: 7.5rem">
-                <template #body="{ data }">{{ formatDate(data.date) }}</template>
+                <template #body="{ data }">
+                    <!-- Date effective (spentAt si saisie manuelle, sinon date du relevé) ; la date du
+                         relevé reste en sous-texte quand elle diffère. -->
+                    <div class="date-cell">
+                        {{ formatDate(data.effectiveDate ?? data.date) }}
+                        <span
+                            v-if="data.effectiveDate && data.date && data.effectiveDate !== data.date"
+                            class="text-muted date-sub"
+                            v-tooltip.top="'Date du relevé : ' + formatDate(data.date)"
+                        >
+                            (relevé : {{ formatDate(data.date) }})
+                        </span>
+                    </div>
+                </template>
             </Column>
             <Column v-if="showAccountColumn" field="account" header="Compte" style="width: 9rem">
                 <template #body="{ data }">
@@ -603,10 +679,54 @@ onMounted(() => {
                 </template>
             </Column>
             <Column field="categorizationSource" header="Source" style="width: 7.5rem">
-                <template #body="{ data }"><SourceBadge :source="data.categorizationSource" /></template>
+                <template #body="{ data }">
+                    <SourceBadge :source="data.categorizationSource" />
+                    <Tag
+                        v-if="data.awaitingStatement"
+                        value="En attente"
+                        severity="warn"
+                        icon="pi pi-clock"
+                        class="awaiting-tag"
+                        v-tooltip.top="'Saisie manuelle pas encore rapprochée d’une ligne de relevé'"
+                    />
+                </template>
             </Column>
             <Column field="amount" header="Montant" sortable style="width: 8.5rem" body-class="text-right">
                 <template #body="{ data }"><MoneyAmount :amount="data.amount" /></template>
+            </Column>
+            <Column header="Actions" style="width: 7.5rem">
+                <template #body="{ data }">
+                    <!-- Une saisie en attente de relevé peut être modifiée, rapprochée ou supprimée. -->
+                    <div v-if="data.awaitingStatement" class="row-actions">
+                        <Button
+                            icon="pi pi-pencil"
+                            size="small"
+                            text
+                            severity="secondary"
+                            aria-label="Modifier la saisie"
+                            v-tooltip.top="'Modifier la saisie'"
+                            @click="openEditEntry(data)"
+                        />
+                        <Button
+                            icon="pi pi-link"
+                            size="small"
+                            text
+                            severity="secondary"
+                            aria-label="Rapprocher avec le relevé"
+                            v-tooltip.top="'Rapprocher avec une ligne du relevé'"
+                            @click="openReconcile(data)"
+                        />
+                        <Button
+                            icon="pi pi-trash"
+                            size="small"
+                            text
+                            severity="danger"
+                            aria-label="Supprimer la saisie"
+                            v-tooltip.top="'Supprimer la saisie'"
+                            @click="confirmDeleteEntry(data)"
+                        />
+                    </div>
+                </template>
             </Column>
 
             <template #expansion="{ data }">
@@ -670,6 +790,9 @@ onMounted(() => {
         </DataTable>
 
         <CategorizeDialog v-model:visible="catVisible" :operation="catOperation" @done="onCategorized" />
+
+        <ManualEntryDialog v-model:visible="entryDialogVisible" :entry="editingEntry" @saved="onEntrySaved" />
+        <ReconcileDialog v-model:visible="reconcileVisible" :entry="reconcileEntry" @done="onReconciled" />
 
         <Dialog v-model:visible="bulkVehicleVisible" modal header="Affecter la sélection à un véhicule" :style="{ width: '30rem' }" :draggable="false">
             <div class="field">
@@ -778,6 +901,25 @@ onMounted(() => {
     white-space: nowrap;
     color: var(--p-text-muted-color);
     font-size: 0.85rem;
+}
+.date-cell {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+.date-sub {
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+.awaiting-tag {
+    margin-left: 0.4rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+.row-actions {
+    display: flex;
+    gap: 0.15rem;
+    justify-content: flex-end;
 }
 .op-detail {
     padding: 0.5rem 1rem;

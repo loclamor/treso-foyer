@@ -11,7 +11,9 @@ use App\Api\Input\BulkCategorizeInput;
 use App\Api\Input\BulkVehicleAssignInput;
 use App\Api\Input\CategorizeOperationInput;
 use App\Api\Input\DuplicateInput;
+use App\Api\Input\OperationCreateInput;
 use App\Api\Input\OperationPatchInput;
+use App\Api\Input\ReconcileInput;
 use App\Api\Input\VehicleAssignInput;
 use App\Api\NotFoundException;
 use App\Api\Pagination;
@@ -19,7 +21,10 @@ use App\Api\Presenter\OperationPresenter;
 use App\Api\Presenter\RulePresenter;
 use App\Api\Scope;
 use App\Api\ValidationException;
+use App\Categorization\CategorizeOptions;
+use App\Categorization\Categorizer;
 use App\Categorization\ManualCategorizer;
+use App\Entity\Account;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Operation;
@@ -28,11 +33,14 @@ use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
 use App\Enum\ImportFormat;
 use App\Enum\VehicleSource;
+use App\Import\LabelNormalizer;
+use App\Reconciliation\ManualEntryReconciler;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -77,6 +85,82 @@ final class OperationController extends AbstractController
             array_map(static fn (Operation $operation): array => $operationPresenter->present($operation), $operations),
             $total,
         ) + ['sums' => $sums]);
+    }
+
+    /**
+     * POST /api/operations : saisie manuelle d'une dépense (ADR 0014). Réponse 201 :
+     * {"operation": Operation, "reconciled": bool} — reconciled = true si la saisie a été
+     * immédiatement absorbée par une ligne de relevé déjà importée (operation = cette ligne).
+     */
+    #[Route('/api/operations', name: 'api_operations_create', methods: ['POST'])]
+    public function create(
+        #[MapRequestPayload] OperationCreateInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        LabelNormalizer $labelNormalizer,
+        Categorizer $categorizer,
+        VehicleAssigner $vehicleAssigner,
+        ManualEntryReconciler $reconciler,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+
+        $account = $entityManager->getRepository(Account::class)->findOneBy(['id' => $input->accountId, 'household' => $household]);
+        if (!$account instanceof Account) {
+            throw new ValidationException([['field' => 'accountId', 'message' => 'Compte introuvable dans le foyer.']]);
+        }
+        if (null !== $account->getClosedAt()) {
+            throw new ValidationException([['field' => 'accountId', 'message' => 'Compte clôturé : aucune saisie possible.']]);
+        }
+        $category = null === $input->categoryId ? null : $this->findCategory($entityManager, $household, $input->categoryId);
+        $vehicle = null === $input->vehicleId ? null : $this->findVehicle($entityManager, $household, $input->vehicleId);
+
+        $spentAt = new \DateTimeImmutable((string) $input->spentAt);
+        $normalized = $labelNormalizer->normalize((string) $input->label);
+        $operation = Operation::manualEntry(
+            $account,
+            $spentAt,
+            (int) $input->amount,
+            (string) $input->label,
+            $normalized->normalized,
+            $normalized->merchant,
+        );
+        if (null !== $input->note) {
+            $operation->setNote($input->note);
+        }
+        if (null !== $category) {
+            $operation->categorize($category, CategorizationSource::Manual);
+        }
+        if (null !== $vehicle) {
+            $operation->assignVehicle($vehicle, VehicleSource::Manual);
+        }
+        $entityManager->persist($operation);
+        $entityManager->flush();
+
+        // Affectation automatique du véhicule, puis catégorisation automatique de cette
+        // seule opération si aucune catégorie n'a été fournie.
+        $vehicleAssigner->sync($household);
+        if (null === $category) {
+            $categorizer->categorize([$operation], new CategorizeOptions(onlyUncategorized: true));
+            $entityManager->flush();
+        }
+        // sync() écrit en DBAL, hors UnitOfWork : on recharge l'opération avant la suite.
+        $entityManager->refresh($operation);
+
+        // Tentative immédiate de rapprochement (cas : le relevé était déjà importé).
+        $entryId = (int) $operation->getId();
+        $report = $reconciler->reconcile($household);
+        $entityManager->clear();
+        if (isset($report->matchedLines[$entryId])) {
+            $line = $entityManager->find(Operation::class, $report->matchedLines[$entryId]);
+            \assert($line instanceof Operation);
+
+            return new JsonResponse(['operation' => $operationPresenter->present($line), 'reconciled' => true], Response::HTTP_CREATED);
+        }
+        $operation = $entityManager->find(Operation::class, $entryId);
+        \assert($operation instanceof Operation);
+
+        return new JsonResponse(['operation' => $operationPresenter->present($operation), 'reconciled' => false], Response::HTTP_CREATED);
     }
 
     #[Route('/api/operations/bulk-categorize', name: 'api_operations_bulk_categorize', methods: ['POST'])]
@@ -183,16 +267,125 @@ final class OperationController extends AbstractController
     #[Route('/api/operations/{id}', name: 'api_operation_patch', requirements: ['id' => '\d+'], methods: ['PATCH'])]
     public function patch(
         int $id,
+        Request $request,
         #[MapRequestPayload] OperationPatchInput $input,
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
+        LabelNormalizer $labelNormalizer,
         OperationPresenter $operationPresenter,
     ): JsonResponse {
-        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        $household = $householdProvider->get();
+        $operation = $this->findOperation($entityManager, $household, $id);
+
+        // accountId / spentAt / amount / label ne sont modifiables que sur une saisie en attente ;
+        // leur présence est détectée sur le corps brut (champ absent = inchangé).
+        $body = json_decode((string) $request->getContent(), true);
+        $body = \is_array($body) ? $body : [];
+        $entryFields = ['accountId', 'spentAt', 'amount', 'label'];
+        $hasEntryFields = [] !== array_intersect(array_keys($body), $entryFields);
+        if ($hasEntryFields && !$operation->isAwaitingStatement()) {
+            throw new BadRequestException('Seule une saisie manuelle en attente peut modifier accountId, spentAt, amount ou label.', 'not_a_manual_entry');
+        }
+
         $operation->setNote($input->note);
+        if ($hasEntryFields) {
+            if (array_key_exists('accountId', $body)) {
+                $account = $entityManager->getRepository(Account::class)->findOneBy(['id' => $input->accountId, 'household' => $household]);
+                if (!$account instanceof Account) {
+                    throw new ValidationException([['field' => 'accountId', 'message' => 'Compte introuvable dans le foyer.']]);
+                }
+                $operation->setAccount($account);
+            }
+            if (array_key_exists('spentAt', $body)) {
+                // spentAt modifie aussi la date (la date du relevé n'a de sens que pour une ligne importée).
+                $spentAt = new \DateTimeImmutable((string) $input->spentAt);
+                $operation->setSpentAt($spentAt);
+                $operation->setDate($spentAt);
+            }
+            if (array_key_exists('amount', $body)) {
+                $operation->setAmount((int) $input->amount);
+            }
+            if (array_key_exists('label', $body)) {
+                $normalized = $labelNormalizer->normalize((string) $input->label);
+                $operation->setRawLabel((string) $input->label);
+                $operation->setNormalizedLabel($normalized->normalized);
+                $operation->setMerchant($normalized->merchant);
+            }
+        }
         $entityManager->flush();
 
         return new JsonResponse($operationPresenter->present($operation));
+    }
+
+    /** DELETE /api/operations/{id} : uniquement une saisie manuelle en attente (204), sinon 400. */
+    #[Route('/api/operations/{id}', name: 'api_operation_delete', requirements: ['id' => '\d+'], methods: ['DELETE'])]
+    public function delete(
+        int $id,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+    ): Response {
+        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        if (!$operation->isAwaitingStatement()) {
+            throw new BadRequestException('Seule une saisie manuelle en attente peut être supprimée.', 'not_a_manual_entry');
+        }
+        $entityManager->remove($operation);
+        $entityManager->flush();
+
+        return new Response(null, Response::HTTP_NO_CONTENT);
+    }
+
+    /** GET /api/operations/{id}/reconciliation-candidates : candidats de l'appariement manuel. */
+    #[Route('/api/operations/{id}/reconciliation-candidates', name: 'api_operation_reconciliation_candidates', requirements: ['id' => '\d+'], methods: ['GET'])]
+    public function reconciliationCandidates(
+        int $id,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        ManualEntryReconciler $reconciler,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        if (!$operation->isAwaitingStatement()) {
+            throw new BadRequestException('Seule une saisie manuelle en attente a des candidats de rapprochement.', 'not_a_manual_entry');
+        }
+
+        return new JsonResponse([
+            'items' => array_map(
+                static fn (Operation $candidate): array => $operationPresenter->present($candidate),
+                $reconciler->candidates($operation),
+            ),
+        ]);
+    }
+
+    /**
+     * POST /api/operations/{id}/reconcile {"operationId": n} : appariement manuel d'une saisie
+     * en attente avec une ligne de relevé ⇒ 200 {"operation": <ligne conservée>}.
+     * Les valeurs du relevé font foi (date, montant, compte, libellé).
+     */
+    #[Route('/api/operations/{id}/reconcile', name: 'api_operation_reconcile', requirements: ['id' => '\d+'], methods: ['POST'])]
+    public function reconcile(
+        int $id,
+        #[MapRequestPayload] ReconcileInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        ManualEntryReconciler $reconciler,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $entry = $this->findOperation($entityManager, $household, $id);
+        if (!$entry->isAwaitingStatement()) {
+            throw new BadRequestException('Seule une saisie manuelle en attente peut être rapprochée.', 'not_a_manual_entry');
+        }
+        $line = $this->findOperation($entityManager, $household, (int) $input->operationId);
+        if ($line->isAwaitingStatement()) {
+            throw new BadRequestException('La cible est une saisie en attente, pas une ligne de relevé.', 'not_a_manual_entry');
+        }
+        if (null !== $line->getReconciledAt()) {
+            throw new BadRequestException('Cette ligne de relevé est déjà rapprochée d’une saisie.', 'already_reconciled');
+        }
+
+        $merged = $reconciler->merge($entry, $line);
+
+        return new JsonResponse(['operation' => $operationPresenter->present($merged)]);
     }
 
     #[Route('/api/operations/{id}/categorize', name: 'api_operation_categorize', requirements: ['id' => '\d+'], methods: ['POST'])]

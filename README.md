@@ -45,9 +45,9 @@ Puis <https://localhost:8543> → page de connexion.
 ## Interface
 | Écran | Usage |
 |---|---|
-| Accueil | période au choix ; dépenses, revenus, solde net, taux d'épargne (vs période précédente, moyenne 12 mois) ; dépenses mensuelles par poste + revenus ; répartition par poste (clic ⇒ sous-catégories ⇒ opérations) ; solde reconstitué ; compteurs |
+| Accueil | période au choix ; dépenses, revenus, solde net, taux d'épargne (vs période précédente, moyenne 12 mois) ; dépenses mensuelles par poste + revenus ; répartition par poste (clic ⇒ sous-catégories ⇒ opérations) ; solde reconstitué ; compteurs ; **saisies sans relevé depuis plus de 15 jours** (widget d'alerte, ADR 0014) ; bouton « Saisir une dépense » |
 | Statistiques | comparaison par poste (période précédente / année précédente), top commerçants, flux revenus → postes (Sankey), calendrier des dépenses, évolution d'un poste (moyenne mobile 3 mois), solde quotidien — chaque graphique a une vue « Tableau » |
-| Opérations | recherche et filtres (période, catégorie, texte, montant, sens, source, doublons), totaux, catégorisation d'une opération ou de tout un commerçant, catégorisation de la sélection, notes |
+| Opérations | recherche et filtres (période, catégorie, texte, montant, sens, source, doublons, **en attente de relevé**), totaux, catégorisation d'une opération ou de tout un commerçant, catégorisation de la sélection, notes ; **bouton « Saisir une dépense »** (saisie manuelle, rapprochée automatiquement du relevé à l'import, ADR 0014) ; sur une saisie en attente : modifier / rapprocher / supprimer |
 | À catégoriser | opérations non classées regroupées par commerçant (nombre, total, fourchette de montants, période, suggestion) ; « Classer » crée une règle pour le commerçant ; « Voir les opérations » pour classer individuellement un commerçant mixte (ex. courses et carburant au même magasin) |
 | Imports | glisser-déposer de relevés PDF / exports CSV, rapport par fichier, historique |
 | Récurrences | séries détectées automatiquement (dépenses et revenus récurrents : loyer, abonnements, salaire…) : statut, fréquence, montant attendu, prochaine échéance, opérations liées ; corrections manuelles possibles |
@@ -98,6 +98,17 @@ make sf c='app:import data/releves --auto-create-account'     # au premier impor
   make sf c='app:operations:rebuild-fingerprints --dry-run'   # simulation
   make sf c='app:operations:rebuild-fingerprints --renormalize' # recalcule empreintes + libellés normalisés
   ```
+
+## Saisir une dépense manuellement
+Une dépense par carte peut être saisie dès qu'elle a lieu (bouton « Saisir une dépense », ou `POST /api/operations`) pour qu'elle pèse tout de suite sur le budget du mois. Quand le relevé contenant la ligne correspondante est importé, la saisie est **rapprochée automatiquement** (montant exact, fenêtre −2/+10 jours, paire univoque) : la ligne du relevé est conservée et reçoit catégorie, véhicule, note et date réelle de la saisie ; la saisie disparaît (voir [ADR 0014](docs/adr/0014-saisie-manuelle-rapprochement.md)). Une saisie ambiguë reste en attente et peut être rapprochée à la main (candidats proposés, les valeurs du relevé font foi). Les saisies en attente depuis plus de 15 jours remontent en alerte sur l'accueil.
+- La date réelle de la dépense (`spentAt`) est extraite du libellé CB (`ACHAT CB … JJ.MM.AA`) à l'import ; elle sert de date effective pour les stats, budgets, liste des opérations et commerçants (le solde reconstitué garde la date du relevé).
+- Commandes :
+  ```bash
+  make sf c='app:entries:reconcile --dry-run'      # rapprochement automatique des saisies en attente (aussi lancé après chaque import)
+  make sf c='app:operations:spent-at --dry-run'    # recalcule spent_at des opérations importées depuis leur libellé brut
+  ```
+  **Après la migration `Version20261106140000`, lancer une fois `make sf c='app:operations:spent-at'`** pour dater les opérations CB déjà importées.
+  `app:operations:spent-at` ne touche jamais les saisies en attente ni les lignes déjà rapprochées ; `app:operations:rebuild-fingerprints` ignore les saisies en attente (empreinte `manual:…` conservée).
 
 ## Catégoriser
 ```bash

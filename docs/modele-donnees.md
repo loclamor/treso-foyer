@@ -38,7 +38,7 @@ erDiagram
 | `Account` | Compte bancaire | `alias` unique par foyer, type `personal`/`joint`, titulaires 1..n |
 | `ImportBatch` | Un fichier importé | `sha256` unique → un fichier n'est jamais importé deux fois |
 | `Statement` | Soldes d'un relevé | ouverture (PDF) / clôture ; sert au contrôle de cohérence et à l'historique de solde |
-| `Operation` | Ligne de relevé | `fingerprint` unique (compte, date, montant, libellé normalisé, rang d'occurrence) ; index GIN `pg_trgm` sur `normalized_label` ; statut de doublon probable ; `merchant_group` = clé représentative des variantes du commerçant (ADR 0013) |
+| `Operation` | Ligne de relevé, ou saisie manuelle en attente de rapprochement (ADR 0014) | `fingerprint` unique (compte, date, montant, libellé normalisé, rang d'occurrence ; `manual:…` aléatoire pour une saisie) ; index GIN `pg_trgm` sur `normalized_label` ; statut de doublon probable ; `merchant_group` = clé représentative des variantes du commerçant (ADR 0013) ; `spent_at` = date réelle de la dépense (saisie ou extraite du libellé CB), date effective = `COALESCE(spent_at, date)` ; `awaiting_statement` = saisie pas encore rapprochée (index partiel, exclue du dédoublonnage flou, des virements internes et des récurrences) ; `reconciled_at` = posé sur la ligne de relevé ayant absorbé une saisie |
 | `Category` | Poste de dépense/revenu, arbre à 2 niveaux | `kind` : `expense` / `income` / `transfer` (exclu des dépenses) ; unicité (foyer, parent, nom) avec `NULLS NOT DISTINCT` ; `vehicleRelated` = poste lié à un véhicule (carburant, entretien, assurance auto, péages & parking) |
 | `CategorizationRule` | Règle automatique | champ commerçant/libellé, contient/commence par/exact/regex, sens, bornes de montant (valeur absolue), compte optionnel, priorité ; `matches()` pur et testé |
 | `InternalTransfer` | Paire de virements entre comptes du foyer | exclue des stats consolidées |
@@ -50,3 +50,5 @@ erDiagram
 ## Commandes
 - `make sf c='app:setup'` : crée le foyer et l'arbre de 62 catégories par défaut (`src/Setup/DefaultCategories.php`). Idempotente.
 - `make sf c='app:member:add <identifiant> "<Nom affiché>"'` : ajoute une personne (mot de passe demandé, ou plus tard).
+- `make sf c='app:operations:spent-at [--dry-run]'` : recalcule `spent_at` des opérations importées depuis leur libellé brut (garde-fous : date valide, ≤ date du relevé, écart ≤ 31 jours) ; ne touche jamais les saisies en attente ni les lignes rapprochées (ADR 0014).
+- `make sf c='app:entries:reconcile [--dry-run]'` : relance le rapprochement automatique des saisies manuelles en attente avec les lignes de relevé (montant exact, fenêtre −2/+10 j, paire univoque ; lancé aussi automatiquement après chaque import, ADR 0014).

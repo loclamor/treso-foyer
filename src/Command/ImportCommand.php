@@ -169,6 +169,12 @@ final class ImportCommand extends Command
 
             $result = $this->postImportProcessor->process($household);
             $io->writeln(sprintf(
+                'Post-traitement — saisies manuelles rapprochées : %d, ambiguës : %d, en attente : %d.',
+                $result->reconciliation->matched,
+                $result->reconciliation->ambiguous,
+                $result->reconciliation->pending,
+            ));
+            $io->writeln(sprintf(
                 'Post-traitement — virements internes appariés : %d, ambigus : %d.',
                 $result->transfersMatched,
                 $result->transfersAmbiguous,

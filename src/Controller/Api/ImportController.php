@@ -87,7 +87,7 @@ final class ImportController extends AbstractController
             $files = [$files];
         }
         if ([] === $files) {
-            return new JsonResponse(['reports' => [], 'postProcessing' => ['transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0, 'recurrences' => ['created' => 0, 'updated' => 0, 'ended' => 0, 'linked' => 0]]]);
+            return new JsonResponse(['reports' => [], 'postProcessing' => ['reconciliation' => ['matched' => 0, 'ambiguous' => 0, 'pending' => 0], 'transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0, 'recurrences' => ['created' => 0, 'updated' => 0, 'ended' => 0, 'linked' => 0]]]);
         }
 
         if (!is_dir($uploadsDir)) {
@@ -102,11 +102,12 @@ final class ImportController extends AbstractController
             $addedOrEnriched += $report['added'] + $report['enriched'];
         }
 
-        $postProcessing = ['transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0, 'recurrences' => ['created' => 0, 'updated' => 0, 'ended' => 0, 'linked' => 0]];
+        $postProcessing = ['reconciliation' => ['matched' => 0, 'ambiguous' => 0, 'pending' => 0], 'transfersMatched' => 0, 'categorized' => 0, 'vehiclesAssigned' => 0, 'recurrences' => ['created' => 0, 'updated' => 0, 'ended' => 0, 'linked' => 0]];
         if ($addedOrEnriched > 0) {
             try {
                 $result = $postImportProcessor->process($household);
                 $postProcessing = [
+                    'reconciliation' => $result->reconciliation->toArray(),
                     'transfersMatched' => $result->transfersMatched,
                     'categorized' => $result->categorized(),
                     'vehiclesAssigned' => $result->vehiclesAssigned(),

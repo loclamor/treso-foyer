@@ -66,6 +66,7 @@ final class RecurrenceDetector
              WHERE a.household_id = :household::int
                AND o.date >= :from AND o.date <= :to
                AND o.duplicate_status <> :probable
+               AND NOT o.awaiting_statement
              ORDER BY o.id',
             ['household' => $householdId, 'from' => $windowFrom, 'to' => $today, 'probable' => 'probable'],
             ['household' => ParameterType::INTEGER, 'from' => Types::DATE_IMMUTABLE, 'to' => Types::DATE_IMMUTABLE, 'probable' => ParameterType::STRING],

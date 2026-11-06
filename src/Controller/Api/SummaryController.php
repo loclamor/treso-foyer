@@ -10,10 +10,13 @@ use App\Api\Query\StatsQuery;
 use App\Api\Scope;
 use App\Entity\Account;
 use App\Import\MissingStatementFinder;
+use App\Reconciliation\ManualEntryReconciler;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\ParameterType;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -29,6 +32,7 @@ final class SummaryController extends AbstractController
         StatsQuery $statsQuery,
         AccountPresenter $accountPresenter,
         MissingStatementFinder $missingStatementFinder,
+        ClockInterface $clock,
     ): JsonResponse {
         $household = $householdProvider->get();
         $accountIds = $scope->accountIds($request, $household);
@@ -47,8 +51,8 @@ final class SummaryController extends AbstractController
             "SELECT COUNT(*) AS total,
                     COUNT(o.category_id) AS categorized,
                     COALESCE(SUM(CASE WHEN o.duplicate_status = 'probable' THEN 1 ELSE 0 END), 0) AS probable,
-                    MIN(o.date) AS first_date,
-                    MAX(o.date) AS last_date
+                    MIN(COALESCE(o.spent_at, o.date)) AS first_date,
+                    MAX(COALESCE(o.spent_at, o.date)) AS last_date
              FROM operation o
              JOIN account a ON a.id = o.account_id
              WHERE a.household_id = :household$scopeSql",
@@ -85,6 +89,43 @@ final class SummaryController extends AbstractController
             $types,
         );
 
+        // Saisies manuelles en attente de rapprochement (ADR 0014) : compteur + « en retard »
+        // (spentAt < aujourd’hui − 15 jours), triées par spentAt croissant.
+        $awaitingStatementCount = (int) $connection->fetchOne(
+            "SELECT COUNT(*) FROM operation o
+             JOIN account a ON a.id = o.account_id
+             WHERE a.household_id = :household$scopeSql AND o.awaiting_statement",
+            $params,
+            $types,
+        );
+        $staleThreshold = $clock->now()->setTime(0, 0)->modify('-'.ManualEntryReconciler::STALE_AFTER_DAYS.' days');
+        $staleRows = $connection->fetchAllAssociative(
+            "SELECT o.id, o.spent_at, o.amount, o.raw_label, o.account_id FROM operation o
+             JOIN account a ON a.id = o.account_id
+             WHERE a.household_id = :household$scopeSql AND o.awaiting_statement AND o.spent_at < :threshold
+             ORDER BY o.spent_at ASC, o.id ASC",
+            $params + ['threshold' => $staleThreshold],
+            $types + ['threshold' => Types::DATE_IMMUTABLE],
+        );
+        $now = $clock->now()->setTime(0, 0);
+        $accountsById = [];
+        foreach ($entityManager->getRepository(Account::class)->findBy(['household' => $household]) as $account) {
+            $accountsById[(int) $account->getId()] = $account;
+        }
+        $staleManualEntries = [];
+        foreach ($staleRows as $staleRow) {
+            $spentAt = new \DateTimeImmutable((string) $staleRow['spent_at']);
+            $account = $accountsById[(int) $staleRow['account_id']] ?? null;
+            $staleManualEntries[] = [
+                'id' => (int) $staleRow['id'],
+                'spentAt' => $spentAt->format('Y-m-d'),
+                'amount' => (int) $staleRow['amount'],
+                'label' => (string) $staleRow['raw_label'],
+                'account' => null !== $account ? $accountPresenter->presentRef($account) : null,
+                'ageDays' => $now->diff($spentAt)->days,
+            ];
+        }
+
         $accounts = $entityManager->getRepository(Account::class)->findBy(['household' => $household], ['id' => 'ASC']);
         $stats = $statsQuery->accountStats($household, $accountIds);
 
@@ -120,6 +161,8 @@ final class SummaryController extends AbstractController
             'probableDuplicatesCount' => (int) $row['probable'],
             'pendingTransfersCount' => $pendingTransfers,
             'vehicleUnassignedCount' => $vehicleUnassigned,
+            'awaitingStatementCount' => $awaitingStatementCount,
+            'staleManualEntries' => $staleManualEntries,
             'missingStatements' => $missingStatements,
             'lastImportAt' => null !== $lastImportAt ? (new \DateTimeImmutable((string) $lastImportAt))->format('c') : null,
             'firstDate' => null !== $row['first_date'] ? (new \DateTimeImmutable((string) $row['first_date']))->format('Y-m-d') : null,

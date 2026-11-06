@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Stats;
 
 use App\Entity\Household;
+use App\Entity\Operation;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
@@ -121,6 +122,8 @@ final class StatsRepository
     {
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $kind = AmountClassifier::kindExpr();
+        // Mois de la date effective (COALESCE(spent_at, date), ADR 0014).
+        $eff = Operation::effectiveDateSql('o');
 
         // 1re requête : série de mois (generate_series) + totaux agrégés.
         $sql = $cte.",\n"
@@ -129,7 +132,7 @@ final class StatsRepository
             ."    FROM params\n"
             ."),\n"
             ."agg AS (\n"
-            ."    SELECT date_trunc('month', o.date)::date AS m,\n"
+            ."    SELECT date_trunc('month', $eff)::date AS m,\n"
             .'           SUM('.AmountClassifier::incomeAmountExpr().') AS income,'."\n"
             .'           SUM('.AmountClassifier::expenseAmountExpr().') AS expense,'."\n"
             .'           SUM('.AmountClassifier::uncategorizedExpenseExpr().') AS uncat'."\n"
@@ -147,7 +150,7 @@ final class StatsRepository
         // 2e requête : dépense par mois et par racine (catégorisée uniquement).
         $sql = $cte.",\n"
             ."agg AS (\n"
-            ."    SELECT date_trunc('month', o.date)::date AS m, COALESCE(r.id, c.id) AS root_id, SUM(-o.amount) AS v\n"
+            ."    SELECT date_trunc('month', $eff)::date AS m, COALESCE(r.id, c.id) AS root_id, SUM(-o.amount) AS v\n"
             .'    '.$this->fromWhere($accountIds)."\n"
             ."    AND $kind = '".AmountClassifier::EXPENSE."' AND o.category_id IS NOT NULL\n"
             ."    GROUP BY 1, 2\n"
@@ -274,8 +277,9 @@ final class StatsRepository
         $period = new StatsPeriod(new \DateTimeImmutable('1900-01-01'), $currentMonthFirst->modify('-1 day'));
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $notRecurring = "(o.recurring_series_id IS NULL OR rs.status = 'ignored')";
+        $eff = Operation::effectiveDateSql('o');
         $sql = $cte."\n"
-            ."SELECT date_trunc('month', o.date)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e,\n"
+            ."SELECT date_trunc('month', $eff)::date AS m, COALESCE(SUM(".AmountClassifier::expenseAmountExpr()."), 0) AS e,\n"
             ."COALESCE(SUM(".AmountClassifier::incomeAmountExpr()."), 0) AS i,\n"
             ."COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::expenseAmountExpr()." ELSE 0 END), 0) AS e_var,\n"
             ."COALESCE(SUM(CASE WHEN $notRecurring THEN ".AmountClassifier::incomeAmountExpr()." ELSE 0 END), 0) AS i_var\n"
@@ -556,8 +560,9 @@ final class StatsRepository
     {
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $kind = AmountClassifier::kindExpr();
+        $eff = Operation::effectiveDateSql('o');
         $sql = $cte."\n"
-            ."SELECT o.date::date AS d, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS expense\n"
+            ."SELECT $eff::date AS d, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS expense\n"
             .$this->fromWhere($accountIds)."\n"
             ."AND $kind = '".AmountClassifier::EXPENSE."'\n"
             ."GROUP BY 1\n"
@@ -587,6 +592,7 @@ final class StatsRepository
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $params['catIds'] = $categoryIds;
         $types['catIds'] = ArrayParameterType::INTEGER;
+        $eff = Operation::effectiveDateSql('o');
 
         $sql = $cte.",\n"
             ."months AS (\n"
@@ -594,7 +600,7 @@ final class StatsRepository
             ."    FROM params\n"
             ."),\n"
             ."agg AS (\n"
-            ."    SELECT date_trunc('month', o.date)::date AS m, SUM($sign) AS v, COUNT(*) AS cnt\n"
+            ."    SELECT date_trunc('month', $eff)::date AS m, SUM($sign) AS v, COUNT(*) AS cnt\n"
             .'    '.$this->fromWhere($accountIds)."\n"
             ."    AND o.category_id IN (:catIds)\n"
             ."    GROUP BY 1\n"
@@ -792,6 +798,8 @@ final class StatsRepository
 
     /**
      * FROM/WHERE commun : opération o, compte a, catégorie c + racine r, période params.
+     * La période porte sur la date effective COALESCE(spent_at, date) (ADR 0014) — sauf
+     * balance(), qui garde o.date (la saisie compte à sa date réelle pour le solde reconstitué).
      * Avec $withSeries, joint aussi recurring_series rs (pour exclure les opérations liées
      * à une série non ignorée).
      *
@@ -801,13 +809,14 @@ final class StatsRepository
     {
         $scope = null !== $accountIds ? ' AND a.id IN (:scopeIds)' : '';
         $series = $withSeries ? "\n                LEFT JOIN recurring_series rs ON rs.id = o.recurring_series_id" : '';
+        $eff = Operation::effectiveDateSql('o');
 
         return 'FROM operation o
                 JOIN account a ON a.id = o.account_id
                 '.AmountClassifier::joins().$series.'
                 CROSS JOIN params
                 WHERE a.household_id = params.household_id'.$scope.'
-                  AND o.date >= params.from_d
-                  AND o.date <= params.to_d';
+                  AND '.$eff.' >= params.from_d
+                  AND '.$eff.' <= params.to_d';
     }
 }

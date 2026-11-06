@@ -58,8 +58,10 @@ final class RebuildFingerprintsCommand extends Command
         $entityManager = $this->registry->getManager();
         \assert($entityManager instanceof EntityManagerInterface);
 
+        // Les saisies manuelles en attente (awaiting_statement) sont ignorées : leur empreinte
+        // « manual:… » aléatoire est conservée telle quelle (jamais retrouvée par l'import exact).
         /** @var list<Operation> $operations triées par id croissant */
-        $operations = $entityManager->getRepository(Operation::class)->findBy([], ['id' => 'ASC']);
+        $operations = $entityManager->getRepository(Operation::class)->findBy(['awaitingStatement' => false], ['id' => 'ASC']);
 
         // Nouvelles valeurs : rang d'occurrence par id croissant au sein de (compte, date, montant, clé).
         $counters = [];
@@ -109,8 +111,9 @@ final class RebuildFingerprintsCommand extends Command
         $connection = $entityManager->getConnection();
         $connection->beginTransaction();
         try {
-            // Phase 1 : empreintes temporaires uniques, pour ne jamais heurter la contrainte unique.
-            $connection->executeStatement("UPDATE operation SET fingerprint = 'tmp-' || id");
+            // Phase 1 : empreintes temporaires uniques, pour ne jamais heurter la contrainte unique
+            // (les saisies en attente gardent leur empreinte « manual:… »).
+            $connection->executeStatement("UPDATE operation SET fingerprint = 'tmp-' || id WHERE NOT awaiting_statement");
             // Phase 2 : valeurs finales.
             foreach ($newValues as $id => $values) {
                 if ($renormalize) {

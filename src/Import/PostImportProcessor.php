@@ -11,6 +11,7 @@ use App\Entity\Household;
 use App\Entity\Operation;
 use App\Merchant\MerchantGrouper;
 use App\Recurrence\RecurrenceDetector;
+use App\Reconciliation\ManualEntryReconciler;
 use App\Repository\OperationRepository;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
@@ -18,7 +19,8 @@ use Symfony\Component\Clock\ClockInterface;
 
 /**
  * Post-traitement après un import réel (extrait de ImportCommand, utilisé aussi par
- * POST /api/imports) : appariement des virements internes du foyer, puis catégorisation
+ * POST /api/imports) : rapprochement des saisies manuelles avec les lignes du relevé
+ * importé (ADR 0014), puis appariement des virements internes du foyer, puis catégorisation
  * des opérations non catégorisées et des opérations enrichies non manuelles
  * (leur commerçant a pu changer), puis affectation automatique des véhicules,
  * puis détection des séries récurrentes.
@@ -27,6 +29,7 @@ final class PostImportProcessor
 {
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
+        private readonly ManualEntryReconciler $entryReconciler,
         private readonly InternalTransferMatcher $transferMatcher,
         private readonly Categorizer $categorizer,
         private readonly VehicleAssigner $vehicleAssigner,
@@ -38,6 +41,9 @@ final class PostImportProcessor
 
     public function process(Household $household): PostImportReport
     {
+        // En premier : une saisie manuelle peut être absorbée par une ligne du relevé importé.
+        $reconciliationReport = $this->entryReconciler->reconcile($household);
+
         $transferReport = $this->transferMatcher->match($household);
 
         /** @var OperationRepository $operationRepository */
@@ -66,6 +72,7 @@ final class PostImportProcessor
         $recurrenceReport = $this->recurrenceDetector->sync($household, $this->clock->now());
 
         return new PostImportReport(
+            reconciliation: $reconciliationReport,
             transfersMatched: $transferReport->matched,
             transfersAmbiguous: $transferReport->ambiguous,
             categorization: $categorizationReport,

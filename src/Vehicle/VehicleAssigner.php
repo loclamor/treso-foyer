@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Vehicle;
 
 use App\Entity\Household;
+use App\Entity\Operation;
 use App\Entity\Vehicle;
 use App\Enum\VehicleSource;
 use Doctrine\DBAL\ArrayParameterType;
@@ -46,10 +47,12 @@ final class VehicleAssigner
         $vehicles = $this->entityManager->getRepository(Vehicle::class)->findBy(['household' => $householdId]);
 
         // Lecture en une requête scalaire de toutes les opérations candidates du foyer.
+        // La date transmise à la politique est la date effective (COALESCE(spent_at, date), ADR 0014).
+        $effectiveDate = Operation::effectiveDateSql('o');
         $rows = $connection->fetchAllAssociative(
-            <<<'SQL'
+            <<<SQL
                 SELECT o.id,
-                       o.date,
+                       $effectiveDate AS date,
                        o.vehicle_id,
                        o.vehicle_source,
                        r.vehicle_id AS rule_vehicle_id,

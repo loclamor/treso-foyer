@@ -7,6 +7,7 @@ namespace App\Api\Filter;
 use App\Api\BadRequestException;
 use App\Entity\Category;
 use App\Entity\Household;
+use App\Entity\Operation;
 use App\Entity\RecurringSeries;
 use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
@@ -50,6 +51,7 @@ final class OperationFilter
         public readonly bool $vehicleUnassigned,
         public readonly bool $vehicleIgnored,
         public readonly ?int $recurringSeriesId,
+        public readonly bool $awaitingStatement,
     ) {
     }
 
@@ -148,6 +150,8 @@ final class OperationFilter
             }
         }
 
+        $awaitingStatement = in_array((string) $request->query->get('awaitingStatement', '0'), ['1', 'true'], true);
+
         return new self(
             accountIds: null, // posé par l'appelant via withAccountIds()
             from: $from,
@@ -168,6 +172,7 @@ final class OperationFilter
             vehicleUnassigned: $vehicleUnassigned,
             vehicleIgnored: $vehicleIgnored,
             recurringSeriesId: $recurringSeriesId,
+            awaitingStatement: $awaitingStatement,
         );
     }
 
@@ -194,6 +199,7 @@ final class OperationFilter
             vehicleUnassigned: $this->vehicleUnassigned,
             vehicleIgnored: $this->vehicleIgnored,
             recurringSeriesId: $this->recurringSeriesId,
+            awaitingStatement: $this->awaitingStatement,
         );
     }
 
@@ -203,11 +209,13 @@ final class OperationFilter
      */
     public function apply(QueryBuilder $qb): void
     {
+        // from/to portent sur la date effective (COALESCE(spentAt, date), voir ADR 0014).
+        $effectiveDate = Operation::effectiveDateDql('o');
         if (null !== $this->from) {
-            $qb->andWhere('o.date >= :from')->setParameter('from', new \DateTimeImmutable($this->from), Types::DATE_IMMUTABLE);
+            $qb->andWhere($effectiveDate.' >= :from')->setParameter('from', new \DateTimeImmutable($this->from), Types::DATE_IMMUTABLE);
         }
         if (null !== $this->to) {
-            $qb->andWhere('o.date <= :to')->setParameter('to', new \DateTimeImmutable($this->to), Types::DATE_IMMUTABLE);
+            $qb->andWhere($effectiveDate.' <= :to')->setParameter('to', new \DateTimeImmutable($this->to), Types::DATE_IMMUTABLE);
         }
         if ([] !== $this->categoryIds) {
             $qb->andWhere('o.category IN (:categoryIds)')->setParameter('categoryIds', $this->categoryIds);
@@ -263,11 +271,16 @@ final class OperationFilter
         if (null !== $this->recurringSeriesId) {
             $qb->andWhere('o.recurringSeries = :recurringSeriesId')->setParameter('recurringSeriesId', $this->recurringSeriesId);
         }
+        if ($this->awaitingStatement) {
+            $qb->andWhere('o.awaitingStatement = true');
+        }
     }
 
     public function applyOrderBy(QueryBuilder $qb): void
     {
-        $qb->orderBy('o.'.$this->sort, $this->order)
+        // Le tri « date » porte sur la date effective (COALESCE(spentAt, date), voir ADR 0014).
+        $sortExpr = 'date' === $this->sort ? Operation::effectiveDateDql('o') : 'o.'.$this->sort;
+        $qb->orderBy($sortExpr, $this->order)
             ->addOrderBy('o.id', 'desc');
     }
 

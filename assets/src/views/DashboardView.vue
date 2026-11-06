@@ -9,11 +9,13 @@ import Column from 'primevue/column';
 import Button from 'primevue/button';
 import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
+import { useConfirm } from 'primevue/useconfirm';
 import { useScopeStore } from '@/stores/scope';
 import { usePeriodStore } from '@/stores/period';
 import { useCategoriesStore } from '@/stores/categories';
 import { getSummary } from '@/api/summary';
 import { getBalance, getCategoriesStats, getMonthly, getOverview } from '@/api/stats';
+import { deleteOperation } from '@/api/operations';
 import { apiMessage } from '@/api/http';
 import { escapeHtml, formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
 import { chartColors, useChartTheme, baseTooltip, baseLegend, baseGrid, valueAxis, categoryAxis, categoryAxisY, barItemStyle } from '@/charts/theme';
@@ -23,12 +25,15 @@ import KpiTile from '@/components/KpiTile.vue';
 import ChartCard from '@/components/ChartCard.vue';
 import VChart from '@/components/VChart.vue';
 import MoneyAmount from '@/components/MoneyAmount.vue';
+import ManualEntryDialog from '@/components/ManualEntryDialog.vue';
+import ReconcileDialog from '@/components/ReconcileDialog.vue';
 
 const router = useRouter();
 const scope = useScopeStore();
 const period = usePeriodStore();
 const categoriesStore = useCategoriesStore();
 const toast = useToast();
+const confirm = useConfirm();
 const theme = useChartTheme();
 
 // ---------- compteurs existants (summary) ----------
@@ -61,6 +66,52 @@ const MISSING_REASON = {
 const missingStatements = computed(() => summary.value?.missingStatements ?? []);
 // Alias affiché seulement si le périmètre contient plusieurs comptes.
 const missingShowAccount = computed(() => (summary.value?.accounts?.length ?? 0) > 1);
+
+// ---------- saisies manuelles en attente de relevé ----------
+const staleEntries = computed(() => summary.value?.staleManualEntries ?? []);
+const awaitingCount = computed(() => summary.value?.awaitingStatementCount ?? 0);
+
+const entryDialogVisible = ref(false);
+const reconcileVisible = ref(false);
+const reconcileEntry = ref(null);
+
+function openCreateEntry() {
+    entryDialogVisible.value = true;
+}
+
+function openReconcileEntry(entry) {
+    // Objet partiel (résumé) : ReconcileDialog recharge la saisie complète via GET /operations/{id}.
+    reconcileEntry.value = entry;
+    reconcileVisible.value = true;
+}
+
+function confirmDeleteEntry(entry) {
+    confirm.require({
+        header: 'Supprimer la saisie',
+        message: `Supprimer la saisie « ${entry.label} » du ${formatDate(entry.spentAt)} ? Elle n'est pas encore rapprochée d'un relevé et sera définitivement supprimée.`,
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Supprimer',
+        rejectLabel: 'Annuler',
+        acceptClass: 'p-button-danger',
+        accept: async () => {
+            try {
+                await deleteOperation(entry.id);
+                toast.add({ severity: 'success', summary: 'Saisie supprimée', life: 3000 });
+                loadSummary();
+            } catch (e) {
+                toast.add({ severity: 'error', summary: 'Suppression impossible', detail: apiMessage(e), life: 6000 });
+            }
+        },
+    });
+}
+
+function onEntrySaved() {
+    loadSummary();
+}
+
+function onReconciled() {
+    loadSummary();
+}
 
 // ---------- KPI (stats/overview) ----------
 const overview = ref(null);
@@ -759,7 +810,10 @@ onMounted(() => {
 
 <template>
     <div>
-        <h1>Tableau de bord</h1>
+        <div class="page-header">
+            <h1>Tableau de bord</h1>
+            <Button label="Saisir une dépense" icon="pi pi-plus" @click="openCreateEntry" />
+        </div>
 
         <PeriodFilter />
 
@@ -979,6 +1033,45 @@ onMounted(() => {
                 </Card>
             </div>
 
+            <Card v-if="staleEntries.length" class="section">
+                <template #title>Saisies sans relevé depuis plus de 15 jours</template>
+                <template #content>
+                    <ul class="stale-list" aria-label="Saisies manuelles en attente de relevé depuis plus de 15 jours">
+                        <li v-for="e in staleEntries" :key="e.id">
+                            <span class="stale-date">{{ formatDate(e.spentAt) }}</span>
+                            <span class="stale-label" :title="e.label">{{ e.label }}</span>
+                            <MoneyAmount :amount="e.amount" />
+                            <span class="text-muted">{{ e.account?.alias ?? e.account?.numberMasked }}</span>
+                            <Tag :value="`${e.ageDays} j`" severity="danger" class="stale-age" v-tooltip.top="'Saisie non rapprochée depuis ce nombre de jours'" />
+                            <span class="stale-actions">
+                                <Button
+                                    icon="pi pi-link"
+                                    size="small"
+                                    text
+                                    severity="secondary"
+                                    aria-label="Rapprocher avec le relevé"
+                                    v-tooltip.top="'Rapprocher avec une ligne du relevé'"
+                                    @click="openReconcileEntry(e)"
+                                />
+                                <Button
+                                    icon="pi pi-trash"
+                                    size="small"
+                                    text
+                                    severity="danger"
+                                    aria-label="Supprimer la saisie"
+                                    v-tooltip.top="'Supprimer la saisie'"
+                                    @click="confirmDeleteEntry(e)"
+                                />
+                            </span>
+                        </li>
+                    </ul>
+                    <p class="text-muted stale-total">
+                        {{ awaitingCount.toLocaleString('fr-FR') }} saisie(s) en attente de relevé au total —
+                        <RouterLink :to="{ name: 'operations', query: { awaitingStatement: '1' } }">voir toutes les saisies en attente</RouterLink>
+                    </p>
+                </template>
+            </Card>
+
             <Card class="section">
                 <template #title>Dernier import</template>
                 <template #content>
@@ -1006,10 +1099,20 @@ onMounted(() => {
                 </template>
             </Card>
         </template>
+
+        <ManualEntryDialog v-model:visible="entryDialogVisible" :entry="null" @saved="onEntrySaved" />
+        <ReconcileDialog v-model:visible="reconcileVisible" :entry="reconcileEntry" @done="onReconciled" />
     </div>
 </template>
 
 <style scoped>
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
 .kpi-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
@@ -1066,6 +1169,40 @@ onMounted(() => {
 }
 .missing-hint {
     font-size: 0.8rem;
+}
+.stale-list {
+    list-style: none;
+    margin: 0 0 0.5rem;
+    padding: 0;
+}
+.stale-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0;
+    flex-wrap: wrap;
+}
+.stale-date {
+    font-weight: 600;
+    white-space: nowrap;
+}
+.stale-label {
+    flex: 1 1 auto;
+    min-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.stale-age {
+    font-size: 0.7rem;
+}
+.stale-actions {
+    display: flex;
+    gap: 0.15rem;
+}
+.stale-total {
+    font-size: 0.85rem;
+    margin-bottom: 0;
 }
 .breadcrumb {
     font-size: 0.85rem;

@@ -32,3 +32,29 @@ export async function resolveDuplicate(id, action) {
     const { data } = await http.post(`/operations/${id}/duplicate`, { action });
     return data; // {kept}
 }
+
+// ---------- saisies manuelles (section 8 de la spec saisie manuelle) ----------
+
+// payload : {accountId, spentAt:'AAAA-MM-JJ', amount (centimes signés, ≠ 0), label,
+//             categoryId?, vehicleId?, note?}
+export async function createOperation(payload) {
+    const { data } = await http.post('/operations', payload);
+    return data; // 201 {operation, reconciled} (reconciled=true si absorbée immédiatement par une ligne de relevé)
+}
+
+// 204 ; 400 not_a_manual_entry si l'opération n'est pas une saisie en attente.
+export async function deleteOperation(id) {
+    await http.delete(`/operations/${id}`);
+}
+
+// Candidats de rapprochement manuel ⇒ liste d'Operation (ou {items}). 400 si pas en attente.
+export async function reconciliationCandidates(id) {
+    const { data } = await http.get(`/operations/${id}/reconciliation-candidates`);
+    return data;
+}
+
+// Appariement manuel avec la ligne de relevé operationId ⇒ 200 {operation: ligne du relevé}.
+export async function reconcileOperation(id, operationId) {
+    const { data } = await http.post(`/operations/${id}/reconcile`, { operationId });
+    return data; // {operation}
+}

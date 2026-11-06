@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Api\Query;
 
 use App\Entity\Household;
+use App\Entity\Operation;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
@@ -82,9 +83,12 @@ final class StatsQuery
             $types['scopeIds'] = ArrayParameterType::INTEGER;
         }
 
+        // firstDate / lastDate sur la date effective (COALESCE(spent_at, date), ADR 0014) ;
+        // le solde reconstitué (postSum ci-dessous) garde o.date : la saisie compte à sa date réelle.
+        $eff = Operation::effectiveDateSql('o');
         $stats = [];
         foreach ($connection->fetchAllAssociative(
-            "SELECT a.id, COUNT(o.id) AS cnt, MIN(o.date) AS first_date, MAX(o.date) AS last_date
+            "SELECT a.id, COUNT(o.id) AS cnt, MIN($eff) AS first_date, MAX($eff) AS last_date
              FROM account a LEFT JOIN operation o ON o.account_id = a.id
              WHERE a.household_id = :household$scopeSql
              GROUP BY a.id",

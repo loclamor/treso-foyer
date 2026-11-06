@@ -23,9 +23,24 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_operation_merchant', columns: ['merchant'])]
 #[ORM\Index(name: 'idx_operation_merchant_group', columns: ['merchant_group'])]
 #[ORM\Index(name: 'idx_operation_vehicle', columns: ['vehicle_id'])]
+#[ORM\Index(name: 'idx_operation_awaiting_statement', columns: ['awaiting_statement'], options: ['where' => 'awaiting_statement'])]
+// Index fonctionnel réel : (account_id, COALESCE(spent_at, date)), créé en SQL brut dans la
+// migration Version20261106140000. Déclaré ici sur ['account_id'] car c'est ainsi que
+// l'introspection pg_index le relit (les expressions d'index sont ignorées, comme pour
+// l'index GIN pg_trgm déclaré sur sa colonne) : le diff de schéma reste vide, et l'index
+// auto de la clé étrangère sur account_id (IDX_…) n'est pas re-généré par le mapping.
+#[ORM\Index(name: 'idx_operation_account_effective_date', columns: ['account_id'])]
 #[ORM\Index(name: 'idx_operation_normalized_label_trgm', columns: ['normalized_label'])]
 class Operation
 {
+    /**
+     * Date « effective » en SQL brut : COALESCE(spent_at, date), paramétrable par alias
+     * (sprintf avec l'alias en premier argument, ex. Operation::effectiveDateSql('o')).
+     * `date` reste la date du relevé (foi pour soldes, empreinte, dédoublonnage, virements) ;
+     * `spentAt` est la date réelle de la dépense (saisie manuelle ou extraite du libellé CB).
+     */
+    public const EFFECTIVE_DATE_SQL = 'COALESCE(%s.spent_at, %s.date)';
+
     #[ORM\Id, ORM\GeneratedValue, ORM\Column]
     private ?int $id = null;
 
@@ -42,6 +57,25 @@ class Operation
 
     #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $valueDate = null;
+
+    /**
+     * Date réelle de la dépense (saisie manuelle, ou extraite du libellé CB « JJ.MM.AA »).
+     * Nullable : null = date du relevé. La date effective = COALESCE(spent_at, date).
+     */
+    #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $spentAt = null;
+
+    /**
+     * true = saisie manuelle pas encore rapprochée d'une ligne de relevé (voir ADR 0014).
+     * Une telle opération n'est jamais candidate au dédoublonnage flou, aux virements
+     * internes ni aux récurrences.
+     */
+    #[ORM\Column(type: Types::BOOLEAN, options: ['default' => false])]
+    private bool $awaitingStatement = false;
+
+    /** Posé sur la ligne de RELEVÉ qui a absorbé une saisie manuelle (voir ADR 0014). */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $reconciledAt = null;
 
     /** Montant en centimes, négatif = débit. */
     #[ORM\Column(type: Types::BIGINT)]
@@ -136,6 +170,56 @@ class Operation
         $this->normalizedLabel = $normalizedLabel;
         $this->fingerprint = $fingerprint;
         $this->createdAt = new \DateTimeImmutable();
+    }
+
+    /**
+     * Saisie manuelle d'une dépense (voir ADR 0014) : date = spentAt = date de saisie,
+     * en attente de rapprochement avec une ligne de relevé, sans source de libellé ni lot,
+     * et une empreinte aléatoire « manual:… » jamais retrouvée par l'import exact
+     * (les empreintes d'import sont des sha256 hexadécimaux de 64 caractères).
+     */
+    public static function manualEntry(
+        Account $account,
+        \DateTimeImmutable $spentAt,
+        int $amount,
+        string $label,
+        string $normalizedLabel,
+        ?string $merchant,
+    ): static {
+        $operation = new static(
+            $account,
+            $spentAt,
+            $amount,
+            $label,
+            $normalizedLabel,
+            'manual:'.bin2hex(random_bytes(28)),
+        );
+        $operation->spentAt = $spentAt;
+        $operation->awaitingStatement = true;
+        $operation->merchant = $merchant;
+
+        return $operation;
+    }
+
+    /** Date effective : date réelle de la dépense si connue, sinon date du relevé. */
+    public function getEffectiveDate(): \DateTimeImmutable
+    {
+        return $this->spentAt ?? $this->date;
+    }
+
+    /** Expression SQL de la date effective (COALESCE(spent_at, date)) pour l'alias donné. */
+    public static function effectiveDateSql(string $alias = 'o'): string
+    {
+        return sprintf(self::EFFECTIVE_DATE_SQL, $alias, $alias);
+    }
+
+    /**
+     * Expression DQL de la date effective pour l'alias donné (COALESCE n'est pas une fonction
+     * DQL enregistrée : on passe par un CASE WHEN, accepté en WHERE et ORDER BY).
+     */
+    public static function effectiveDateDql(string $alias = 'o'): string
+    {
+        return 'CASE WHEN '.$alias.'.spentAt IS NULL THEN '.$alias.'.date ELSE '.$alias.'.spentAt END';
     }
 
     public function isDebit(): bool
@@ -242,6 +326,43 @@ class Operation
     public function setValueDate(?\DateTimeImmutable $valueDate): static
     {
         $this->valueDate = $valueDate;
+
+        return $this;
+    }
+
+    public function getSpentAt(): ?\DateTimeImmutable
+    {
+        return $this->spentAt;
+    }
+
+    public function setSpentAt(?\DateTimeImmutable $spentAt): static
+    {
+        $this->spentAt = $spentAt;
+
+        return $this;
+    }
+
+    /** true = saisie manuelle en attente de rapprochement avec une ligne de relevé. */
+    public function isAwaitingStatement(): bool
+    {
+        return $this->awaitingStatement;
+    }
+
+    public function setAwaitingStatement(bool $awaitingStatement): static
+    {
+        $this->awaitingStatement = $awaitingStatement;
+
+        return $this;
+    }
+
+    public function getReconciledAt(): ?\DateTimeImmutable
+    {
+        return $this->reconciledAt;
+    }
+
+    public function setReconciledAt(?\DateTimeImmutable $reconciledAt): static
+    {
+        $this->reconciledAt = $reconciledAt;
 
         return $this;
     }

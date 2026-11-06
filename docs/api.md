@@ -41,7 +41,9 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
  "categorizationSource": "manual|rule|similarity|llm|transfer" | null, "appliedRuleId": 7 | null,
  "duplicateStatus": "none|probable|confirmed_distinct", "duplicateOfId": 41 | null,
  "internalTransferId": 5 | null, "recurringSeriesId": 3 | null, "vehicle": VehicleRef | null, "vehicleSource": "manual|rule|auto|ignored" | null,
- "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null}
+ "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null,
+ // Saisie manuelle / rapprochement (ADR 0014) : date effective = spentAt ?? date
+ "spentAt": "2026-08-25" | null, "effectiveDate": "2026-08-25", "awaitingStatement": false, "reconciledAt": "…" | null}
 // Rule
 {"id": 7, "category": CategoryRef, "matchField": "merchant|label", "matchType": "contains|starts_with|exact|regex", "pattern": "…",
  "direction": "any|debit|credit", "amountMin": 4000 | null, "amountMax": 8000 | null, "account": AccountRef | null,
@@ -85,8 +87,12 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 `GET /api/summary` (+ périmètre) ⇒
 ```json
 {"operationsCount": 4546, "categorizedCount": 2089, "uncategorizedCount": 2457, "probableDuplicatesCount": 0,
- "pendingTransfersCount": 0, "vehicleUnassignedCount": 12, "lastImportAt": "…", "firstDate": "2018-01-15", "lastDate": "2026-11-03",
+ "pendingTransfersCount": 0, "vehicleUnassignedCount": 12, "awaitingStatementCount": 2,
+ "staleManualEntries": [{"id": 42, "spentAt": "2026-10-01", "amount": -100000, "label": "…", "account": AccountRef, "ageDays": 36}],
+ "lastImportAt": "…", "firstDate": "2018-01-15", "lastDate": "2026-11-03",
  "accounts": [Account]}
+```
+`staleManualEntries` = saisies manuelles en attente depuis plus de 15 jours (`spentAt < aujourd’hui − 15 j`), triées par `spentAt` croissant (ADR 0014) ; `firstDate`/`lastDate` portent sur la date effective.
 ```
 
 ## Référentiels
@@ -125,9 +131,13 @@ Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404
 ## Opérations
 | Méthode | Route | Notes |
 |---|---|---|
-| GET | `/api/operations` | Filtres : périmètre, `from`, `to`, `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé brute `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`, **ou** sur la clé de groupe de variantes `merchantGroup` — toutes les variantes, cf. top commerçants et [ADR 0013](adr/0013-regroupement-commercants.md)), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource), `vehicleId` (véhicule du foyer, inconnu ⇒ `400`), `vehicleUnassigned=1` (hors « ignorées »), `vehicleIgnored=1` (catégories `vehicleRelated` sans véhicule), `recurringSeriesId` (série du foyer, inconnue ⇒ `400`). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc, puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
+| GET | `/api/operations` | Filtres : périmètre, `from`, `to` (**date effective** `COALESCE(spentAt, date)`, ADR 0014), `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé brute `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`, **ou** sur la clé de groupe de variantes `merchantGroup` — toutes les variantes, cf. top commerçants et [ADR 0013](adr/0013-regroupement-commercants.md)), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource), `vehicleId` (véhicule du foyer, inconnu ⇒ `400`), `vehicleUnassigned=1` (hors « ignorées »), `vehicleIgnored=1` (catégories `vehicleRelated` sans véhicule), `recurringSeriesId` (série du foyer, inconnue ⇒ `400`), `awaitingStatement=1` (saisies manuelles en attente de relevé). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc — sur la date effective — puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
 | GET | `/api/operations/{id}` | `Operation` |
-| PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` |
+| POST | `/api/operations` | **Saisie manuelle d'une dépense** (ADR 0014). Corps : `{"accountId": int, "spentAt": "AAAA-MM-JJ", "amount": int (centimes signés, ≠ 0), "label": string (1..255), "categoryId"?: int|null, "vehicleId"?: int|null, "note"?: string|null}`. Compte du foyer **non clos**, catégorie/véhicule du foyer (422 sinon). `label` normalisé (`normalizedLabel` + `merchant`) ; catégorie fournie ⇒ source `manual`, véhicule fourni ⇒ source `manual` ; puis `VehicleAssigner::sync()` et, si aucune catégorie fournie, catégorisation automatique de cette seule opération. Puis tentative immédiate de rapprochement (relevé déjà importé). ⇒ `201 {"operation": Operation, "reconciled": bool}` — si `reconciled` est true, `operation` est la **ligne du relevé** qui a absorbé la saisie |
+| PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` (null = efface la note). En plus, **sur une saisie en attente uniquement** : `accountId`, `spentAt` (modifie aussi `date`), `amount`, `label` (champ présent = modifié ; ces champs sur une opération importée ⇒ `400 not_a_manual_entry`) |
+| DELETE | `/api/operations/{id}` | Uniquement une saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `204` |
+| GET | `/api/operations/{id}/reconciliation-candidates` | Saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `{"items": [Operation]}` : lignes de relevé du foyer, même signe, non rapprochées, fenêtre [spentAt − 5 j, spentAt + 30 j], tri montant exact → même compte → |écart montant| → |écart date| (20 max) |
+| POST | `/api/operations/{id}/reconcile` | `{"operationId": int}` : appariement manuel d'une saisie en attente avec une ligne de relevé ⇒ `200 {"operation": <ligne conservée>}` (400 `not_a_manual_entry` si la saisie n'est pas en attente ou si la cible est une saisie, 400 `already_reconciled` si la ligne est déjà rapprochée). Les valeurs du relevé font foi (date, montant, compte, libellé) |
 | POST | `/api/operations/{id}/vehicle` | `{"vehicleId": int|null}` : affectation manuelle (`vehicleSource: "manual"`) ; `null` retire l'affectation manuelle puis resynchronise (`sync()` peut remettre une affectation `auto`/`rule`). ⇒ `Operation` ; `{"vehicleId": null, "ignore": true}` marque l'opération « ignorée » (`vehicle: null`, `vehicleSource: "ignored"`) : exclue de `vehicleUnassigned`/`vehicleUnassignedCount`/`unassigned`, jamais resynchronisée ; `vehicleId: null` sans `ignore` la réactive. `ignore` + `vehicleId` ⇒ 422 |
 | POST | `/api/operations/bulk-vehicle` | `{"ids": [int], "vehicleId": int|null, "ignore": bool}` (même sémantique) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
@@ -163,7 +173,7 @@ Détection automatique (voir [ADR 0012](adr/0012-recurrences.md)) : groupes (com
 | Méthode | Route | Notes |
 |---|---|---|
 | GET | `/api/imports` | `[ImportBatch]` paginé, plus récent d'abord |
-| POST | `/api/imports` | `multipart/form-data`, champ `files[]` (PDF/CSV, 20 Mo max chacun). Chaque fichier est conservé sous `data/uploads/<sha256>.<ext>`, importé (création automatique du compte si inconnu), puis post-traitement (virements internes + catégorisation + affectation des véhicules + détection des récurrences). ⇒ `{"reports": [ImportReport], "postProcessing": {"transfersMatched": n, "categorized": n, "vehiclesAssigned": n, "recurrences": {"created": n, "updated": n, "ended": n, "removed": n, "linked": n}}}` |
+| POST | `/api/imports` | `multipart/form-data`, champ `files[]` (PDF/CSV, 20 Mo max chacun). Chaque fichier est conservé sous `data/uploads/<sha256>.<ext>`, importé (création automatique du compte si inconnu), puis post-traitement (rapprochement des saisies manuelles + virements internes + catégorisation + affectation des véhicules + détection des récurrences). ⇒ `{"reports": [ImportReport], "postProcessing": {"reconciliation": {"matched": n, "ambiguous": n, "pending": n}, "transfersMatched": n, "categorized": n, "vehiclesAssigned": n, "recurrences": {"created": n, "updated": n, "ended": n, "removed": n, "linked": n}}}` |
 
 ## Virements internes
 | Méthode | Route | Notes |
@@ -178,7 +188,7 @@ Détection automatique (voir [ADR 0012](adr/0012-recurrences.md)) : groupes (com
 `GET/POST /api/budgets`, `PATCH/DELETE /api/budgets/{id}` (corps : champs de `Budget` avec `categoryId`, `memberId`, `accountId`).
 
 ## Statistiques (étape 8)
-Tous les endpoints acceptent le **périmètre** (`accountId[]` / `memberId`) et `from` / `to` (inclus ; défaut : 12 derniers mois complets + mois en cours).
+Tous les endpoints acceptent le **périmètre** (`accountId[]` / `memberId`) et `from` / `to` (inclus ; défaut : 12 derniers mois complets + mois en cours). Les périodes portent sur la **date effective** `COALESCE(spent_at, date)` (ADR 0014), sauf le solde reconstitué `/api/stats/balance` qui garde la date du relevé (la saisie compte à sa date réelle).
 
 **Règles de calcul communes** (implémentées une seule fois côté back, `src/Stats/`) :
 - **Dépense** = opération catégorisée dans une catégorie `kind=expense`, ou non catégorisée de montant < 0. **Revenu** = catégorie `kind=income`, ou non catégorisée de montant > 0. Les montants de dépense sont renvoyés **positifs** (somme de `-amount` : un remboursement dans une catégorie de dépense la diminue).
@@ -288,3 +298,21 @@ Choix et écarts par rapport au contrat :
 - La détection écrit en DBAL hors UnitOfWork (comme `VehicleAssigner`) : à appeler après un flush ; `PATCH /api/recurrences/{id}` qui délie (`ignored`) fait un `refresh()` de la série avant de la présenter.
 - Les opérations d'une série passée « ended » restent liées (historique) ; seules les séries « ignored » sont déliées, ainsi que les opérations d'un groupe détecté qui ne sont plus retenues (sous-ensemble ±15 %).
 - `estimate.recurring` est toujours présent (à 0) quand `estimate` est présent, même sans aucune série.
+
+## Notes d'implémentation (lot saisie manuelle + rapprochement, ADR 0014)
+
+Fichiers clés :
+- `src/Entity/Operation.php` : `spentAt`, `awaitingStatement`, `reconciledAt`, constructeur nommé `manualEntry()` (empreinte `manual:…` aléatoire, jamais un sha256), `getEffectiveDate()`, `Operation::effectiveDateSql()` (SQL brut) / `effectiveDateDql()` (CASE WHEN — `COALESCE` n'est pas une fonction DQL enregistrée) ; migration `Version20261106140000` (`spent_at` sans backfill, index partiel `WHERE awaiting_statement`, index fonctionnel `(account_id, COALESCE(spent_at, date))` en SQL brut, déclaré dans le mapping sur `account_id` seul — ainsi que pg_index le relit — pour garder `doctrine:schema:validate` vert).
+- `src/Import/CardDateExtractor.php` : extraction du `JJ.MM.AA` des libellés CB (année 20AA) + garde-fous (`checkdate`, `spentAt <= date`, écart ≤ 31 jours ; date égale à la date du relevé conservée). Posé à l'import (`StatementImporter`, création + enrichissement sauf ligne déjà rapprochée) et recalculable via `app:operations:spent-at [--dry-run]` (jamais les saisies en attente ni les lignes rapprochées) ; `app:operations:rebuild-fingerprints` ignore les saisies en attente.
+- Exclusions `awaiting_statement` : dédoublonnage flou de `StatementImporter` (`AND NOT o.awaiting_statement`), `InternalTransferMatcher`, `RecurrenceDetector`.
+- `src/Reconciliation/ManualEntryReconciler.php` + `ReconciliationReport.php` : `reconcile()` (fenêtre −2/+10 j, montant exact, même compte, paire univoque), `candidates()` (fenêtre −5/+30 j, tri montant exact → compte → écarts), `merge()` (valeurs du relevé conservées ; spentAt de la ligne prioritaire, catégorie/véhicule/note de la saisie copiés sous conditions). Branché en premier dans `PostImportProcessor` ⇒ `PostImportReport::reconciliation`, affiché par `app:import`, exposé dans `postProcessing.reconciliation` de `POST /api/imports` ; commande `app:entries:reconcile [--dry-run]`.
+- `OperationController` : `POST /api/operations` (201 `{operation, reconciled}`, rapprochement immédiat), `PATCH` (champs de saisie détectés sur le corps brut, 400 `not_a_manual_entry` sur opération importée), `DELETE` (204, saisie en attente seule), `GET …/reconciliation-candidates`, `POST …/reconcile`. Entrées `OperationCreateInput`, `OperationPatchInput` (étendu), `ReconcileInput`.
+- `OperationFilter` : `awaitingStatement=1`, `from`/`to` et tri `date` sur la date effective. `OperationPresenter` : `spentAt`, `effectiveDate`, `awaitingStatement`, `reconciledAt`.
+- `SummaryController` : `awaitingStatementCount` + `staleManualEntries` (spentAt < aujourd'hui − 15 j, `ManualEntryReconciler::STALE_AFTER_DAYS`, horloge `ClockInterface`), `firstDate`/`lastDate` sur date effective. `StatsRepository` (sauf `balance()`), `MerchantController`, `StatsQuery::accountStats` (sauf solde), `VehicleAssigner` : date effective.
+- Tests : `tests/Unit/Import/CardDateExtractorTest.php`, `tests/Unit/Entity/OperationManualEntryTest.php`, `tests/Integration/Reconciliation/ManualEntryReconcilerTest.php`, `tests/Integration/Command/ManualEntryCommandsTest.php`, `tests/Functional/Api/ManualEntryApiTest.php`.
+
+Choix et écarts par rapport au contrat :
+- `POST /api/operations` renvoie **toujours** 201 avec `{operation, reconciled}` ; si la saisie a été absorbée immédiatement, `operation` est la ligne de relevé conservée (`reconciled: true`).
+- `GET /api/operations/{id}/reconciliation-candidates` renvoie `{"items": [Operation]}` (pas de pagination, 20 max).
+- Empreinte `manual:` + 56 caractères hexadécimaux (63 au total) : jamais égale à un sha256 d'import (64 hex), l'unicité vient de `random_bytes`.
+- Budgets : aucune consommation n'est calculée côté back (les budgets sont des CRUD ; le front lit les stats, déjà à date effective).

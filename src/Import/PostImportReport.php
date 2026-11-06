@@ -6,16 +6,18 @@ namespace App\Import;
 
 use App\Categorization\CategorizationReport;
 use App\Recurrence\RecurrenceDetectionReport;
+use App\Reconciliation\ReconciliationReport;
 use App\Vehicle\VehicleAssignmentReport;
 
 /**
- * Résultat du post-traitement d'un import : appariement des virements internes,
- * catégorisation automatique, affectation des véhicules puis détection des récurrences
- * (compteurs uniquement, jamais de libellé).
+ * Résultat du post-traitement d'un import : rapprochement des saisies manuelles,
+ * appariement des virements internes, catégorisation automatique, affectation des
+ * véhicules puis détection des récurrences (compteurs uniquement, jamais de libellé).
  */
 final readonly class PostImportReport
 {
     public function __construct(
+        public ReconciliationReport $reconciliation,
         public int $transfersMatched,
         public int $transfersAmbiguous,
         public CategorizationReport $categorization,
