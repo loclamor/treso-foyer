@@ -17,7 +17,7 @@ import { getSummary } from '@/api/summary';
 import { getBalance, getCategoriesStats, getMonthly, getOverview } from '@/api/stats';
 import { deleteOperation } from '@/api/operations';
 import { apiMessage } from '@/api/http';
-import { escapeHtml, formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
+import { escapeHtml, formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds, percentChange } from '@/utils/format';
 import { latestGuard } from '@/utils/latest';
 import { chartColors, useChartTheme, baseTooltip, baseLegend, baseGrid, valueAxis, categoryAxis, categoryAxisY, barItemStyle } from '@/charts/theme';
 import { colorForCategory, foldToOthers, OTHERS_LABEL, slotColor, withAlpha } from '@/charts/palette';
@@ -142,7 +142,7 @@ async function loadOverview() {
 // Variation en % vs période de comparaison : {text, up} ou null.
 function deltaInfo(current, previous, label) {
     if (current == null || previous == null || previous === 0) return null;
-    const pct = ((current - previous) / Math.abs(previous)) * 100;
+    const pct = percentChange(current, previous);
     return { text: `${pct >= 0 ? '+' : ''}${Math.round(pct)} % ${label}`, up: current >= previous };
 }
 
@@ -483,7 +483,7 @@ function monthlyTooltip(c, m, prev, roots, prevRoots, expectedByName) {
             const pe = prev.expense?.[i] ?? 0;
             const ce = isCurrent ? estimate.expense : (m.expense[i] ?? 0);
             if (pe) {
-                const delta = Math.round(((ce - pe) / pe) * 100);
+                const delta = Math.round(percentChange(ce, pe));
                 parts.push(`<div style="opacity:.7;margin-top:4px">Dépenses${isCurrent ? ' estimées' : ''} vs ${escapeHtml(formatMonth(prevMonth))} : ${delta >= 0 ? '+' : ''}${delta} %</div>`);
             }
         }
@@ -686,7 +686,7 @@ const catsOption = computed(() => {
             const prv = list.find((p) => p.seriesName === 'Période précédente');
             const curV = cur?.value ?? 0;
             const prvV = prv?.value ?? 0;
-            const delta = prvV ? Math.round(((curV - prvV) / prvV) * 100) : null;
+            const delta = prvV ? Math.round(percentChange(curV, prvV)) : null;
             const name = escapeHtml(list[0]?.axisValueLabel ?? list[0]?.name ?? '');
             return [
                 `<strong>${name}</strong>`,

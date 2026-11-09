@@ -17,7 +17,7 @@ import { useVehiclesStore } from '@/stores/vehicles';
 import { useMembersStore } from '@/stores/members';
 import { createVehicle, deleteVehicle, lookupStatus, lookupVehicle, updateVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { centsToEuros, dateToIso, formatDate, parseEuros } from '@/utils/format';
+import { centsToEuros, dateToIso, formatDate, isoToDate, parseEuros } from '@/utils/format';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_ENERGY_OPTIONS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS, VEHICLE_TYPE_OPTIONS } from '@/utils/vehicles';
 
 const vehiclesStore = useVehiclesStore();
@@ -125,11 +125,6 @@ function applyErrors(e) {
     }
 }
 
-function isoToDate(iso) {
-    if (!iso) return null;
-    const [y, m, d] = String(iso).split('-').map(Number);
-    return y && m && d ? new Date(y, m - 1, d) : null;
-}
 
 function openCreate() {
     dialogMode.value = 'create';

@@ -19,7 +19,7 @@ import {
     getVehiclesStats,
 } from '@/api/stats';
 import { apiMessage } from '@/api/http';
-import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
+import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, monthBounds, percentChange } from '@/utils/format';
 import { latestGuard } from '@/utils/latest';
 import {
     chartColors,
@@ -135,7 +135,7 @@ const compareTableRows = computed(() =>
         // Écart calculé sur comparableTotal vs compareTotal (pas sur total, qui inclut le mois en cours).
         const current = it.comparableTotal ?? it.total;
         const diff = current - (it.compareTotal ?? 0);
-        const pct = it.compareTotal ? (diff / Math.abs(it.compareTotal)) * 100 : null;
+        const pct = percentChange(current, it.compareTotal ?? 0);
         return { name: it.category?.name ?? 'Non catégorisé', total: current, compareTotal: it.compareTotal ?? 0, diff, pct };
     }),
 );
@@ -229,7 +229,7 @@ function comparisonTooltip(params, curName) {
     const prv = list.find((p) => p.seriesName === PREV_NAME);
     const curV = cur?.value ?? 0;
     const prvV = prv?.value ?? 0;
-    const delta = prvV ? Math.round(((curV - prvV) / Math.abs(prvV)) * 100) : null;
+    const delta = prvV ? Math.round(percentChange(curV, prvV)) : null;
     const r = period.previousRange;
     return [
         `<strong>${escapeHtml(list[0]?.axisValueLabel ?? list[0]?.name ?? '')}</strong>`,
@@ -723,7 +723,7 @@ const vehiclesOption = computed(() => {
                     const marker = list.find((p) => p.seriesName === PREV_NAME)?.marker ?? '';
                     lines.push(`${marker} Précédente${r ? ` (${formatDate(r.from)} → ${formatDate(r.to)})` : ''} : ${formatMoney(prev)}`);
                     if (prev) {
-                        const delta = Math.round(((row.total - prev) / Math.abs(prev)) * 100);
+                        const delta = Math.round(percentChange(row.total, prev));
                         lines.push(`<span style="opacity:.7">Variation : ${delta >= 0 ? '+' : ''}${delta} %</span>`);
                     }
                 }

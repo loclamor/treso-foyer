@@ -57,6 +57,20 @@ export function dateToIso(date) {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+// 'AAAA-MM-JJ' → Date locale (minuit, sans décalage de fuseau) ; null si vide ou invalide.
+export function isoToDate(iso) {
+    if (!iso) return null;
+    const [y, m, d] = String(iso).split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+}
+
+// Variation en % de previous à current (base en valeur absolue : le signe suit le sens de
+// l'évolution même si la base est négative) ; null si pas de base.
+export function percentChange(current, previous) {
+    if (current == null || !previous) return null;
+    return ((current - previous) / Math.abs(previous)) * 100;
+}
+
 // k€ compact pour les axes de graphiques (centimes → « 1,2 k€ »).
 const kEur = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 export function formatCompactEuro(cents) {

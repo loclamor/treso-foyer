@@ -31,7 +31,7 @@ import {
     updateOdometerReading,
 } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { dateToIso, escapeHtml, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
+import { dateToIso, escapeHtml, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter, isoToDate, percentChange } from '@/utils/format';
 import { latestGuard } from '@/utils/latest';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
 import { CHART_FONT, baseGrid, baseLegend, baseTooltip, categoryAxis, chartColors, useChartTheme, valueAxis } from '@/charts/theme';
@@ -92,7 +92,7 @@ async function loadStats() {
 // lowerIsBetter : true = baisse favorable (dépenses, coûts, consommation), false = hausse favorable, null = neutre.
 function delta(current, previous, lowerIsBetter = true) {
     if (current == null || previous == null || previous === 0) return {};
-    const pct = Math.round(((current - previous) / Math.abs(previous)) * 100);
+    const pct = Math.round(percentChange(current, previous));
     const up = current >= previous;
     return {
         deltaText: `${pct >= 0 ? '+' : ''}${pct} % vs période précédente`,
@@ -331,11 +331,6 @@ const savingReading = ref(false);
 const readingForm = reactive({ date: null, km: null, note: '' });
 const readingErrors = reactive({});
 
-function isoToDate(iso) {
-    if (!iso) return null;
-    const [y, m, d] = String(iso).split('-').map(Number);
-    return y && m && d ? new Date(y, m - 1, d) : null;
-}
 
 function clearReadingErrors() {
     for (const k of Object.keys(readingErrors)) delete readingErrors[k];

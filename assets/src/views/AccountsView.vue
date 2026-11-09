@@ -13,7 +13,7 @@ import { useAccountsStore } from '@/stores/accounts';
 import { useMembersStore } from '@/stores/members';
 import { updateAccount } from '@/api/accounts';
 import { apiMessage } from '@/api/http';
-import { dateToIso, formatDate } from '@/utils/format';
+import { dateToIso, formatDate, isoToDate } from '@/utils/format';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 
 const accountsStore = useAccountsStore();
@@ -32,11 +32,6 @@ const editing = ref(null);
 const saving = ref(false);
 const form = reactive({ alias: '', label: '', type: 'personal', holderIds: [], closedAt: null });
 
-function isoToDate(iso) {
-    if (!iso) return null;
-    const [y, m, d] = iso.split('-').map(Number);
-    return new Date(y, m - 1, d);
-}
 
 function openEdit(account) {
     editing.value = account;
