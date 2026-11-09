@@ -30,6 +30,7 @@ final class InternalTransferMatcher
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly CategoryResolver $categoryResolver,
+        private readonly int $batchSize = self::BATCH_SIZE,
     ) {
     }
 
@@ -40,6 +41,7 @@ final class InternalTransferMatcher
             // Sans catégorie « Virements entre comptes du foyer », aucun appariement possible.
             return new TransferMatchReport();
         }
+        $transferCategoryId = $transferCategory->getId();
 
         // Jointure sur montant opposé + fenêtre de dates : pas de boucle N² en PHP.
         $rows = $this->entityManager->getConnection()->fetchAllAssociative(
@@ -64,7 +66,7 @@ final class InternalTransferMatcher
             [
                 'household' => $household->getId(),
                 'days' => $days,
-                'transferCategory' => $transferCategory->getId(),
+                'transferCategory' => $transferCategoryId,
             ],
             [
                 'household' => ParameterType::INTEGER,
@@ -91,10 +93,13 @@ final class InternalTransferMatcher
             $credit->categorize($transferCategory, CategorizationSource::Transfer);
             if (!$dryRun) {
                 $this->entityManager->persist($transfer);
-                if (++$batch >= self::BATCH_SIZE) {
+                if (++$batch >= $this->batchSize) {
                     $batch = 0;
                     $this->entityManager->flush();
                     $this->entityManager->clear();
+                    // clear() détache la catégorie : sans rechargement, le flush suivant échoue
+                    // (« new entity found through relationship »).
+                    $transferCategory = $this->entityManager->getReference(Category::class, $transferCategoryId);
                 }
             }
         }

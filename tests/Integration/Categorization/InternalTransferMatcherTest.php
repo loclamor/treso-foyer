@@ -76,6 +76,31 @@ final class InternalTransferMatcherTest extends KernelTestCase
         self::assertSame(CategorizationSource::Transfer, $credit->getCategorizationSource());
     }
 
+    public function testMatchesBeyondOneBatch(): void
+    {
+        // Lot de 2 pour 3 paires : le flush après clear() ne doit pas échouer sur la catégorie détachée.
+        $matcher = new InternalTransferMatcher(
+            $this->entityManager,
+            $this->getContainer()->get(CategoryResolver::class),
+            batchSize: 2,
+        );
+        $debitIds = [];
+        foreach ([10000, 20000, 30000] as $i => $amount) {
+            $debitIds[] = $this->persistOperation($this->accountA, '2026-01-1'.$i, -$amount, 'VIREMENT VERS COMMUN')->getId();
+            $this->persistOperation($this->accountB, '2026-01-1'.$i, $amount, 'VIREMENT DEPUIS PERSO');
+        }
+
+        $report = $matcher->match($this->household, days: 3);
+
+        self::assertSame(3, $report->matched);
+        $this->entityManager->clear();
+        foreach ($debitIds as $debitId) {
+            $debit = $this->entityManager->find(Operation::class, $debitId);
+            self::assertNotNull($debit?->getInternalTransfer());
+            self::assertSame($this->transferCategoryId(), $debit->getCategory()?->getId());
+        }
+    }
+
     public function testDifferentAmountsDoNotMatch(): void
     {
         $this->persistOperation($this->accountA, '2026-01-10', -100000, 'VIREMENT DE PERSO A VERS COMMUN');
