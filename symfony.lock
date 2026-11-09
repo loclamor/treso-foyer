@@ -53,6 +53,9 @@
     "pentatrion/vite-bundle": {
         "version": "v8.2.4"
     },
+    "phpstan/phpstan": {
+        "version": "2.3.5"
+    },
     "phpunit/phpunit": {
         "version": "13.4",
         "recipe": {

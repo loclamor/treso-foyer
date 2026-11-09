@@ -1,0 +1,313 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Instanceof between App\\Entity\\Operation and App\\Entity\\Operation will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: src/Categorization/Categorizer.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 1 and string\|false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: src/Categorization/InternalTransferMatcher.php
+
+		-
+			message: '#^Call to function is_array\(\) with App\\Entity\\ImportBatch will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: src/Controller/Api/ImportController.php
+
+		-
+			message: '#^Call to function assert\(\) with true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: src/Controller/Api/MerchantController.php
+
+		-
+			message: '#^Instanceof between App\\Entity\\Operation and App\\Entity\\Operation will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 5
+			path: src/Controller/Api/MerchantController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between array\{\} and non\-empty\-list\<App\\Entity\\Operation\> will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Controller/Api/MerchantController.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array\{\} and array\{\} will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: src/Controller/Api/MerchantController.php
+
+		-
+			message: '#^Call to function assert\(\) with true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: src/Controller/Api/OperationController.php
+
+		-
+			message: '#^Call to function is_array\(\) with App\\Entity\\Operation will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: src/Controller/Api/OperationController.php
+
+		-
+			message: '#^Instanceof between App\\Entity\\Operation and App\\Entity\\Operation will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 2
+			path: src/Controller/Api/OperationController.php
+
+		-
+			message: '#^Call to function assert\(\) with true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Controller/Api/RuleController.php
+
+		-
+			message: '#^Instanceof between App\\Entity\\Operation and App\\Entity\\Operation will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: src/Controller/Api/RuleController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between null and App\\Stats\\StatsPeriod will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Controller/Api/StatsController.php
+
+		-
+			message: '#^Call to function assert\(\) with true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Controller/Api/TransferController.php
+
+		-
+			message: '#^Call to function is_array\(\) with App\\Entity\\InternalTransfer will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: src/Controller/Api/TransferController.php
+
+		-
+			message: '#^Instanceof between App\\Entity\\InternalTransfer and App\\Entity\\InternalTransfer will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: src/Controller/Api/TransferController.php
+
+		-
+			message: '#^Match arm comparison between App\\Enum\\RuleMatchType\:\:Exact and App\\Enum\\RuleMatchType\:\:Exact is always true\.$#'
+			identifier: match.alwaysTrue
+			count: 1
+			path: src/Entity/CategorizationRule.php
+
+		-
+			message: '#^Unsafe usage of new static\(\)\.$#'
+			identifier: new.static
+			count: 1
+			path: src/Entity/Operation.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between null and string will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: src/Import/LabelNormalizer.php
+
+		-
+			message: '#^Offset 0 on array\{''''\|''\+''\|''\-'', int\<\-1, max\>\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Import/Parser/PdfStatementParser.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: src/Import/Parser/PdfStatementParser.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between null and null will always evaluate to false\.$#'
+			identifier: notIdentical.alwaysFalse
+			count: 2
+			path: src/Import/Parser/PdfStatementParser.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between null and non\-empty\-array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: src/Recurrence/RecurrenceDetector.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<int\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: src/Repository/OdometerReadingRepository.php
+
+		-
+			message: '#^PHPDoc tag @var above a class has no effect\.$#'
+			identifier: varTag.misplaced
+			count: 1
+			path: src/Setup/DefaultCategories.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\{date\: DateTimeImmutable\|string, km\: int\|string\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Vehicle/OdometerCalculator.php
+
+		-
+			message: '#^Instanceof between DateTimeImmutable and DateTimeImmutable will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: src/Vehicle/OdometerCalculator.php
+
+		-
+			message: '#^Offset ''date'' on array\{date\: DateTimeImmutable\|string, km\: int\|string\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Vehicle/OdometerCalculator.php
+
+		-
+			message: '#^Offset ''km'' on array\{date\: DateTimeImmutable\|string, km\: int\|string\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Vehicle/OdometerCalculator.php
+
+		-
+			message: '#^Offset 0 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/Functional/Api/FuelApiTest.php
+
+		-
+			message: '#^Offset 1 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/Functional/Api/FuelApiTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with array\{array\{date\: ''2026\-08\-24'', expense\: 1000, count\: 1\}\} and array\<string, mixed\> will always evaluate to false\.$#'
+			identifier: staticMethod.impossibleType
+			count: 1
+			path: tests/Functional/Api/ManualEntryApiTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\Operation\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/Functional/Api/OperationApiTest.php
+
+		-
+			message: '#^Offset 0 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/Functional/Api/RuleApiTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with array\{array\{date\: ''2026\-01\-05'', expense\: 800, count\: 1\}, array\{date\: ''2026\-01\-20'', expense\: 200, count\: 1\}, array\{date\: ''2026\-02\-10'', expense\: 1500, count\: 1\}, array\{date\: ''2026\-02\-15'', expense\: \-300, count\: 1\}, array\{date\: ''2026\-03\-05'', expense\: 450, count\: 1\}, array\{date\: ''2026\-03\-12'', expense\: 600, count\: 1\}\} and array\<string, mixed\> will always evaluate to false\.$#'
+			identifier: staticMethod.impossibleType
+			count: 1
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 0 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 7
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 0 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 30
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 1 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 1 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 11
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 2 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 2 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 7
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 3 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/Functional/Api/StatsApiTest.php
+
+		-
+			message: '#^Offset 0 does not exist on array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 4
+			path: tests/Functional/Api/VehicleApiTest.php
+
+		-
+			message: '#^Offset 0 does not exist on non\-empty\-array\<string, mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 5
+			path: tests/Functional/Api/VehicleApiTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\Vehicle\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 4
+			path: tests/Functional/Api/VehicleApiTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\InternalTransfer\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 4
+			path: tests/Integration/Categorization/InternalTransferMatcherTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\Operation\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/Integration/Command/CategorizeCommandTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\Operation\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: tests/Integration/Command/ManualEntryCommandsTest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type App\\Entity\\Operation\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/Integration/Command/RebuildFingerprintsCommandTest.php
+
+		-
+			message: '#^Parameter \#1 \$readings of method App\\Vehicle\\OdometerCalculator\:\:distance\(\) expects list\<App\\Entity\\OdometerReading\|array\{date\: DateTimeImmutable\|string, km\: int\|string\}\>, array\{array\{km\: 1000\}\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Unit/Vehicle/OdometerCalculatorTest.php
+
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Vehicle\\OdometerDistance\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/Unit/Vehicle/OdometerCalculatorTest.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Symfony\\\\Component\\\\Dotenv\\\\Dotenv'' and ''bootEnv'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/bootstrap.php
