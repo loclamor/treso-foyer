@@ -66,6 +66,18 @@ final class StatsPeriodTest extends TestCase
         self::assertSame('2023-03-31', $lastYear->to->format('Y-m-d'));
     }
 
+    public function testSameLastYearKeepsMonthEnd(): void
+    {
+        // Février 2025 entier ↔ février 2024 entier (29 jours).
+        $lastYear = (new StatsPeriod(new \DateTimeImmutable('2025-02-01'), new \DateTimeImmutable('2025-02-28')))->sameLastYear();
+        self::assertSame('2024-02-01', $lastYear->from->format('Y-m-d'));
+        self::assertSame('2024-02-29', $lastYear->to->format('Y-m-d'));
+
+        // Hors fin de mois : jour pour jour.
+        $lastYear = (new StatsPeriod(new \DateTimeImmutable('2025-02-01'), new \DateTimeImmutable('2025-02-27')))->sameLastYear();
+        self::assertSame('2024-02-27', $lastYear->to->format('Y-m-d'));
+    }
+
     public function testLast12FullMonthsBeforeTo(): void
     {
         $period = new StatsPeriod(new \DateTimeImmutable('2026-01-01'), new \DateTimeImmutable('2026-03-31'));

@@ -138,13 +138,18 @@ final class StatsPeriod
         );
     }
 
-    /** Même période un an plus tôt (29 février → 28 février si l'année cible n'est pas bissextile). */
+    /**
+     * Même période un an plus tôt (29 février → 28 février si l'année cible n'est pas bissextile).
+     * Une fin de mois reste une fin de mois : février 2025 entier ↔ 01/02 → 29/02/2024.
+     */
     public function sameLastYear(): self
     {
-        return new self(
-            self::minusOneYear($this->from),
-            self::minusOneYear($this->to),
-        );
+        $to = self::minusOneYear($this->to);
+        if ($this->to->format('Y-m-d') === self::lastOfMonth($this->to)->format('Y-m-d')) {
+            $to = self::lastOfMonth($to);
+        }
+
+        return new self(self::minusOneYear($this->from), $to);
     }
 
     /** Période des 12 mois complets précédant le mois de « to ». */
