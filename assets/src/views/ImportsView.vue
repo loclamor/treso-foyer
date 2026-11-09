@@ -5,7 +5,6 @@ import FileUpload from 'primevue/fileupload';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Tag from 'primevue/tag';
-import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
 import { listImports, uploadImports } from '@/api/imports';
 import { apiMessage } from '@/api/http';

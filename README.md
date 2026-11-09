@@ -137,7 +137,12 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 - Les variantes de libellé d'un même commerçant (export CSV ≠ relevé PDF, ponctuation, troncature) sont regroupées pour le top commerçants et les récurrences : `make sf c='app:merchants:group'` (`--dry-run` pour simuler), relancé automatiquement après chaque import. Détails : [ADR 0013](docs/adr/0013-regroupement-commercants.md).
 - Les séries détectées alimentent l'estimation du mois en cours du graphe mensuel (échéances restantes + partie variable) et sont gérables via l'API (`GET/PATCH /api/recurrences`, `POST /api/recurrences/detect`) — l'écran dédié arrive dans un lot front séparé.
 
-## Tests
+## Tests et analyse statique
 ```bash
-make test
+make test          # PHPUnit
+make test-tools    # tests des outils Python (tools/)
+make lint          # PHPStan (niveau 5) + ESLint (front)
 ```
+PHPStan part d'une baseline (`phpstan-baseline.neon`) : le code existant y est toléré, tout nouveau
+problème fait échouer `make phpstan`. Après une correction, régénérer la baseline :
+`make phpstan c='--generate-baseline'`.

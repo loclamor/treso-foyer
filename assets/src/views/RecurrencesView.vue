@@ -236,7 +236,6 @@ function activeMonthsTooltip(rec) {
 }
 
 const DIRECTION_LABELS = { expense: 'Dépense', income: 'Revenu' };
-const DIRECTION_SEVERITY = { expense: 'danger', income: 'success' };
 
 onMounted(() => {
     load();

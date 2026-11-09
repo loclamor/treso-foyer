@@ -34,7 +34,7 @@ export function amountClass(cents) {
 // '12,34' | '12.34' | '-5' → 1234 | -500 (entier, aucun flottant). null si invalide.
 export function parseEuros(str) {
     if (typeof str !== 'string') return null;
-    const s = str.trim().replace(/[\s ]/g, '').replace(',', '.');
+    const s = str.trim().replace(/[\s\u00A0]/g, '').replace(',', '.');
     if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return null;
     const neg = s.startsWith('-');
     const [intPart, decPart = ''] = (neg ? s.slice(1) : s).split('.');

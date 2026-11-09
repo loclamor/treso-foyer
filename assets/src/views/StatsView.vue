@@ -382,7 +382,6 @@ const calendarOption = computed(() => {
         .filter((d) => d.date.startsWith(`${year}-`))
         .map((d) => [d.date, d.expense]);
     const max = data.reduce((m, [, v]) => Math.max(m, v), 0);
-    const pad = (n) => String(n).padStart(2, '0');
     return {
         tooltip: {
             trigger: 'item',
