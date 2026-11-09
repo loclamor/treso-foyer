@@ -367,6 +367,36 @@ final class StatsApiTest extends ApiTestCase
         );
     }
 
+    public function testBalanceCountsOperationsBetweenAnchorAndPeriodStart(): void
+    {
+        $this->seedStatsData();
+        $client = $this->client();
+
+        // Ancre = clôture 2025-12-31 (100000), antérieure à from : l'achat du 2026-01-05 doit compter.
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/balance?from=2026-01-10&to=2026-01-31&granularity=day&accountId[]='.$this->account->getId()));
+
+        $values = $data['accounts'][0]['values'];
+        self::assertSame('2026-01-10', $data['dates'][0]);
+        self::assertSame(99200, $values[0]);
+        self::assertSame(99200, $values[9]); // 2026-01-19
+        self::assertSame(99000, $values[10]); // 2026-01-20
+        self::assertSame(99000, $values[21]); // 2026-01-31
+    }
+
+    public function testBalanceBetweenOpeningAndFirstClosingIncludesOperations(): void
+    {
+        $this->seedStatsData();
+        // Opération entre l'ouverture du premier relevé (2025-11-30, 90000) et sa clôture.
+        $this->addOperation($this->account, '2025-12-10', -3000, 'PRELEVEMENT DECEMBRE', 'EDF');
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/balance?from=2025-12-01&to=2025-12-15&granularity=day&accountId[]='.$this->account->getId()));
+
+        $values = $data['accounts'][0]['values'];
+        self::assertSame(array_fill(0, 9, 90000), \array_slice($values, 0, 9)); // 01 → 09
+        self::assertSame(array_fill(0, 6, 87000), \array_slice($values, 9)); // 10 → 15
+    }
+
     public function testSankey(): void
     {
         $this->seedStatsData();
