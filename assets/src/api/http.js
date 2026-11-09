@@ -13,12 +13,15 @@ export function setUnauthorizedHandler(fn) {
     onUnauthorized = fn;
 }
 
+const AUTH_PATHS = new Set(['/login', '/me']);
+
 // 401 ⇒ redirection vers /login?redirect=… (sauf /login et /me eux-mêmes).
 http.interceptors.response.use(
     (response) => response,
     (error) => {
-        const url = error.config?.url ?? '';
-        if (error.response?.status === 401 && !url.includes('/login') && !url.includes('/me') && onUnauthorized) {
+        // Comparaison exacte du chemin : includes('/me') attrapait aussi /members et /merchants.
+        const path = (error.config?.url ?? '').split('?')[0];
+        if (error.response?.status === 401 && !AUTH_PATHS.has(path) && onUnauthorized) {
             onUnauthorized();
         }
         return Promise.reject(error);
