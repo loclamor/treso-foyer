@@ -50,6 +50,15 @@ final class RecurrenceDetector
 
     public function sync(Household $household, \DateTimeImmutable $today, bool $dryRun = false): RecurrenceDetectionReport
     {
+        // Une seule transaction : une erreur en cours de route ne laisse pas de séries à moitié
+        // déliées/recréées (des dizaines d'UPDATE/DELETE DBAL successifs).
+        return $this->entityManager->getConnection()->transactional(
+            fn (): RecurrenceDetectionReport => $this->doSync($household, $today, $dryRun),
+        );
+    }
+
+    private function doSync(Household $household, \DateTimeImmutable $today, bool $dryRun): RecurrenceDetectionReport
+    {
         $report = new RecurrenceDetectionReport();
         $connection = $this->entityManager->getConnection();
         $householdId = (int) $household->getId();
