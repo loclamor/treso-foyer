@@ -286,8 +286,8 @@ const sankeyOption = computed(() => {
             borderColor: c.grid,
             textStyle: { color: c.ink },
             formatter: (p) => (p.dataType === 'edge'
-                ? `${nameById.get(p.data.source) ?? p.data.source} → ${nameById.get(p.data.target) ?? p.data.target} : <strong>${formatMoney(p.value)}</strong>`
-                : `${nameById.get(p.data?.id) ?? p.name} : <strong>${formatMoney(p.value)}</strong>`),
+                ? `${escapeHtml(nameById.get(p.data.source) ?? p.data.source)} → ${escapeHtml(nameById.get(p.data.target) ?? p.data.target)} : <strong>${formatMoney(p.value)}</strong>`
+                : `${escapeHtml(nameById.get(p.data?.id) ?? p.name)} : <strong>${formatMoney(p.value)}</strong>`),
         },
         series: [
             {
@@ -686,7 +686,7 @@ const vehiclesOption = computed(() => {
                 for (const p of list) {
                     if (p.seriesName === PREV_NAME) continue;
                     if (p.seriesName === 'Financement' && !row.financingTotal) continue;
-                    lines.push(`${p.marker} ${p.seriesName} : ${formatMoney(p.value)}`);
+                    lines.push(`${p.marker} ${escapeHtml(p.seriesName)} : ${formatMoney(p.value)}`);
                 }
                 if (row.costPerKm != null) lines.push(`Coût d'usage au km : <strong>${formatMoney(row.costPerKm)}/km</strong>`);
                 if (row.financingTotal > 0 && row.costPerKmTotal != null) lines.push(`Coût total au km : <strong>${formatMoney(row.costPerKmTotal)}/km</strong>`);

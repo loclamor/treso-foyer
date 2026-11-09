@@ -31,7 +31,7 @@ import {
     updateOdometerReading,
 } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { dateToIso, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
+import { dateToIso, escapeHtml, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
 import { CHART_FONT, baseGrid, baseLegend, baseTooltip, categoryAxis, chartColors, useChartTheme, valueAxis } from '@/charts/theme';
 import { CATEGORICAL, OTHERS_COLOR } from '@/charts/palette';
@@ -171,7 +171,7 @@ const donutOption = computed(() => {
             borderColor: c.grid,
             borderWidth: 1,
             textStyle: { color: c.ink, fontFamily: CHART_FONT, fontSize: 12 },
-            formatter: (p) => `${p.name} : <strong>${formatMoney(p.value)}</strong>${total ? ` (${formatPercent(p.value / total, 1)})` : ''}`,
+            formatter: (p) => `${escapeHtml(p.name)} : <strong>${formatMoney(p.value)}</strong>${total ? ` (${formatPercent(p.value / total, 1)})` : ''}`,
         },
         legend: baseLegend(c),
         series: [
@@ -276,9 +276,9 @@ const fuelChartOption = computed(() => {
                 const arr = Array.isArray(params) ? params : [params];
                 const head = arr[0]?.axisValueLabel ?? arr[0]?.name ?? '';
                 const lines = arr.map(
-                    (p) => `${p.marker} ${p.seriesName} : <strong>${p.seriesIndex === 0 ? formatPricePerLiter(p.value) : formatConsumption(p.value)}</strong>`,
+                    (p) => `${p.marker} ${escapeHtml(p.seriesName)} : <strong>${p.seriesIndex === 0 ? formatPricePerLiter(p.value) : formatConsumption(p.value)}</strong>`,
                 );
-                return [head, ...lines].join('<br/>');
+                return [escapeHtml(head), ...lines].join('<br/>');
             },
         },
         legend: baseLegend(c),
