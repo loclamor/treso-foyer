@@ -584,6 +584,7 @@ const balanceDayEmpty = computed(() => !balanceDay.value || !balanceDay.value.da
 
 // ---------- 7. véhicules (lot 5) ----------
 const vehiclesStats = ref(null);
+const prevVehiclesStats = ref(null); // période précédente (case « Comparer »), null si inactive
 const loadingVehicles = ref(false);
 const vehiclesError = ref('');
 
@@ -596,7 +597,13 @@ async function loadVehicles() {
     loadingVehicles.value = true;
     vehiclesError.value = '';
     try {
-        vehiclesStats.value = await getVehiclesStats(scope.params, period.params);
+        const prevParams = period.previousParams;
+        const [cur, prev] = await Promise.all([
+            getVehiclesStats(scope.params, period.params),
+            prevParams ? getVehiclesStats(scope.params, prevParams) : Promise.resolve(null),
+        ]);
+        vehiclesStats.value = cur;
+        prevVehiclesStats.value = prev;
     } catch (e) {
         vehiclesError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
@@ -614,8 +621,15 @@ const vehicleRows = computed(() =>
         costPerKm: v.costPerKm,
         costPerKmTotal: v.costPerKmTotal,
         financingTotal: v.financingTotal ?? 0,
+        usageTotal: v.usageTotal ?? v.total,
     })),
 );
+
+// Total de la période précédente par véhicule (0 si aucune dépense), null si comparaison inactive.
+const prevVehicleTotals = computed(() => {
+    if (!prevVehiclesStats.value) return null;
+    return new Map(prevVehiclesStats.value.vehicles.map((v) => [v.vehicle.id, v.total]));
+});
 
 const unassignedCount = computed(() => vehiclesStats.value?.unassigned?.count ?? 0);
 
@@ -623,30 +637,77 @@ const vehiclesOption = computed(() => {
     const rows = vehicleRows.value;
     if (!rows.length) return {};
     const c = chartColors(theme.mode.value);
+    const usageColor = slotColor(1, theme.mode.value);
+    const financingColor = slotColor(2, theme.mode.value);
+    const prevTotals = prevVehicleTotals.value;
+    const hasFinancing = rows.some((r) => r.financingTotal > 0);
+    // Usage + financement empilés (période), barre « précédente » à côté si comparaison.
+    const series = [
+        {
+            name: 'Usage',
+            type: 'bar',
+            stack: 'current',
+            data: rows.map((r) => ({ value: r.usageTotal, vehicleId: r.vehicle.id })),
+            barMaxWidth: 40,
+            itemStyle: { color: usageColor, borderColor: c.surface, borderWidth: 1 },
+        },
+    ];
+    if (hasFinancing) {
+        series.push({
+            name: 'Financement',
+            type: 'bar',
+            stack: 'current',
+            data: rows.map((r) => ({ value: r.financingTotal, vehicleId: r.vehicle.id })),
+            barMaxWidth: 40,
+            itemStyle: { color: financingColor, borderRadius: [4, 4, 0, 0], borderColor: c.surface, borderWidth: 1 },
+        });
+    }
+    if (prevTotals) {
+        series.push({
+            name: PREV_NAME,
+            type: 'bar',
+            data: rows.map((r) => ({ value: prevTotals.get(r.vehicle.id) ?? 0, vehicleId: r.vehicle.id })),
+            barMaxWidth: 40,
+            barGap: '15%',
+            itemStyle: { color: withAlpha(usageColor, 0.35), borderRadius: 4 },
+            emphasis: { disabled: true },
+        });
+    }
     return {
         tooltip: {
             ...baseTooltip(c),
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
             formatter: (params) => {
-                const p = Array.isArray(params) ? params[0] : params;
-                const row = rows[p.dataIndex];
-                const financing = row?.financingTotal > 0 ? `<br/>dont financement : <strong>${formatMoney(row.financingTotal)}</strong>` : '';
-                const cost = row?.costPerKm != null ? `<br/>Coût d'usage au km : <strong>${formatMoney(row.costPerKm)}/km</strong>` : '';
-                const costTotal = row?.financingTotal > 0 && row?.costPerKmTotal != null ? `<br/>Coût total au km : <strong>${formatMoney(row.costPerKmTotal)}/km</strong>` : '';
-                return `${p.name}<br/>Total : <strong>${formatMoney(p.value)}</strong> (${row?.count ?? 0} op.)${financing}${cost}${costTotal}`;
+                const list = Array.isArray(params) ? params : [params];
+                const row = rows[list[0]?.dataIndex ?? 0];
+                if (!row) return '';
+                const lines = [`<strong>${escapeHtml(row.vehicle.name)}</strong>`, `Total : <strong>${formatMoney(row.total)}</strong> (${row.count} op.)`];
+                for (const p of list) {
+                    if (p.seriesName === PREV_NAME) continue;
+                    if (p.seriesName === 'Financement' && !row.financingTotal) continue;
+                    lines.push(`${p.marker} ${p.seriesName} : ${formatMoney(p.value)}`);
+                }
+                if (row.costPerKm != null) lines.push(`Coût d'usage au km : <strong>${formatMoney(row.costPerKm)}/km</strong>`);
+                if (row.financingTotal > 0 && row.costPerKmTotal != null) lines.push(`Coût total au km : <strong>${formatMoney(row.costPerKmTotal)}/km</strong>`);
+                if (prevTotals) {
+                    const prev = prevTotals.get(row.vehicle.id) ?? 0;
+                    const r = period.previousRange;
+                    const marker = list.find((p) => p.seriesName === PREV_NAME)?.marker ?? '';
+                    lines.push(`${marker} Précédente${r ? ` (${formatDate(r.from)} → ${formatDate(r.to)})` : ''} : ${formatMoney(prev)}`);
+                    if (prev) {
+                        const delta = Math.round(((row.total - prev) / Math.abs(prev)) * 100);
+                        lines.push(`<span style="opacity:.7">Variation : ${delta >= 0 ? '+' : ''}${delta} %</span>`);
+                    }
+                }
+                return lines.join('<br/>');
             },
         },
-        grid: baseGrid({ left: 8, right: 16, top: 8, bottom: 8 }),
+        legend: series.length > 1 ? baseLegend(c) : undefined,
+        grid: baseGrid({ left: 8, right: 16, top: 8, bottom: series.length > 1 ? 36 : 8 }),
         xAxis: categoryAxis(c, rows.map((r) => r.vehicle.name)),
         yAxis: valueAxis(c),
-        series: [
-            {
-                name: 'Dépenses',
-                type: 'bar',
-                data: rows.map((r) => ({ value: r.total, vehicleId: r.vehicle.id })),
-                barMaxWidth: 40,
-                itemStyle: barItemStyle(slotColor(1, theme.mode.value), c.surface),
-            },
-        ],
+        series,
     };
 });
 
@@ -679,6 +740,7 @@ watch(trendCategoryId, loadTrend);
 watch(() => period.compareActive, () => {
     loadMerchants();
     loadTrend();
+    loadVehicles();
 });
 onMounted(async () => {
     if (!vehiclesStore.loaded) await vehiclesStore.refresh().catch(() => {});

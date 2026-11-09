@@ -34,7 +34,7 @@ import { apiMessage } from '@/api/http';
 import { dateToIso, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
 import { CHART_FONT, baseGrid, baseLegend, baseTooltip, categoryAxis, chartColors, useChartTheme, valueAxis } from '@/charts/theme';
-import { CATEGORICAL, colorForCategory } from '@/charts/palette';
+import { CATEGORICAL, OTHERS_COLOR } from '@/charts/palette';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import KpiTile from '@/components/KpiTile.vue';
 import ChartCard from '@/components/ChartCard.vue';
@@ -59,7 +59,10 @@ const notFound = ref(false);
 
 // ---------- stats du véhicule sur la période (KPIs + donut) ----------
 const vehicleStats = ref(null); // entrée {vehicle, total, usageTotal, financingTotal, count, monthlyAverage, usageMonthlyAverage, byCategory, distance, costPerKm, costPerKmTotal}
+const prevVehicleStats = ref(null); // même entrée sur la période précédente (case « Comparer »), null si inactive
 const loadingStats = ref(false);
+// L'API ne liste que les véhicules ayant une dépense sur la période : repli à zéro.
+const EMPTY_STATS = { total: 0, usageTotal: 0, financingTotal: 0, count: 0, monthlyAverage: 0, usageMonthlyAverage: 0, byCategory: [], distance: null, costPerKm: null, costPerKmTotal: null };
 const statsError = ref('');
 
 async function loadStats() {
@@ -67,8 +70,13 @@ async function loadStats() {
     loadingStats.value = true;
     statsError.value = '';
     try {
-        const res = await getVehiclesStats(scope.params, period.params);
-        vehicleStats.value = res.vehicles.find((v) => v.vehicle.id === vehicleId) ?? null;
+        const prevParams = period.previousParams;
+        const [res, prev] = await Promise.all([
+            getVehiclesStats(scope.params, period.params),
+            prevParams ? getVehiclesStats(scope.params, prevParams) : Promise.resolve(null),
+        ]);
+        vehicleStats.value = res.vehicles.find((v) => v.vehicle.id === vehicleId) ?? EMPTY_STATS;
+        prevVehicleStats.value = prev ? prev.vehicles.find((v) => v.vehicle.id === vehicleId) ?? EMPTY_STATS : null;
     } catch (e) {
         statsError.value = apiMessage(e, 'Statistiques indisponibles');
     } finally {
@@ -76,9 +84,23 @@ async function loadStats() {
     }
 }
 
+// Écart vs période précédente pour KpiTile : {deltaText, deltaUp, favorable} ou {} (pas de comparaison / base nulle).
+// lowerIsBetter : true = baisse favorable (dépenses, coûts, consommation), false = hausse favorable, null = neutre.
+function delta(current, previous, lowerIsBetter = true) {
+    if (current == null || previous == null || previous === 0) return {};
+    const pct = Math.round(((current - previous) / Math.abs(previous)) * 100);
+    const up = current >= previous;
+    return {
+        deltaText: `${pct >= 0 ? '+' : ''}${pct} % vs période précédente`,
+        deltaUp: up,
+        favorable: lowerIsBetter === null || pct === 0 ? null : lowerIsBetter ? !up : up,
+    };
+}
+
 const kpis = computed(() => {
     const vs = vehicleStats.value;
     if (!vs) return [];
+    const pv = prevVehicleStats.value; // null sans comparaison
     const km = vs.distance ? Math.round(vs.distance.km).toLocaleString('fr-FR') + ' km' : '—';
     // Financement (crédit…, ADR 0011) : rattaché au véhicule mais hors coût d'usage.
     const hasFinancing = (vs.financingTotal ?? 0) > 0;
@@ -88,21 +110,25 @@ const kpis = computed(() => {
             label: 'Total dépensé',
             value: formatMoney(vs.total),
             subtext: hasFinancing ? `dont ${formatMoney(vs.financingTotal)} de financement · ${ops}` : ops,
+            ...(pv ? delta(vs.total, pv.total) : {}),
         },
         {
             label: 'Moyenne mensuelle',
             value: formatMoney(vs.monthlyAverage),
             subtext: hasFinancing ? `usage seul : ${formatMoney(vs.usageMonthlyAverage)}/mois` : '',
+            ...(pv ? delta(vs.monthlyAverage, pv.monthlyAverage) : {}),
         },
         {
             label: 'Km parcourus',
             value: km,
             subtext: vs.distance ? `du ${formatDate(vs.distance.coveredFrom)} au ${formatDate(vs.distance.coveredTo)}` : 'moins de 2 relevés',
+            ...(pv ? delta(vs.distance?.km, pv.distance?.km, null) : {}),
         },
         {
             label: hasFinancing ? "Coût d'usage au km" : 'Coût au km',
             value: vs.costPerKm != null ? `${formatMoney(vs.costPerKm)}/km` : '—',
             subtext: hasFinancing ? 'hors financement · période couverte ÷ km' : 'dépenses de la période couverte ÷ km',
+            ...(pv ? delta(vs.costPerKm, pv.costPerKm) : {}),
         },
     ];
     if (hasFinancing) {
@@ -110,12 +136,24 @@ const kpis = computed(() => {
             label: 'Coût total au km',
             value: vs.costPerKmTotal != null ? `${formatMoney(vs.costPerKmTotal)}/km` : '—',
             subtext: 'usage + financement · période couverte ÷ km',
+            ...(pv ? delta(vs.costPerKmTotal, pv.costPerKmTotal) : {}),
         });
     }
     return tiles;
 });
 
 // ---------- donut par catégorie ----------
+// Les sous-catégories n'ont pas d'emplacement de couleur (seules les racines en ont) : toutes
+// prendraient la couleur de « Transport ». Couleur propre à chaque catégorie, stable d'une
+// période à l'autre (rang par id de catégorie), « Non catégorisé » en gris.
+function donutColor(category) {
+    const mode = theme.mode.value;
+    if (!category) return OTHERS_COLOR[mode] ?? OTHERS_COLOR.light;
+    const palette = CATEGORICAL[mode] ?? CATEGORICAL.light;
+    const ids = [...new Set((vehicleStats.value?.byCategory ?? []).filter((b) => b.category).map((b) => b.category.id))].sort((a, b) => a - b);
+    return palette[Math.max(0, ids.indexOf(category.id)) % palette.length];
+}
+
 const donutOption = computed(() => {
     const vs = vehicleStats.value;
     if (!vs || !vs.byCategory?.length) return {};
@@ -124,7 +162,7 @@ const donutOption = computed(() => {
     const data = vs.byCategory.map((b) => ({
         name: b.category?.name ?? 'Non catégorisé',
         value: b.total,
-        itemStyle: { color: colorForCategory(b.category, theme.mode.value), borderRadius: 4, borderColor: c.surface, borderWidth: 2 },
+        itemStyle: { color: donutColor(b.category), borderRadius: 4, borderColor: c.surface, borderWidth: 2 },
     }));
     return {
         tooltip: {
@@ -156,6 +194,7 @@ const donutRows = computed(() => (vehicleStats.value?.byCategory ?? []).map((b) 
 
 // ---------- pleins de carburant (ADR 0015) sur la période ----------
 const fuelData = ref(null); // {fills: [...], summary: {count, volumeMl, amount, avgPricePerLiter, consumption, distanceKm}}
+const prevFuelSummary = ref(null); // synthèse de la période précédente (case « Comparer »), null si inactive
 const loadingFuel = ref(false);
 const fuelError = ref('');
 
@@ -164,7 +203,13 @@ async function loadFuel() {
     loadingFuel.value = true;
     fuelError.value = '';
     try {
-        fuelData.value = await getVehicleFuel(vehicleId, period.params);
+        const prevParams = period.previousParams;
+        const [cur, prev] = await Promise.all([
+            getVehicleFuel(vehicleId, period.params),
+            prevParams ? getVehicleFuel(vehicleId, prevParams) : Promise.resolve(null),
+        ]);
+        fuelData.value = cur;
+        prevFuelSummary.value = prev?.summary ?? null;
     } catch (e) {
         fuelError.value = apiMessage(e, 'Pleins indisponibles');
     } finally {
@@ -175,16 +220,18 @@ async function loadFuel() {
 const fuelKpis = computed(() => {
     const s = fuelData.value?.summary;
     if (!s) return [];
+    const ps = prevFuelSummary.value;
     const dist = s.distanceKm != null ? `${s.distanceKm.toLocaleString('fr-FR')} km` : null;
     return [
         {
             label: 'Consommation moyenne',
             value: formatConsumption(s.consumption),
             subtext: dist ? `sur ${dist} entre pleins complets` : 'pleins complets avec kilométrage requis',
+            ...(ps ? delta(s.consumption, ps.consumption) : {}),
         },
-        { label: 'Prix moyen au litre', value: formatPricePerLiter(s.avgPricePerLiter), subtext: '' },
-        { label: 'Volume total', value: formatLiters(s.volumeMl), subtext: '' },
-        { label: 'Nombre de pleins', value: String(s.count), subtext: '' },
+        { label: 'Prix moyen au litre', value: formatPricePerLiter(s.avgPricePerLiter), subtext: '', ...(ps ? delta(s.avgPricePerLiter, ps.avgPricePerLiter) : {}) },
+        { label: 'Volume total', value: formatLiters(s.volumeMl), subtext: '', ...(ps ? delta(s.volumeMl, ps.volumeMl, null) : {}) },
+        { label: 'Nombre de pleins', value: String(s.count), subtext: '', ...(ps ? delta(s.count, ps.count, null) : {}) },
     ];
 });
 
@@ -370,6 +417,7 @@ function removeReading(r) {
 
 // ---------- AdBlue (ADR 0016) ----------
 const adblueData = ref(null); // {fills: [...], summary: {count, volumeMl, cost, estimatedCost, avgPricePerLiter, consumption, distanceKm}}
+const prevAdblueSummary = ref(null); // synthèse de la période précédente (case « Comparer »), null si inactive
 const loadingAdblue = ref(false);
 const adblueError = ref('');
 const ADBLUE_SOURCES = [
@@ -386,7 +434,13 @@ async function loadAdblue() {
     loadingAdblue.value = true;
     adblueError.value = '';
     try {
-        adblueData.value = await getVehicleAdblue(vehicleId, period.params);
+        const prevParams = period.previousParams;
+        const [cur, prev] = await Promise.all([
+            getVehicleAdblue(vehicleId, period.params),
+            prevParams ? getVehicleAdblue(vehicleId, prevParams) : Promise.resolve(null),
+        ]);
+        adblueData.value = cur;
+        prevAdblueSummary.value = prev?.summary ?? null;
     } catch (e) {
         adblueError.value = apiMessage(e, 'AdBlue indisponible');
     } finally {
@@ -397,18 +451,22 @@ async function loadAdblue() {
 const adblueKpis = computed(() => {
     const s = adblueData.value?.summary;
     if (!s) return [];
+    const ps = prevAdblueSummary.value;
+    const d = (cur, prev, lowerIsBetter) => (ps ? delta(cur, prev, lowerIsBetter) : {});
     return [
         {
             label: 'Consommation AdBlue',
             value: formatPer1000(s.consumption),
             subtext: s.distanceKm != null ? `sur ${s.distanceKm.toLocaleString('fr-FR')} km couverts par les relevés` : '2 relevés kilométriques requis',
+            ...d(s.consumption, ps?.consumption),
         },
-        { label: 'Volume versé', value: formatLiters(s.volumeMl), subtext: `${s.count} remplissage(s)` },
-        { label: 'Coût en station', value: formatMoney(s.cost), subtext: 'lignes de relevé liées' },
+        { label: 'Volume versé', value: formatLiters(s.volumeMl), subtext: `${s.count} remplissage(s)`, ...d(s.volumeMl, ps?.volumeMl, null) },
+        { label: 'Coût en station', value: formatMoney(s.cost), subtext: 'lignes de relevé liées', ...d(s.cost, ps?.cost) },
         {
             label: 'Coût bidons (estimé)',
             value: formatMoney(s.estimatedCost),
             subtext: 'au prorata du prix du bidon · déjà compté dans les courses',
+            ...d(s.estimatedCost, ps?.estimatedCost),
         },
     ];
 });
@@ -562,6 +620,8 @@ function removeAdblue(f) {
 
 // ---------- init ----------
 watch(() => [scope.params, period.params], () => { loadStats(); loadOps(); loadFuel(); loadAdblue(); }, { deep: true });
+// Case « Comparer à la période précédente » : ne change pas period.params, recharge les synthèses.
+watch(() => period.compareActive, () => { loadStats(); loadFuel(); loadAdblue(); });
 
 onMounted(async () => {
     await vehiclesStore.refresh(true).catch(() => {});
@@ -605,7 +665,7 @@ onMounted(async () => {
             <PeriodFilter />
 
             <div class="kpi-grid">
-                <KpiTile v-for="k in kpis" :key="k.label" :label="k.label" :value="k.value" :subtext="k.subtext" />
+                <KpiTile v-for="k in kpis" :key="k.label" v-bind="k" />
             </div>
             <p v-if="statsError" class="text-muted" role="alert">{{ statsError }}</p>
 
@@ -627,7 +687,7 @@ onMounted(async () => {
                             <template #empty>Aucune donnée</template>
                             <Column header="Catégorie">
                                 <template #body="{ data }">
-                                    <span class="cat-dot" :style="{ background: colorForCategory(data.category, theme.mode.value) }" aria-hidden="true" />
+                                    <span class="cat-dot" :style="{ background: donutColor(data.category) }" aria-hidden="true" />
                                     {{ data.category?.name ?? 'Non catégorisé' }}
                                 </template>
                             </Column>
@@ -649,7 +709,7 @@ onMounted(async () => {
                 </p>
                 <template v-else>
                     <div class="kpi-grid">
-                        <KpiTile v-for="k in fuelKpis" :key="k.label" :label="k.label" :value="k.value" :subtext="k.subtext" />
+                        <KpiTile v-for="k in fuelKpis" :key="k.label" v-bind="k" />
                     </div>
 
                     <div class="charts-grid">
@@ -725,7 +785,7 @@ onMounted(async () => {
                     </p>
                     <template v-else>
                         <div class="kpi-grid">
-                            <KpiTile v-for="k in adblueKpis" :key="k.label" :label="k.label" :value="k.value" :subtext="k.subtext" />
+                            <KpiTile v-for="k in adblueKpis" :key="k.label" v-bind="k" />
                         </div>
                         <DataTable :value="adblueData.fills" :loading="loadingAdblue" size="small" data-key="id">
                             <Column field="date" header="Date" style="width: 7.5rem">
@@ -785,8 +845,8 @@ onMounted(async () => {
                 </Column>
                 <Column header="Libellé">
                     <template #body="{ data }">
-                        <strong v-if="data.merchant">{{ data.merchant }}</strong>
-                        <span class="text-muted" :title="data.rawLabel"> {{ data.rawLabel }}</span>
+                        <strong v-if="data.merchant" class="op-merchant">{{ data.merchant }}</strong>
+                        <span class="text-muted" :title="data.rawLabel">{{ data.rawLabel }}</span>
                     </template>
                 </Column>
                 <Column header="Catégorie" style="width: 13rem">
@@ -1033,6 +1093,9 @@ onMounted(async () => {
     display: block;
     margin-top: 0.3rem;
     color: var(--p-red-500);
+}
+.op-merchant {
+    margin-right: 0.4rem;
 }
 .field-row {
     display: grid;
