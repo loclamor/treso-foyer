@@ -53,6 +53,11 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def read_head(path: Path, size: int) -> bytes:
+    with path.open("rb") as fh:
+        return fh.read(size)
+
+
 def file_hash(path: Path) -> str:
     return sha256(path.read_bytes())
 
@@ -114,7 +119,7 @@ class AccountBook:
 
 def classify(path: Path, book: AccountBook) -> tuple[Path | None, str]:
     """Retourne (destination relative à data/, description). None => _a_verifier."""
-    head = path.read_bytes()[:5]
+    head = read_head(path, 5)
     name = path.name.lower()
 
     if head.startswith(b"%PDF"):
@@ -146,7 +151,7 @@ def classify(path: Path, book: AccountBook) -> tuple[Path | None, str]:
         return Path("releves", alias, y, f"{y}-{mth}_releve.pdf"), f"relevé {y}-{mth} [{alias} {mask(account)}]"
 
     if name.endswith(".csv"):
-        text = path.read_bytes()[:2000].decode("latin-1")
+        text = read_head(path, 2000).decode("latin-1")
         a = RE_CSV_ACCOUNT.search(text)
         d = RE_CSV_DATE.search(text)
         if not a or not d:
