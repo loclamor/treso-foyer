@@ -66,7 +66,13 @@ def pdf_text(path: Path, first_page_only: bool = True) -> str:
     if first_page_only:
         cmd += ["-l", "1"]
     cmd += [str(path), "-"]
-    res = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"AVERTISSEMENT : pdftotext trop long, ignoré : {path.name}", file=sys.stderr)
+        return ""
+    if res.returncode != 0:
+        print(f"AVERTISSEMENT : pdftotext a échoué (code {res.returncode}) : {path.name}", file=sys.stderr)
     return res.stdout
 
 
@@ -156,14 +162,35 @@ def classify(path: Path, book: AccountBook) -> tuple[Path | None, str]:
     return Path("divers", path.name), "autre fichier"
 
 
+def source_roots(args_sources: list[str]) -> list[Path]:
+    """Racines à ranger ; refuse data/ (hors data/inbox/) : les fichiers déjà rangés y
+    seraient leurs propres doublons et partiraient tous dans _doublons/."""
+    if not args_sources:
+        inbox = DATA / "inbox"
+        return [inbox] if inbox.is_dir() else []
+    roots = [Path(s).resolve() for s in args_sources]
+    inbox = (DATA / "inbox").resolve()
+    data = DATA.resolve()
+    for r in roots:
+        if (r == data or data in r.parents) and not (r == inbox or inbox in r.parents):
+            raise SystemExit(f"Source refusée (déjà sous data/, seul data/inbox/ est accepté) : {r}")
+    return roots
+
+
+def remove_empty_dirs(files: list[Path], roots: list[Path]) -> None:
+    """Supprime les dossiers devenus vides, strictement à l'intérieur des racines sources
+    (jamais une racine elle-même ni un dossier au-dessus)."""
+    dir_roots = [r for r in roots if r.is_dir()]
+    for f in files:
+        d = f.parent
+        while d.is_dir() and not any(d.iterdir()) and any(r in d.parents for r in dir_roots):
+            d.rmdir()
+            d = d.parent
+
+
 def collect_sources(args_sources: list[str]) -> list[Path]:
     files: list[Path] = []
-    if args_sources:
-        roots = [Path(s).resolve() for s in args_sources]
-    else:
-        inbox = DATA / "inbox"
-        roots = [inbox] if inbox.is_dir() else []
-    for r in roots:
+    for r in source_roots(args_sources):
         if r.is_file():
             files.append(r)
         elif r.is_dir():
@@ -295,12 +322,7 @@ def main() -> int:
                 raise SystemExit(f"Destination déjà présente, arrêt : {p.dest}")
             shutil.move(str(p.src), str(p.dest))
             log.write(f"{stamp}\t{p.src}\t{p.dest}\t{p.reason}\n")
-    # suppression des dossiers sources devenus vides (jamais data/)
-    for f in files:
-        d = f.parent
-        while d != ROOT and d != DATA and d.is_dir() and not any(d.iterdir()) and DATA not in d.parents:
-            d.rmdir()
-            d = d.parent
+    remove_empty_dirs(files, source_roots(args.sources))
     print(f"\n{len(plans)} fichier(s) déplacé(s). Journal : {LOG.relative_to(ROOT)}")
     return 0
 

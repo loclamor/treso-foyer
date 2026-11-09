@@ -50,6 +50,51 @@ class CollectSourcesTest(unittest.TestCase):
 
         self.assertEqual(ranger.collect_sources([str(self.root / "ailleurs")]), [f])
 
+    def test_sorted_data_is_refused_as_source(self):
+        self._touch("data/releves/perso/2020/2020-01_releve.pdf")
+
+        for src in ("data", "data/releves"):
+            with self.assertRaises(SystemExit):
+                ranger.collect_sources([str(self.root / src)])
+
+    def test_inbox_subfolder_is_accepted(self):
+        f = self._touch("data/inbox/lot/releve.pdf")
+
+        self.assertEqual(ranger.collect_sources([str(self.root / "data/inbox/lot")]), [f])
+
+
+class RemoveEmptyDirsTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_never_climbs_above_the_source_root(self):
+        # Source hors projet : ~/Telechargements/lot/sous/releve.pdf, déplacé ensuite.
+        root = self.base / "Telechargements" / "lot"
+        f = root / "sous" / "releve.pdf"
+        f.parent.mkdir(parents=True)
+        f.write_text("x")
+        f.unlink()
+
+        ranger.remove_empty_dirs([f], [root])
+
+        self.assertFalse((root / "sous").exists())
+        self.assertTrue(root.is_dir())                      # la racine passée en argument reste
+        self.assertTrue((self.base / "Telechargements").is_dir())
+
+    def test_single_file_source_removes_nothing(self):
+        f = self.base / "Telechargements" / "releve.pdf"
+        f.parent.mkdir(parents=True)
+        f.write_text("x")
+        f.unlink()
+
+        ranger.remove_empty_dirs([f], [f])
+
+        self.assertTrue(f.parent.is_dir())
+
 
 class ClassifyPdfTest(unittest.TestCase):
     """Données fictives : seul le texte extrait du PDF compte."""

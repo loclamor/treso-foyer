@@ -5,8 +5,12 @@ PHP         = $(PHP_CONT) php
 COMPOSER    = $(PHP_CONT) composer
 SYMFONY     = $(PHP) bin/console
 
+# bash + pipefail : une erreur au milieu d'un pipe (ex. pg_dump | gzip) fait échouer la recette.
+SHELL       := bash
+.SHELLFLAGS := -eo pipefail -c
+
 .DEFAULT_GOAL := help
-.PHONY: help build up start down logs sh composer sf cc db-migrate db-diff test test-db front-install front-build front-logs npm ranger ranger-apply backup
+.PHONY: help build up start down logs sh composer sf cc db-migrate db-diff test test-tools test-db front-install front-build front-logs npm ranger ranger-apply backup
 
 help: ## Liste des commandes
 	@grep -E '(^[a-zA-Z0-9_-]+:.*?##.*$$)|(^##)' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}{printf "\033[32m%-16s\033[0m %s\n", $$1, $$2}' | sed -e 's/\[32m##/[33m/'
@@ -68,6 +72,9 @@ npm: ## npm, ex : make npm c='install foo'
 test: ## Lance PHPUnit, ex : make test c='--filter Csv'
 	@$(PHP_CONT) env APP_ENV=test php bin/phpunit $(c)
 
+test-tools: ## Tests des outils Python (tools/)
+	@python3 -I -m unittest discover -s tools -p 'test_*.py'
+
 ## —— Données ——————————————————————————————————————————
 ranger: ## Simulation du rangement des fichiers de data/inbox/
 	@python3 -I tools/ranger_releves.py
@@ -77,5 +84,8 @@ ranger-apply: ## Rangement réel des fichiers de data/inbox/
 
 backup: ## Sauvegarde de la base dans data/backups/
 	@mkdir -p data/backups
-	@$(DOCKER_COMP) exec -T database sh -c 'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB"' | gzip > data/backups/banque-$$(date +%Y%m%d-%H%M%S).sql.gz
-	@ls -1t data/backups | head -1
+	@f=data/backups/banque-$$(date +%Y%m%d-%H%M%S).sql.gz; \
+	if ! $(DOCKER_COMP) exec -T database sh -c 'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB"' | gzip > "$$f"; then \
+		rm -f "$$f"; echo "Échec de la sauvegarde (archive supprimée)" >&2; exit 1; \
+	fi; \
+	echo "$$f ($$(du -h "$$f" | cut -f1))"
