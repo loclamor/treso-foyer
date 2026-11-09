@@ -17,6 +17,7 @@ make start          # build + up
 - Application : <https://localhost:8543> (certificat local à accepter)
 - Serveur Vite (dev, rechargement à chaud) : lancé automatiquement par le conteneur `node` sur <http://localhost:5173>
 - Ports modifiables via variables d'environnement : `HTTP_PORT` (8180), `HTTPS_PORT` (8543)
+- Écoute limitée à `127.0.0.1` par défaut (l'appli tourne en `dev`, profiler compris) ; `BIND_ADDRESS=0.0.0.0` pour l'exposer au réseau local, à éviter hors cible `prod`
 - `make help` liste toutes les commandes
 
 ### Clé PrimeVue

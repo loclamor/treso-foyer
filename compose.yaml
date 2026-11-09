@@ -22,14 +22,17 @@ services:
       - name: http
         target: 80
         published: ${HTTP_PORT:-8180}
+        host_ip: ${BIND_ADDRESS:-127.0.0.1}
         protocol: tcp
       - name: https
         target: 443
         published: ${HTTPS_PORT:-8543}
+        host_ip: ${BIND_ADDRESS:-127.0.0.1}
         protocol: tcp
       - name: http3
         target: 443
         published: ${HTTP3_PORT:-8543}
+        host_ip: ${BIND_ADDRESS:-127.0.0.1}
         protocol: udp
 
 # Mercure is installed as a Caddy module, prevent the Flex recipe from installing another service
