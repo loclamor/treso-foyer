@@ -246,6 +246,24 @@ final class VehicleApiTest extends ApiTestCase
         self::assertSame(1, FakeVehicleLookup::$calls);
     }
 
+    public function testLookupIsRateLimitedPerHousehold(): void
+    {
+        FakeVehicleLookup::$enabled = true;
+        FakeVehicleLookup::$result = new VehicleLookupResult('Renault', 'Clio 5', null, 'petrol', 5, null, null, []);
+        $client = $this->client();
+        // État du limiteur (pool cache.rate_limiter) : repart de zéro.
+        self::getContainer()->get('cache.rate_limiter')->clear();
+
+        for ($i = 0; $i < 20; ++$i) {
+            self::assertSame(Response::HTTP_OK, $this->json($client, 'POST', '/api/vehicles/lookup', ['plate' => 'AB-123-CD'])->getStatusCode());
+        }
+        $response = $this->json($client, 'POST', '/api/vehicles/lookup', ['plate' => 'AB-123-CD']);
+
+        self::assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode());
+        self::assertSame('rate_limited', $this->decode($response)['error']);
+        self::assertSame(20, FakeVehicleLookup::$calls); // l'API externe n'est plus appelée
+    }
+
     public function testLookupDisabledReturns503(): void
     {
         FakeVehicleLookup::$enabled = false;

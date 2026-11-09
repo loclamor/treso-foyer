@@ -8,6 +8,13 @@ framework:
         cookie_httponly: true
         cookie_samesite: lax
 
+    rate_limiter:
+        # Recherche par plaque (API RapidAPI à quota) : par foyer, voir VehicleController::lookup.
+        vehicle_lookup:
+            policy: sliding_window
+            limit: 20
+            interval: '1 hour'
+
     #esi: true
     #fragments: true
 

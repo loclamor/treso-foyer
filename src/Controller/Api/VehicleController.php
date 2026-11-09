@@ -39,6 +39,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
@@ -132,11 +133,16 @@ final class VehicleController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         VehicleLookup $vehicleLookup,
+        RateLimiterFactoryInterface $vehicleLookupLimiter,
     ): JsonResponse {
         $plate = $this->normalizePlate((string) $input->plate);
         \assert(null !== $plate);
         if (!$vehicleLookup->isEnabled()) {
             throw new ServiceUnavailableException('Le service de recherche par plaque n’est pas activé.', 'lookup_disabled');
+        }
+        // Protège le quota de l'API externe (20 recherches / heure / foyer).
+        if (!$vehicleLookupLimiter->create('household-'.$householdProvider->get()->getId())->consume()->isAccepted()) {
+            throw new TooManyRequestsException('Trop de recherches par plaque, réessayer dans quelques minutes.', 'rate_limited');
         }
         try {
             $result = $vehicleLookup->lookup($plate);
