@@ -24,6 +24,8 @@
 .github/
 docs/
 public/bundles/
+public/build/
+assets/node_modules/
 tests/
 var/
 vendor/

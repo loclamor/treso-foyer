@@ -91,6 +91,20 @@ COPY --link frankenphp/conf.d/20-app.dev.ini $PHP_INI_DIR/app.conf.d/
 CMD [ "frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--watch" ]
 
 # Builder for the prod FrankenPHP image
+# Front (Vue + Vite) : build reproductible depuis le lockfile, sans dépendre d'un public/build de l'hôte
+FROM node:24-alpine AS front_builder
+
+WORKDIR /app/assets
+
+COPY --link assets/package.json assets/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+
+COPY --link assets/ ./
+# Clé PrimeVue (licence Community), embarquée de toute façon dans le JS livré au navigateur
+ARG VITE_PRIMEUI_LICENSE=""
+ENV VITE_PRIMEUI_LICENSE=${VITE_PRIMEUI_LICENSE}
+RUN npx vite build
+
 FROM frankenphp_base AS frankenphp_prod_builder
 
 # Repeated until hadolint inherits the parent stage SHELL: https://github.com/hadolint/hadolint/pull/1258
@@ -108,6 +122,7 @@ RUN composer install --no-cache --prefer-dist --no-dev --no-autoloader --no-scri
 
 # copy sources
 COPY --link --exclude=frankenphp/ . ./
+COPY --link --from=front_builder /app/public/build public/build
 
 RUN <<-EOF
 	mkdir -p var/cache var/log var/share

@@ -7,6 +7,8 @@ services:
     build:
       context: .
       target: frankenphp_prod
+      args:
+        VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
     environment:
       APP_SECRET: ${APP_SECRET:?APP_SECRET doit être défini (ex. openssl rand -hex 32)}
       DATABASE_URL: postgresql://${POSTGRES_USER:-banque}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD doit être défini}@database:5432/${POSTGRES_DB:-banque}?serverVersion=${POSTGRES_VERSION:-17}&charset=${POSTGRES_CHARSET:-utf8}
