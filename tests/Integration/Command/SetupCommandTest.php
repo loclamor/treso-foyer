@@ -81,6 +81,26 @@ final class SetupCommandTest extends KernelTestCase
         ], $flagged);
     }
 
+    public function testCarburantCategoryIsFlaggedFuel(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+
+        $setup = $container->get(SetupCommand::class);
+        (new CommandTester($setup))->execute([]);
+
+        $entityManager = $container->get(EntityManagerInterface::class);
+        $fuelFlagged = [];
+        foreach ($entityManager->getRepository(Category::class)->findAll() as $category) {
+            if ($category->isFuel()) {
+                $fuelFlagged[] = $category->getFullName();
+            }
+        }
+
+        // Seule « Transport › Carburant » porte le flag fuel (ADR 0015).
+        self::assertSame(['Transport › Carburant'], $fuelFlagged);
+    }
+
     public function testMemberAddCreatesMemberAndRejectsDuplicateUsername(): void
     {
         self::bootKernel();

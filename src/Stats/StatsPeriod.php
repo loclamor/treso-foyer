@@ -201,7 +201,11 @@ final class StatsPeriod
         return new \DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
     }
 
-    private static function dateParam(mixed $raw, string $param): ?\DateTimeImmutable
+    /**
+     * Parse un paramètre de date AAAA-MM-JJ (null/absent ⇒ null) ; invalide ⇒ 400
+     * `invalid_query`. Public : réutilisé hors stats (ex. GET /api/vehicles/{id}/fuel).
+     */
+    public static function dateParam(mixed $raw, string $param): ?\DateTimeImmutable
     {
         if (null === $raw || '' === $raw) {
             return null;

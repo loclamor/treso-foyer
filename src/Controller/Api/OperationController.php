@@ -11,6 +11,7 @@ use App\Api\Input\BulkCategorizeInput;
 use App\Api\Input\BulkVehicleAssignInput;
 use App\Api\Input\CategorizeOperationInput;
 use App\Api\Input\DuplicateInput;
+use App\Api\Input\FuelInput;
 use App\Api\Input\OperationCreateInput;
 use App\Api\Input\OperationPatchInput;
 use App\Api\Input\ReconcileInput;
@@ -35,6 +36,8 @@ use App\Enum\ImportFormat;
 use App\Enum\VehicleSource;
 use App\Import\LabelNormalizer;
 use App\Reconciliation\ManualEntryReconciler;
+use App\Repository\OdometerReadingRepository;
+use App\Vehicle\OdometerCoherence;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -115,6 +118,15 @@ final class OperationController extends AbstractController
         $category = null === $input->categoryId ? null : $this->findCategory($entityManager, $household, $input->categoryId);
         $vehicle = null === $input->vehicleId ? null : $this->findVehicle($entityManager, $household, $input->vehicleId);
 
+        // Plein de carburant (ADR 0015) : odometerKm exige un volume ; un plein n'est
+        // possible que sur un débit (montant négatif).
+        if (null !== $input->odometerKm && null === $input->fuelVolumeMl) {
+            throw new ValidationException([['field' => 'odometerKm', 'message' => 'odometerKm ne peut être fourni sans fuelVolumeMl.']]);
+        }
+        if (null !== $input->fuelVolumeMl && (int) $input->amount > 0) {
+            throw new ValidationException([['field' => 'fuelVolumeMl', 'message' => 'Un plein n’est possible que sur un débit (montant négatif).']]);
+        }
+
         $spentAt = new \DateTimeImmutable((string) $input->spentAt);
         $normalized = $labelNormalizer->normalize((string) $input->label);
         $operation = Operation::manualEntry(
@@ -133,6 +145,9 @@ final class OperationController extends AbstractController
         }
         if (null !== $vehicle) {
             $operation->assignVehicle($vehicle, VehicleSource::Manual);
+        }
+        if (null !== $input->fuelVolumeMl) {
+            $operation->recordFuel($input->fuelVolumeMl, $input->fuelFullTank ?? true, $input->odometerKm);
         }
         $entityManager->persist($operation);
         $entityManager->flush();
@@ -304,6 +319,10 @@ final class OperationController extends AbstractController
             }
             if (array_key_exists('amount', $body)) {
                 $operation->setAmount((int) $input->amount);
+                // Un plein n'existe que sur un débit (ADR 0015) : passer la saisie en crédit le retire.
+                if ($operation->isCredit() && $operation->hasFuel()) {
+                    $operation->clearFuel();
+                }
             }
             if (array_key_exists('label', $body)) {
                 $normalized = $labelNormalizer->normalize((string) $input->label);
@@ -332,6 +351,60 @@ final class OperationController extends AbstractController
         $entityManager->flush();
 
         return new Response(null, Response::HTTP_NO_CONTENT);
+    }
+
+    /**
+     * PUT /api/operations/{id}/fuel : enregistre (remplace) le plein de l'opération
+     * (ADR 0015) ⇒ 200 {"operation": Operation, "warning"?}. 400 `not_a_debit` si crédit.
+     * Si un kilométrage est fourni et que l'opération a un véhicule, un `warning` est ajouté
+     * quand il est incohérent avec les points de compteur voisins (point de l'opération exclu).
+     */
+    #[Route('/api/operations/{id}/fuel', name: 'api_operation_fuel', requirements: ['id' => '\\d+'], methods: ['PUT'])]
+    public function recordFuel(
+        int $id,
+        #[MapRequestPayload] FuelInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OdometerReadingRepository $odometerReadingRepository,
+        OdometerCoherence $odometerCoherence,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $operation = $this->findOperation($entityManager, $household, $id);
+        if ($operation->isCredit()) {
+            throw new BadRequestException('Un plein ne peut être enregistré que sur un débit.', 'not_a_debit');
+        }
+
+        $operation->recordFuel((int) $input->volumeMl, $input->fullTank ?? true, $input->odometerKm);
+        $entityManager->flush();
+
+        $payload = ['operation' => $operationPresenter->present($operation)];
+        $vehicle = $operation->getVehicle();
+        if (null !== $input->odometerKm && null !== $vehicle) {
+            // Le point de l'opération elle-même est exclu de la comparaison.
+            $points = $odometerReadingRepository->findPointsByVehicle($vehicle, $id);
+            $warning = $odometerCoherence->warning($points, $operation->getEffectiveDate(), (int) $input->odometerKm);
+            if (null !== $warning) {
+                $payload['warning'] = $warning;
+            }
+        }
+
+        return new JsonResponse($payload);
+    }
+
+    /** DELETE /api/operations/{id}/fuel : supprime le plein de l'opération (ADR 0015) ⇒ 200 {"operation": Operation}. */
+    #[Route('/api/operations/{id}/fuel', name: 'api_operation_fuel_delete', requirements: ['id' => '\\d+'], methods: ['DELETE'])]
+    public function clearFuel(
+        int $id,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        $operation->clearFuel();
+        $entityManager->flush();
+
+        return new JsonResponse(['operation' => $operationPresenter->present($operation)]);
     }
 
     /** GET /api/operations/{id}/reconciliation-candidates : candidats de l'appariement manuel. */
@@ -460,6 +533,10 @@ final class OperationController extends AbstractController
         }
         if (null === $kept->getNote()) {
             $kept->setNote($removed->getNote());
+        }
+        // Plein (ADR 0015) : reporté sur l'opération conservée si elle n'en a pas (et qu'elle est un débit).
+        if (!$kept->hasFuel() && $removed->hasFuel() && $kept->isDebit()) {
+            $kept->recordFuel((int) $removed->getFuelVolumeMl(), $removed->getFuelFullTank() ?? true, $removed->getOdometerKm());
         }
         $kept->setDuplicateStatus(DuplicateStatus::None);
         $kept->setDuplicateOf(null);

@@ -73,6 +73,7 @@ final class CategoryController extends AbstractController
         $category->setColor($input->color);
         $category->setIcon($input->icon);
         $category->setVehicleRelated($input->vehicleRelated ?? false);
+        $category->setFuel($input->fuel ?? false);
         // Position : après les frères et sœurs existants.
         $siblings = $entityManager->getRepository(Category::class)->findBy(['household' => $household, 'parent' => $parent]);
         $category->setPosition(array_reduce($siblings, static fn (int $carry, Category $c): int => max($carry, $c->getPosition() + 1), 0));
@@ -124,6 +125,10 @@ final class CategoryController extends AbstractController
         if (null !== $input->vehicleRelated && $input->vehicleRelated !== $category->isVehicleRelated()) {
             $category->setVehicleRelated($input->vehicleRelated);
             $vehicleRelatedChanged = true;
+        }
+        // fuel : même traitement que vehicleRelated, mais sans resynchronisation de l'axe véhicule.
+        if (null !== $input->fuel) {
+            $category->setFuel($input->fuel);
         }
         if (null !== $input->parentId) {
             $parent = $this->find($entityManager, $household, $input->parentId);

@@ -25,6 +25,9 @@ final class CategoryCreateInput
         /** Poste lié à un véhicule (carburant, entretien, assurance auto, péages & parking). */
         #[Assert\Type(type: 'bool', message: 'vehicleRelated doit être un booléen.')]
         public readonly ?bool $vehicleRelated = null,
+        /** Poste carburant : affiche les champs du plein (ADR 0015). */
+        #[Assert\Type(type: 'bool', message: 'fuel doit être un booléen.')]
+        public readonly ?bool $fuel = null,
     ) {
     }
 }

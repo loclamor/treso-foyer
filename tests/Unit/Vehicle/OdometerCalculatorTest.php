@@ -191,4 +191,44 @@ final class OdometerCalculatorTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->calculator->distance([['km' => 1000]], new \DateTimeImmutable('2026-01-01'), new \DateTimeImmutable('2026-01-31'));
     }
+
+    public function testKmAtInterpolatesExactAndOutOfRange(): void
+    {
+        $readings = [
+            ['date' => '2026-01-01', 'km' => 1000],
+            ['date' => '2026-01-11', 'km' => 2000],
+            ['date' => '2026-01-21', 'km' => 4000],
+        ];
+
+        // Interpolation entre 01-11 et 01-21 : km(01-16) = 2000 + 2000 × 5/10 = 3000.
+        self::assertSame(3000.0, $this->calculator->kmAt($readings, new \DateTimeImmutable('2026-01-16')));
+        // Exact sur un point.
+        self::assertSame(2000.0, $this->calculator->kmAt($readings, new \DateTimeImmutable('2026-01-11')));
+        self::assertSame(1000.0, $this->calculator->kmAt($readings, new \DateTimeImmutable('2026-01-01')));
+        // Hors [premier, dernier] ⇒ null (pas d'extrapolation).
+        self::assertNull($this->calculator->kmAt($readings, new \DateTimeImmutable('2025-12-31')));
+        self::assertNull($this->calculator->kmAt($readings, new \DateTimeImmutable('2026-01-22')));
+    }
+
+    public function testKmAtWithLessThanTwoPoints(): void
+    {
+        self::assertNull($this->calculator->kmAt([], new \DateTimeImmutable('2026-01-10')));
+        // Un seul point exactement à la date ⇒ son km.
+        self::assertSame(10000.0, $this->calculator->kmAt([['date' => '2026-01-10', 'km' => 10000]], new \DateTimeImmutable('2026-01-10')));
+        // Un seul point à une autre date ⇒ null.
+        self::assertNull($this->calculator->kmAt([['date' => '2026-01-10', 'km' => 10000]], new \DateTimeImmutable('2026-01-11')));
+    }
+
+    public function testKmAtIgnoresIncoherentPoints(): void
+    {
+        // 01-10 à 900 ignoré (km décroissant) ⇒ points retenus 01-01 (1000) et 01-21 (4000).
+        $readings = [
+            ['date' => '2026-01-01', 'km' => 1000],
+            ['date' => '2026-01-10', 'km' => 900],
+            ['date' => '2026-01-21', 'km' => 4000],
+        ];
+
+        // km(01-11) = 1000 + 3000 × 10/20 = 2500.
+        self::assertSame(2500.0, $this->calculator->kmAt($readings, new \DateTimeImmutable('2026-01-11')));
+    }
 }

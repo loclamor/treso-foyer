@@ -27,6 +27,9 @@ final class DefaultCategories
         'Péages & parking',
     ];
 
+    /** Sous-catégorie « Carburant » de « Transport » : poste carburant (champs du plein, ADR 0015). */
+    public const FUEL_CHILD = 'Carburant';
+
     /**
      * @var list<array{name: string, kind: CategoryKind, icon: string, color: string, chartSlot: ?int, children: list<string>}>
      */
@@ -241,5 +244,11 @@ final class DefaultCategories
     public static function isVehicleRelated(string $rootName, string $childName): bool
     {
         return self::TRANSPORT_ROOT === $rootName && \in_array($childName, self::VEHICLE_RELATED_CHILDREN, true);
+    }
+
+    /** Vrai si la sous-catégorie est le poste carburant (« Transport › Carburant », ADR 0015). */
+    public static function isFuel(string $rootName, string $childName): bool
+    {
+        return self::TRANSPORT_ROOT === $rootName && self::FUEL_CHILD === $childName;
     }
 }

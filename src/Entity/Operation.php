@@ -152,6 +152,18 @@ class Operation
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $enrichedAt = null;
 
+    /** Volume du plein de carburant en millilitres (> 0), null = pas de plein (ADR 0015). */
+    #[ORM\Column(nullable: true)]
+    private ?int $fuelVolumeMl = null;
+
+    /** true = plein complet (défaut), false = plein partiel (plafond de carte). Non nul ssi fuelVolumeMl non nul. */
+    #[ORM\Column(type: Types::BOOLEAN, nullable: true)]
+    private ?bool $fuelFullTank = null;
+
+    /** Kilométrage au compteur lors du plein (≥ 0, optionnel) ; n'existe qu'avec un volume. Point de compteur. */
+    #[ORM\Column(nullable: true)]
+    private ?int $odometerKm = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
@@ -602,6 +614,74 @@ class Operation
     public function getEnrichedAt(): ?\DateTimeImmutable
     {
         return $this->enrichedAt;
+    }
+
+    /**
+     * Enregistre un plein de carburant sur l'opération (ADR 0015) : volume en millilitres,
+     * plein complet par défaut, kilométrage au compteur optionnel. Remplace un plein existant.
+     *
+     * @throws \InvalidArgumentException si le volume est ≤ 0, le kilométrage < 0 ou l'opération n'est pas un débit
+     */
+    public function recordFuel(int $volumeMl, bool $fullTank = true, ?int $odometerKm = null): static
+    {
+        if ($volumeMl <= 0) {
+            throw new \InvalidArgumentException('Le volume du plein doit être strictement positif (millilitres).');
+        }
+        if (null !== $odometerKm && $odometerKm < 0) {
+            throw new \InvalidArgumentException('Le kilométrage au compteur doit être positif ou nul.');
+        }
+        if (!$this->isDebit()) {
+            throw new \InvalidArgumentException('Un plein ne peut être enregistré que sur un débit.');
+        }
+        $this->fuelVolumeMl = $volumeMl;
+        $this->fuelFullTank = $fullTank;
+        $this->odometerKm = $odometerKm;
+
+        return $this;
+    }
+
+    /** Supprime le plein de l'opération (ADR 0015). */
+    public function clearFuel(): static
+    {
+        $this->fuelVolumeMl = null;
+        $this->fuelFullTank = null;
+        $this->odometerKm = null;
+
+        return $this;
+    }
+
+    /** true si l'opération porte un plein de carburant (volume renseigné). */
+    public function hasFuel(): bool
+    {
+        return null !== $this->fuelVolumeMl;
+    }
+
+    /**
+     * Prix au litre en euros (3 décimales) : |amount| (centimes) × 10 / volumeMl (mL).
+     * Le prix n'est pas stocké, il est calculé (ADR 0015) ; null sans plein.
+     */
+    public function getFuelPricePerLiter(): ?float
+    {
+        if (null === $this->fuelVolumeMl || 0 === $this->fuelVolumeMl) {
+            return null;
+        }
+
+        return round(abs($this->amount) * 10 / $this->fuelVolumeMl, 3);
+    }
+
+    public function getFuelVolumeMl(): ?int
+    {
+        return $this->fuelVolumeMl;
+    }
+
+    public function getFuelFullTank(): ?bool
+    {
+        return $this->fuelFullTank;
+    }
+
+    public function getOdometerKm(): ?int
+    {
+        return $this->odometerKm;
     }
 
     /**

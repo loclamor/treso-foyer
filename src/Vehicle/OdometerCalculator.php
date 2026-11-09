@@ -45,10 +45,37 @@ final class OdometerCalculator
         }
 
         return new OdometerDistance(
-            $this->kmAt($points, $coveredTo) - $this->kmAt($points, $coveredFrom),
+            $this->kmAtPoints($points, $coveredTo) - $this->kmAtPoints($points, $coveredFrom),
             $coveredFrom,
             $coveredTo,
         );
+    }
+
+    /**
+     * Km à une date, par interpolation linéaire entre les points cohérents encadrants
+     * (valeur exacte si la date est celle d'un point). Utilisé pour interpoler le km d'un
+     * plein sans kilométrage saisi (ADR 0015).
+     *
+     * @param list<OdometerReading|array{date: \DateTimeImmutable|string, km: int|string}> $readings relevés (entités ou tableaux {date, km})
+     * @return ?float null si moins de 2 points cohérents (sauf un seul point exactement à la date)
+     *               ou si la date est hors [premier point, dernier point] (pas d'extrapolation)
+     */
+    public function kmAt(array $readings, \DateTimeImmutable $date): ?float
+    {
+        $points = $this->coherentPoints($readings);
+        $count = count($points);
+        if ($count < 2) {
+            // Un seul point cohérent : km connu uniquement si la date est exactement celle du point.
+            return 1 === $count && $points[0]['date'] == $date ? (float) $points[0]['km'] : null;
+        }
+
+        $first = $points[0];
+        $last = $points[$count - 1];
+        if ($date < $first['date'] || $date > $last['date']) {
+            return null; // hors de l'intervalle couvert : pas d'extrapolation
+        }
+
+        return $this->kmAtPoints($points, $date);
     }
 
     /**
@@ -106,7 +133,7 @@ final class OdometerCalculator
      *
      * @param list<array{date: \DateTimeImmutable, km: int}> $points triés par date croissante, au moins 2
      */
-    private function kmAt(array $points, \DateTimeImmutable $date): float
+    private function kmAtPoints(array $points, \DateTimeImmutable $date): float
     {
         $lastIndex = count($points) - 1;
         for ($i = 0; $i <= $lastIndex; $i++) {

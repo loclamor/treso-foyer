@@ -8,10 +8,16 @@ use App\Entity\OdometerReading;
 use App\Entity\Vehicle;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<OdometerReading>
+ *
+ * Les points de compteur d'un véhicule = relevés `odometer_reading` UNION pleins des
+ * opérations (`vehicle_id` non nul, `odometer_km` non nul, date effective
+ * COALESCE(spent_at, date), ADR 0015). À date égale, le relevé saisi prime (source 0
+ * avant source 1) : OdometerCalculator garde le premier point d'une date.
  */
 final class OdometerReadingRepository extends ServiceEntityRepository
 {
@@ -22,22 +28,23 @@ final class OdometerReadingRepository extends ServiceEntityRepository
 
     /**
      * Relevé le plus récent par véhicule (une seule requête, DISTINCT ON PostgreSQL).
+     * À date égale, le relevé saisi (source 0) est préféré au kilométrage d'un plein.
      *
      * @param list<int> $vehicleIds
+     * @param ?int $excludeOperationId opération à exclure (ex. point du plein en cours de saisie)
      * @return array<int, array{date: string, km: int}> indexé par vehicle_id
      */
-    public function latestByVehicleIds(array $vehicleIds): array
+    public function latestByVehicleIds(array $vehicleIds, ?int $excludeOperationId = null): array
     {
         if ([] === $vehicleIds) {
             return [];
         }
         $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
-            'SELECT DISTINCT ON (vehicle_id) vehicle_id, date, km
-             FROM odometer_reading
-             WHERE vehicle_id IN (:ids)
-             ORDER BY vehicle_id, date DESC',
-            ['ids' => array_values($vehicleIds)],
-            ['ids' => ArrayParameterType::INTEGER],
+            'SELECT DISTINCT ON (p.vehicle_id) p.vehicle_id, p.date, p.km
+             FROM ('.$this->pointsUnionSql().') p
+             ORDER BY p.vehicle_id, p.date DESC, p.source ASC',
+            $this->pointParams($vehicleIds, $excludeOperationId),
+            $this->pointParamTypes(),
         );
 
         $latest = [];
@@ -57,30 +64,34 @@ final class OdometerReadingRepository extends ServiceEntityRepository
         return $this->findBy(['vehicle' => $vehicle], ['date' => 'DESC', 'id' => 'DESC']);
     }
 
-    /** @return list<array{date: string, km: int}> points {date, km} du véhicule, date asc (calcul de distance / avertissement) */
-    public function findPointsByVehicle(Vehicle $vehicle): array
+    /**
+     * @param ?int $excludeOperationId opération à exclure des points (ex. plein en cours de saisie)
+     * @return list<array{date: string, km: int}> points {date, km} du véhicule, date asc (relevé avant plein à date égale)
+     */
+    public function findPointsByVehicle(Vehicle $vehicle, ?int $excludeOperationId = null): array
     {
-        return $this->pointsByVehicleIds([(int) $vehicle->getId()])[(int) $vehicle->getId()] ?? [];
+        return $this->pointsByVehicleIds([(int) $vehicle->getId()], $excludeOperationId)[(int) $vehicle->getId()] ?? [];
     }
 
     /**
-     * Points {date, km} de plusieurs véhicules en une requête, groupés par véhicule, date asc.
+     * Points {date, km} de plusieurs véhicules en une requête (relevés UNION pleins des
+     * opérations), groupés par véhicule, date asc puis source asc (relevé = 0 avant plein = 1).
      *
      * @param list<int> $vehicleIds
+     * @param ?int $excludeOperationId opération à exclure des points (ex. plein en cours de saisie)
      * @return array<int, list<array{date: string, km: int}>> indexé par vehicle_id
      */
-    public function pointsByVehicleIds(array $vehicleIds): array
+    public function pointsByVehicleIds(array $vehicleIds, ?int $excludeOperationId = null): array
     {
         if ([] === $vehicleIds) {
             return [];
         }
         $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
-            'SELECT vehicle_id, date, km
-             FROM odometer_reading
-             WHERE vehicle_id IN (:ids)
-             ORDER BY date ASC, id ASC',
-            ['ids' => array_values($vehicleIds)],
-            ['ids' => ArrayParameterType::INTEGER],
+            'SELECT p.vehicle_id, p.date, p.km
+             FROM ('.$this->pointsUnionSql().') p
+             ORDER BY p.date ASC, p.source ASC',
+            $this->pointParams($vehicleIds, $excludeOperationId),
+            $this->pointParamTypes(),
         );
 
         $points = [];
@@ -92,5 +103,36 @@ final class OdometerReadingRepository extends ServiceEntityRepository
         }
 
         return $points;
+    }
+
+    /**
+     * UNION ALL des points de compteur : relevés (source 0) puis pleins des opérations
+     * (source 1, date effective COALESCE(spent_at, date), odometer_km non nul).
+     */
+    private function pointsUnionSql(): string
+    {
+        return <<<'SQL'
+            SELECT r.vehicle_id, r.date, r.km, 0 AS source
+            FROM odometer_reading r
+            WHERE r.vehicle_id IN (:ids)
+            UNION ALL
+            SELECT o.vehicle_id, COALESCE(o.spent_at, o.date) AS date, o.odometer_km AS km, 1 AS source
+            FROM operation o
+            WHERE o.vehicle_id IN (:ids)
+              AND o.odometer_km IS NOT NULL
+              AND (CAST(:excludeOperationId AS INTEGER) IS NULL OR o.id <> :excludeOperationId)
+            SQL;
+    }
+
+    /** @param list<int> $vehicleIds @return array{ids: list<int>, excludeOperationId: ?int} */
+    private function pointParams(array $vehicleIds, ?int $excludeOperationId): array
+    {
+        return ['ids' => array_values($vehicleIds), 'excludeOperationId' => $excludeOperationId];
+    }
+
+    /** @return array{ids: ArrayParameterType, excludeOperationId: ParameterType} */
+    private function pointParamTypes(): array
+    {
+        return ['ids' => ArrayParameterType::INTEGER, 'excludeOperationId' => ParameterType::INTEGER];
     }
 }

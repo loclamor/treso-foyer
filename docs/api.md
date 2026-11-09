@@ -24,7 +24,7 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 {"id": 12, "name": "Courses", "fullName": "Alimentation › Courses", "kind": "expense|income|transfer", "color": "#4caf50", "icon": "pi pi-shopping-cart", "chartSlot": 1 | null}  // chartSlot : celui de la racine
 // Category (arbre)
 {"id": 1, "name": "Alimentation", "fullName": "Alimentation", "kind": "expense", "color": "#…", "icon": "…", "position": 0, "archived": false,
- "vehicleRelated": false, "parentId": null, "operationsCount": 1234, "children": [Category]}
+ "vehicleRelated": false, "fuel": false, "parentId": null, "operationsCount": 1234, "children": [Category]}  // fuel : poste carburant (ADR 0015)
 // VehicleRef
 {"id": 3, "name": "Clio", "type": "car|motorcycle|bike|other", "archived": false}
 // Vehicle
@@ -43,7 +43,9 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
  "internalTransferId": 5 | null, "recurringSeriesId": 3 | null, "vehicle": VehicleRef | null, "vehicleSource": "manual|rule|auto|ignored" | null,
  "note": "…" | null, "labelSource": "pdf|csv" | null, "enrichedAt": "…" | null,
  // Saisie manuelle / rapprochement (ADR 0014) : date effective = spentAt ?? date
- "spentAt": "2026-08-25" | null, "effectiveDate": "2026-08-25", "awaitingStatement": false, "reconciledAt": "…" | null}
+ "spentAt": "2026-08-25" | null, "effectiveDate": "2026-08-25", "awaitingStatement": false, "reconciledAt": "…" | null,
+ // Plein de carburant (ADR 0015) : null, ou {volumeMl, fullTank, odometerKm, pricePerLiter} (prix au litre calculé, euros)
+ "fuel": null | {"volumeMl": 45000, "fullTank": true, "odometerKm": 48200, "pricePerLiter": 1.511}}
 // Rule
 {"id": 7, "category": CategoryRef, "matchField": "merchant|label", "matchType": "contains|starts_with|exact|regex", "pattern": "…",
  "direction": "any|debit|credit", "amountMin": 4000 | null, "amountMax": 8000 | null, "account": AccountRef | null,
@@ -102,8 +104,8 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 | GET | `/api/accounts` | `[Account]` |
 | PATCH | `/api/accounts/{id}` | `{"alias"?, "label"?, "type"?, "holderIds"?: [int]}` ⇒ `Account` (alias unique ⇒ `409`) |
 | GET | `/api/categories` | arbre `[Category]` (racines triées par `position`) |
-| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?,"vehicleRelated"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
-| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?,"vehicleRelated"?,"chartSlot"?}` |
+| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?,"vehicleRelated"?,"fuel"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
+| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?,"vehicleRelated"?,"fuel"?,"chartSlot"?}` (`fuel` : sans resynchro véhicule) |
 | DELETE | `/api/categories/{id}` | `204` ; refus `409` si opérations, règles ou budgets rattachés (proposer l'archivage) |
 
 ## Véhicules (lot 3)
@@ -128,12 +130,24 @@ Après création/modification/suppression d'un véhicule, d'une règle (champ `v
 
 Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404`. Un relevé incohérent (km décroissant avec la date) reste stocké mais est **ignoré** par le calcul de distance.
 
+## Pleins de carburant (ADR 0015)
+
+Un plein est porté par l'opération elle-même (au plus un plein par opération, uniquement sur un **débit**) : `fuelVolumeMl` (mL, > 0), `fuelFullTank` (booléen, défaut `true`), `odometerKm` (≥ 0, optionnel). Le prix au litre n'est pas stocké : `|amount| × 10 / volumeMl` (euros, 3 décimales). Le kilométrage d'un plein est un **point de compteur** : `OdometerReadingRepository` fusionne relevés et pleins (date effective `COALESCE(spent_at, date)` ; à date égale le relevé saisi prime).
+
+| Méthode | Route | Notes |
+|---|---|---|
+| PUT | `/api/operations/{id}/fuel` | `{"volumeMl": int > 0, "fullTank"?: bool (défaut true), "odometerKm"?: int ≥ 0}` ⇒ `200 {"operation": Operation, "warning"?}` (remplace le plein existant). Crédit ⇒ `400 not_a_debit`. `odometerKm` fourni + opération avec véhicule ⇒ `warning` si le km est incohérent avec les points de compteur voisins (point de l'opération exclu ; avertissement, pas une erreur) |
+| DELETE | `/api/operations/{id}/fuel` | ⇒ `200 {"operation": Operation}` avec `fuel: null` |
+| GET | `/api/vehicles/{id}/fuel?from=AAAA-MM-JJ&to=AAAA-MM-JJ` | Bornes optionnelles (absentes = tout l'historique), `from > to` ou date invalide ⇒ `400 invalid_query`. ⇒ `{"fills": [{"operationId", "date" (effective), "amount", "volumeMl", "fullTank", "odometerKm", "pricePerLiter", "consumption", "segmentKm", "label" (rawLabel), "awaitingStatement"}], "summary": {"count", "volumeMl", "amount", "avgPricePerLiter", "consumption", "distanceKm"}}` — `fills` triés date desc, filtrés sur la période ; `consumption` (L/100 km, 2 déc.) = segment se terminant sur ce plein (méthode du plein complet : volume des pleins depuis le plein complet précédent ÷ distance), null sans segment ; `summary` sur la période (segments s'y terminant, le plein complet précédent pouvant être hors période) : `avgPricePerLiter` = Σ\|amount\| × 10 / ΣvolumeMl (euros, 3 déc., null si 0), `consumption` = Σ volumes segments / Σ km segments × 100 (2 déc., null si aucun segment), `distanceKm` = Σ km segments arrondi à l'entier (null si aucun) |
+
+`POST /api/operations` accepte en plus `fuelVolumeMl` (?int > 0), `fuelFullTank` (?bool, défaut `true` si volume fourni) et `odometerKm` (?int ≥ 0, **refusé 422 sans `fuelVolumeMl`**) ; volume avec montant positif ⇒ `422` sur `fuelVolumeMl`. `POST /api/operations/{id}/duplicate` (`merge`) reporte le plein de l'opération supprimée sur l'opération conservée si elle n'en a pas (et qu'elle est un débit) ; le rapprochement (`ManualEntryReconciler::merge`) copie de même le plein de la saisie sur la ligne de relevé.
+
 ## Opérations
 | Méthode | Route | Notes |
 |---|---|---|
 | GET | `/api/operations` | Filtres : périmètre, `from`, `to` (**date effective** `COALESCE(spentAt, date)`, ADR 0014), `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé brute `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`, **ou** sur la clé de groupe de variantes `merchantGroup` — toutes les variantes, cf. top commerçants et [ADR 0013](adr/0013-regroupement-commercants.md)), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource), `vehicleId` (véhicule du foyer, inconnu ⇒ `400`), `vehicleUnassigned=1` (hors « ignorées »), `vehicleIgnored=1` (catégories `vehicleRelated` sans véhicule), `recurringSeriesId` (série du foyer, inconnue ⇒ `400`), `awaitingStatement=1` (saisies manuelles en attente de relevé). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc — sur la date effective — puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
 | GET | `/api/operations/{id}` | `Operation` |
-| POST | `/api/operations` | **Saisie manuelle d'une dépense** (ADR 0014). Corps : `{"accountId": int, "spentAt": "AAAA-MM-JJ", "amount": int (centimes signés, ≠ 0), "label": string (1..255), "categoryId"?: int|null, "vehicleId"?: int|null, "note"?: string|null}`. Compte du foyer **non clos**, catégorie/véhicule du foyer (422 sinon). `label` normalisé (`normalizedLabel` + `merchant`) ; catégorie fournie ⇒ source `manual`, véhicule fourni ⇒ source `manual` ; puis `VehicleAssigner::sync()` et, si aucune catégorie fournie, catégorisation automatique de cette seule opération. Puis tentative immédiate de rapprochement (relevé déjà importé). ⇒ `201 {"operation": Operation, "reconciled": bool}` — si `reconciled` est true, `operation` est la **ligne du relevé** qui a absorbé la saisie |
+| POST | `/api/operations` | **Saisie manuelle d'une dépense** (ADR 0014). Corps : `{"accountId": int, "spentAt": "AAAA-MM-JJ", "amount": int (centimes signés, ≠ 0), "label": string (1..255), "categoryId"?: int|null, "vehicleId"?: int|null, "note"?: string|null, "fuelVolumeMl"?: int > 0, "fuelFullTank"?: bool, "odometerKm"?: int ≥ 0}` (plein ADR 0015 : `odometerKm` refusé 422 sans `fuelVolumeMl`, volume refusé 422 sur un crédit). Compte du foyer **non clos**, catégorie/véhicule du foyer (422 sinon). `label` normalisé (`normalizedLabel` + `merchant`) ; catégorie fournie ⇒ source `manual`, véhicule fourni ⇒ source `manual` ; puis `VehicleAssigner::sync()` et, si aucune catégorie fournie, catégorisation automatique de cette seule opération. Puis tentative immédiate de rapprochement (relevé déjà importé). ⇒ `201 {"operation": Operation, "reconciled": bool}` — si `reconciled` est true, `operation` est la **ligne du relevé** qui a absorbé la saisie |
 | PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` (null = efface la note). En plus, **sur une saisie en attente uniquement** : `accountId`, `spentAt` (modifie aussi `date`), `amount`, `label` (champ présent = modifié ; ces champs sur une opération importée ⇒ `400 not_a_manual_entry`) |
 | DELETE | `/api/operations/{id}` | Uniquement une saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `204` |
 | GET | `/api/operations/{id}/reconciliation-candidates` | Saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `{"items": [Operation]}` : lignes de relevé du foyer, même signe, non rapprochées, fenêtre [spentAt − 5 j, spentAt + 30 j], tri montant exact → même compte → |écart montant| → |écart date| (20 max) |
@@ -142,7 +156,7 @@ Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404
 | POST | `/api/operations/bulk-vehicle` | `{"ids": [int], "vehicleId": int|null, "ignore": bool}` (même sémantique) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
 | POST | `/api/operations/bulk-categorize` | `{"ids": [int], "categoryId": int}` (manuel, sans règle) ⇒ `{"updatedCount": n}` |
-| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle et note si elle n'en a pas, supprime l'autre. `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
+| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle, note et plein (ADR 0015) si elle n'en a pas, supprime l'autre. `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
 
 ## Commerçants (écran « à catégoriser »)
 | Méthode | Route | Notes |
@@ -316,3 +330,22 @@ Choix et écarts par rapport au contrat :
 - `GET /api/operations/{id}/reconciliation-candidates` renvoie `{"items": [Operation]}` (pas de pagination, 20 max).
 - Empreinte `manual:` + 56 caractères hexadécimaux (63 au total) : jamais égale à un sha256 d'import (64 hex), l'unicité vient de `random_bytes`.
 - Budgets : aucune consommation n'est calculée côté back (les budgets sont des CRUD ; le front lit les stats, déjà à date effective).
+
+## Notes d'implémentation (lot pleins de carburant, ADR 0015)
+
+Fichiers clés :
+- `src/Entity/Operation.php` : `fuelVolumeMl` (?int), `fuelFullTank` (?bool), `odometerKm` (?int), `recordFuel()` (lève `\InvalidArgumentException` si volume ≤ 0, km < 0 ou crédit), `clearFuel()`, `hasFuel()`, `getFuelPricePerLiter()` (calculé : `|amount| × 10 / volumeMl`, euros 3 déc.). `src/Entity/Category.php` : `fuel` (bool, défaut false).
+- Migration `Version20261109120000` : colonnes + `category.fuel` (+ `UPDATE … WHERE name = 'Carburant' AND vehicle_related`) + contrainte `CHECK ck_operation_fuel` posée en SQL brut (non déclarée dans le mapping : DBAL ne relit pas les CHECK PostgreSQL, le diff de schéma reste vide).
+- `src/Setup/DefaultCategories.php` : `FUEL_CHILD = 'Carburant'` + `isFuel()` ; posé par `app:setup` (et `CategorizationFixtures::seedCategories`) là où `vehicleRelated` est posé.
+- Présentations/entrées : `OperationPresenter` (`fuel` = null ou `{volumeMl, fullTank, odometerKm, pricePerLiter}`), `CategoryPresenter` (`fuel`), `CategoryCreateInput`/`CategoryPatchInput` (`fuel`, même traitement que `vehicleRelated` sans resynchro), `FuelInput` (`volumeMl` > 0 obligatoire, `fullTank` défaut true, `odometerKm` ≥ 0), `OperationCreateInput` (`fuelVolumeMl`/`fuelFullTank`/`odometerKm` optionnels).
+- `src/Controller/Api/OperationController.php` : `PUT`/`DELETE /api/operations/{id}/fuel` (200 `{"operation", "warning"?}`, 400 `not_a_debit` sur crédit, warning d'incohérence du km), champs plein de `POST /api/operations` (422 `odometerKm` sans volume, 422 `fuelVolumeMl` sur crédit), copie du plein au `merge` de doublon. `src/Controller/Api/VehicleController.php` : `GET /api/vehicles/{id}/fuel?from&to` (parse via `StatsPeriod::dateParam`, bornes libres = tout l'historique ; tout l'historique chargé pour le plein complet précédent, affichage filtré sur la période).
+- `src/Vehicle/OdometerCoherence.php` : avertissement d'incohérence extrait de `VehicleController::incoherenceWarning` (partagé relevé/plein). `src/Repository/OdometerReadingRepository.php` : `pointsByVehicleIds()`/`latestByVehicleIds()`/`findPointsByVehicle()` en UNION ALL (relevés source 0 + pleins source 1, date effective, tri `date ASC, source ASC` — relevé prioritaire à date égale ; `latestByVehicleIds` : `date DESC, source ASC`), paramètre optionnel `?int $excludeOperationId`. `src/Vehicle/OdometerCalculator.php` : `kmAt()` publique (interpolation, null hors [premier, dernier], un seul point exact à la date accepté) ; l'ancien `kmAt` privé devient `kmAtPoints`.
+- `src/Vehicle/FuelConsumptionCalculator.php` (pur) : méthode du plein complet (segments entre pleins complets consécutifs, partiels comptés dans le segment suivant, km d'un plein = saisi sinon interpolé, segment ignoré si km ou distance manquant ; synthèse de période sur les segments s'y terminant).
+- `src/Reconciliation/ManualEntryReconciler.php` : `merge()` copie le plein de la saisie sur la ligne si elle n'en a pas (et que la ligne est un débit).
+- Tests : `tests/Unit/Vehicle/FuelConsumptionCalculatorTest.php`, `tests/Unit/Vehicle/OdometerCalculatorTest.php` (kmAt), `tests/Unit/Entity/OperationFuelTest.php`, `tests/Functional/Api/FuelApiTest.php`, `tests/Integration/Reconciliation/ManualEntryReconcilerTest.php` (plein suivi au merge), `tests/Integration/Command/SetupCommandTest.php` (flag fuel de « Carburant »).
+
+Choix et écarts par rapport au contrat :
+- `PUT`/`DELETE /api/operations/{id}/fuel` répondent `{"operation": Operation}` (DELETE : `fuel: null`), PUT ajoute `"warning"` quand le km est incohérent ; `POST /api/operations` ne renvoie pas de warning (non demandé).
+- Au `merge` de doublon, le plein n'est copié que si l'opération conservée est un débit (sinon `recordFuel` lèverait) : un crédit conservé perd le plein du doublon supprimé.
+- `GET /api/vehicles/{id}/fuel` : `segmentKm` est un float (interpolation possible), `consumption` arrondi à 2 décimales ; `distanceKm` arrondi à l'entier, `null` sans segment.
+- Le CHECK `ck_operation_fuel` n'existe qu'en base (pas dans le mapping) : `doctrine:schema:validate` reste vert.

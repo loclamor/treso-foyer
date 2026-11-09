@@ -35,6 +35,17 @@ final class OperationCreateInput
         #[Assert\Type(type: 'string', message: 'note doit être une chaîne.')]
         #[Assert\Length(max: 2000, maxMessage: 'note ne doit pas dépasser 2000 caractères.')]
         public readonly ?string $note = null,
+        /** Plein de carburant (ADR 0015) : volume en millilitres, > 0 ; refusé sur un crédit (422). */
+        #[Assert\Type(type: 'int', message: 'fuelVolumeMl doit être un entier (millilitres).')]
+        #[Assert\Positive(message: 'fuelVolumeMl doit être strictement positif.')]
+        public readonly ?int $fuelVolumeMl = null,
+        /** Plein complet (défaut true si un volume est fourni) ; plein partiel = plafond de carte. */
+        #[Assert\Type(type: 'bool', message: 'fuelFullTank doit être un booléen.')]
+        public readonly ?bool $fuelFullTank = null,
+        /** Kilométrage au compteur lors du plein ; refusé (422) sans fuelVolumeMl. */
+        #[Assert\Type(type: 'int', message: 'odometerKm doit être un entier.')]
+        #[Assert\PositiveOrZero(message: 'odometerKm doit être positif ou nul.')]
+        public readonly ?int $odometerKm = null,
     ) {
     }
 }

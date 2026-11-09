@@ -29,7 +29,8 @@ use Symfony\Component\Clock\ClockInterface;
  * - `merge()` : fusion utilisée par l'automatique et le manuel. La ligne du relevé conserve
  *   date, montant, compte, libellé, empreinte, lot ; elle reçoit spentAt (le sien sinon celui
  *   de la saisie), la catégorie de la saisie si elle n'a pas de catégorie manuelle, le véhicule
- *   de la saisie si la ligne n'est pas en manual/ignored, et la note (concaténée, plus
+ *   de la saisie si la ligne n'est pas en manual/ignored, le plein de la saisie si la ligne
+ *   n'en a pas (et qu'elle est un débit, ADR 0015), et la note (concaténée, plus
  *   « Saisie : <libellé> » si le libellé saisi diffère). reconciledAt = now, saisie supprimée.
  */
 final class ManualEntryReconciler
@@ -205,6 +206,11 @@ final class ManualEntryReconciler
             && !\in_array($statementLine->getVehicleSource(), [VehicleSource::Manual, VehicleSource::Ignored], true)
         ) {
             $statementLine->assignVehicle($entry->getVehicle(), $entry->getVehicleSource() ?? VehicleSource::Manual);
+        }
+
+        // Plein de carburant (ADR 0015) : copié de la saisie si la ligne n'en a pas et est un débit.
+        if (!$statementLine->hasFuel() && $entry->hasFuel() && $statementLine->isDebit()) {
+            $statementLine->recordFuel((int) $entry->getFuelVolumeMl(), $entry->getFuelFullTank() ?? true, $entry->getOdometerKm());
         }
 
         // Note : note de la saisie ; si les deux ont une note distincte, « ligne — saisie » ;

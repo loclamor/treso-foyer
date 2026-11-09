@@ -43,6 +43,13 @@ final class OperationPresenter
             'note' => $operation->getNote(),
             'labelSource' => $operation->getLabelSource()?->value,
             'enrichedAt' => $operation->getEnrichedAt()?->format('c'),
+            // Plein de carburant (ADR 0015) : null, ou {volumeMl, fullTank, odometerKm, pricePerLiter}.
+            'fuel' => $operation->hasFuel() ? [
+                'volumeMl' => $operation->getFuelVolumeMl(),
+                'fullTank' => $operation->getFuelFullTank(),
+                'odometerKm' => $operation->getOdometerKm(),
+                'pricePerLiter' => $operation->getFuelPricePerLiter(),
+            ] : null,
         ];
     }
 }

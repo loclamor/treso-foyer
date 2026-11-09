@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
+use App\Api\BadRequestException;
 use App\Api\ConflictException;
 use App\Api\HouseholdProvider;
 use App\Api\Input\OdometerReadingCreateInput;
@@ -20,13 +21,17 @@ use App\Api\ValidationException;
 use App\Entity\Household;
 use App\Entity\Member;
 use App\Entity\OdometerReading;
+use App\Entity\Operation;
 use App\Entity\Vehicle;
 use App\Enum\VehicleEnergy;
 use App\Enum\VehicleType;
 use App\Repository\OdometerReadingRepository;
+use App\Stats\StatsPeriod;
 use App\Util\PlateNormalizer;
+use App\Vehicle\FuelConsumptionCalculator;
 use App\Vehicle\Lookup\VehicleLookup;
 use App\Vehicle\Lookup\VehicleLookupException;
+use App\Vehicle\OdometerCoherence;
 use App\Vehicle\VehicleAssigner;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -299,6 +304,7 @@ final class VehicleController extends AbstractController
         HouseholdProvider $householdProvider,
         EntityManagerInterface $entityManager,
         OdometerReadingRepository $odometerReadingRepository,
+        OdometerCoherence $odometerCoherence,
         OdometerReadingPresenter $odometerReadingPresenter,
     ): JsonResponse {
         $household = $householdProvider->get();
@@ -319,7 +325,7 @@ final class VehicleController extends AbstractController
 
         // Avertissement (pas une erreur) si le relevé est incohérent avec ses voisins.
         $payload = $odometerReadingPresenter->present($reading);
-        $warning = $this->incoherenceWarning($odometerReadingRepository->findPointsByVehicle($vehicle), $date, $km);
+        $warning = $odometerCoherence->warning($odometerReadingRepository->findPointsByVehicle($vehicle), $date, $km);
         if (null !== $warning) {
             $payload['warning'] = $warning;
         }
@@ -328,29 +334,85 @@ final class VehicleController extends AbstractController
     }
 
     /**
-     * Message d'avertissement si le relevé (date, km) est incohérent avec les relevés voisins
-     * (km strictement inférieur au relevé précédent, ou strictement supérieur au suivant).
-     *
-     * @param list<array{date: string, km: int}> $points relevés du véhicule, date asc
+     * GET /api/vehicles/{id}/fuel?from=AAAA-MM-JJ&to=AAAA-MM-JJ : pleins du véhicule
+     * (opérations avec un volume) et synthèse de la période (ADR 0015).
+     * Bornes optionnelles : absentes = tout l'historique. Tout l'historique du véhicule est
+     * chargé pour trouver le plein complet précédent d'un segment, puis l'affichage est
+     * filtré sur la période.
      */
-    private function incoherenceWarning(array $points, \DateTimeImmutable $date, int $km): ?string
-    {
-        $previous = null;
-        $next = null;
-        foreach ($points as $point) {
-            $pointDate = new \DateTimeImmutable($point['date']);
-            if ($pointDate < $date) {
-                $previous = $point;
-            } elseif ($pointDate > $date && null === $next) {
-                $next = $point;
-            }
-        }
-        $incoherent = (null !== $previous && $km < $previous['km'])
-            || (null !== $next && $km > $next['km']);
+    #[Route('/api/vehicles/{id}/fuel', name: 'api_vehicle_fuel', requirements: ['id' => '\\d+'], methods: ['GET'])]
+    public function fuel(
+        int $id,
+        Request $request,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OdometerReadingRepository $odometerReadingRepository,
+        FuelConsumptionCalculator $fuelConsumptionCalculator,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $vehicle = $this->find($entityManager, $household, $id);
 
-        return $incoherent
-            ? 'Relevé incohérent avec les relevés voisins (kilométrage décroissant) : il sera ignoré par le calcul de distance.'
-            : null;
+        $from = StatsPeriod::dateParam($request->query->get('from'), 'from');
+        $to = StatsPeriod::dateParam($request->query->get('to'), 'to');
+        if (null !== $from && null !== $to && $from > $to) {
+            throw new BadRequestException('Paramètre from postérieur à to.', 'invalid_query');
+        }
+
+        // Tous les pleins du véhicule, date effective desc (l'historique complet sert au calcul).
+        /** @var list<Operation> $operations */
+        $operations = $entityManager->getRepository(Operation::class)->createQueryBuilder('o')
+            ->join('o.account', 'a')
+            ->where('a.household = :household')
+            ->andWhere('o.vehicle = :vehicle')
+            ->andWhere('o.fuelVolumeMl IS NOT NULL')
+            ->orderBy(Operation::effectiveDateDql('o'), 'DESC')
+            ->addOrderBy('o.id', 'DESC')
+            ->setParameter('household', $household)
+            ->setParameter('vehicle', $vehicle)
+            ->getQuery()->getResult();
+
+        $fills = [];
+        foreach ($operations as $operation) {
+            $fills[] = [
+                'id' => (int) $operation->getId(),
+                'date' => $operation->getEffectiveDate(),
+                'volumeMl' => (int) $operation->getFuelVolumeMl(),
+                'fullTank' => $operation->getFuelFullTank() ?? true,
+                'odometerKm' => $operation->getOdometerKm(),
+                'amount' => $operation->getAmount(),
+            ];
+        }
+        $points = $odometerReadingRepository->pointsByVehicleIds([(int) $vehicle->getId()])[(int) $vehicle->getId()] ?? [];
+        $result = $fuelConsumptionCalculator->compute($fills, $points, $from, $to);
+
+        $computedById = [];
+        foreach ($result['fills'] as $fillResult) {
+            $computedById[$fillResult['id']] = $fillResult;
+        }
+
+        // Réponse : pleins de la période, date desc.
+        $fillsOut = [];
+        foreach ($operations as $operation) {
+            $operationId = (int) $operation->getId();
+            if (!isset($computedById[$operationId])) {
+                continue; // hors période
+            }
+            $fillsOut[] = [
+                'operationId' => $operationId,
+                'date' => $operation->getEffectiveDate()->format('Y-m-d'),
+                'amount' => $operation->getAmount(),
+                'volumeMl' => $operation->getFuelVolumeMl(),
+                'fullTank' => $operation->getFuelFullTank(),
+                'odometerKm' => $operation->getOdometerKm(),
+                'pricePerLiter' => $operation->getFuelPricePerLiter(),
+                'consumption' => $computedById[$operationId]['consumption'],
+                'segmentKm' => $computedById[$operationId]['segmentKm'],
+                'label' => $operation->getRawLabel(),
+                'awaitingStatement' => $operation->isAwaitingStatement(),
+            ];
+        }
+
+        return new JsonResponse(['fills' => $fillsOut, 'summary' => $result['summary']]);
     }
 
     private function find(EntityManagerInterface $entityManager, Household $household, int $id): Vehicle

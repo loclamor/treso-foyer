@@ -59,6 +59,10 @@ class Category
     #[ORM\Column(options: ['default' => false])]
     private bool $vehicleRelated = false;
 
+    /** Poste carburant : fait apparaître les champs du plein (volume, plein complet, kilométrage, ADR 0015). */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $fuel = false;
+
     /** Emplacement 1-8 sur le graphique (racines de dépense uniquement, unique par foyer). */
     #[ORM\Column(nullable: true)]
     private ?int $chartSlot = null;
@@ -221,6 +225,18 @@ class Category
     public function setVehicleRelated(bool $vehicleRelated): static
     {
         $this->vehicleRelated = $vehicleRelated;
+
+        return $this;
+    }
+
+    public function isFuel(): bool
+    {
+        return $this->fuel;
+    }
+
+    public function setFuel(bool $fuel): static
+    {
+        $this->fuel = $fuel;
 
         return $this;
     }

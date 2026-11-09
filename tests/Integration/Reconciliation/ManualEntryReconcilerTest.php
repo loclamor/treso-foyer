@@ -303,6 +303,40 @@ final class ManualEntryReconcilerTest extends KernelTestCase
         self::assertNull($this->entityManager->find(Operation::class, $entryId));
     }
 
+    public function testMergeCopieLePleinDeLaSaisieSurLaLigne(): void
+    {
+        // Saisie avec plein (volume + km), ligne de relevé débit sans plein ⇒ le plein suit la fusion.
+        $entry = $this->makeEntry('2026-10-20', -6795, 'ESSENCE STATION 20.10.26');
+        $entry->recordFuel(45000, true, 48200);
+        $this->entityManager->flush();
+        $line = $this->makeStatementLine('2026-10-22', -6795, 'ACHAT CB STATION 20.10.26 CARTE NUMERO 9', null, 'STATION');
+
+        $merged = $this->reconciler->merge($entry, $line);
+
+        self::assertTrue($merged->hasFuel());
+        self::assertSame(45000, $merged->getFuelVolumeMl());
+        self::assertTrue($merged->getFuelFullTank());
+        self::assertSame(48200, $merged->getOdometerKm());
+        self::assertSame(1.51, $merged->getFuelPricePerLiter());
+    }
+
+    public function testMergeNeEcrasesPasLePleinExistantDeLaLigne(): void
+    {
+        $entry = $this->makeEntry('2026-10-20', -6795, 'ESSENCE STATION 20.10.26');
+        $entry->recordFuel(45000, true, 48200);
+        $this->entityManager->flush();
+        $line = $this->makeStatementLine('2026-10-22', -6795, 'ACHAT CB STATION 20.10.26 CARTE NUMERO 9', null, 'STATION');
+        $line->recordFuel(30000, false, 48000);
+        $this->entityManager->flush();
+
+        $merged = $this->reconciler->merge($entry, $line);
+
+        // Le plein de la ligne (qui fait foi) est conservé.
+        self::assertSame(30000, $merged->getFuelVolumeMl());
+        self::assertFalse($merged->getFuelFullTank());
+        self::assertSame(48000, $merged->getOdometerKm());
+    }
+
     public function testMergeCopieCategorieAvecSourceEtRegleSiLigneSansManuelle(): void
     {
         $courses = self::getContainer()->get(\App\Setup\CategoryResolver::class)->require($this->household, 'Alimentation › Courses');
