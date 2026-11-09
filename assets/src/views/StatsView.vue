@@ -20,6 +20,7 @@ import {
 } from '@/api/stats';
 import { apiMessage } from '@/api/http';
 import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
+import { latestGuard } from '@/utils/latest';
 import {
     chartColors,
     useChartTheme,
@@ -65,7 +66,9 @@ const compareMeta = ref({ comparableFrom: null, comparableTo: null, compareFrom:
 const loadingCompare = ref(true);
 const compareError = ref('');
 
+const compareGuard = latestGuard();
 async function loadCompare() {
+    const isLatest = compareGuard();
     loadingCompare.value = true;
     compareError.value = '';
     try {
@@ -73,12 +76,13 @@ async function loadCompare() {
             direction: direction.value,
             compare: compare.value,
         });
+        if (!isLatest()) return;
         compareCats.value = res.rows;
         compareMeta.value = res.meta;
     } catch (e) {
-        compareError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) compareError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingCompare.value = false;
+        if (isLatest()) loadingCompare.value = false;
     }
 }
 
@@ -142,11 +146,14 @@ const prevMerchants = ref(null); // période précédente (case « Comparer » d
 const loadingMerchants = ref(true);
 const merchantsError = ref('');
 
+const merchantsGuard = latestGuard();
 async function loadMerchants() {
+    const isLatest = merchantsGuard();
     loadingMerchants.value = true;
     merchantsError.value = '';
     try {
         const cur = await getMerchantsStats(scope.params, period.params, { direction: direction.value, limit: 15 });
+        if (!isLatest()) return;
         // Période précédente : totaux des MÊMES commerçants (filtre keys ; absents ⇒ 0).
         const prevParams = period.previousParams;
         const keys = cur.map((it) => it.key);
@@ -155,13 +162,14 @@ async function loadMerchants() {
             prev = keys.length
                 ? await getMerchantsStats(scope.params, prevParams, { direction: direction.value, limit: keys.length, keys })
                 : [];
+            if (!isLatest()) return;
         }
         merchants.value = cur;
         prevMerchants.value = prev;
     } catch (e) {
-        merchantsError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) merchantsError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingMerchants.value = false;
+        if (isLatest()) loadingMerchants.value = false;
     }
 }
 
@@ -247,15 +255,19 @@ const sankey = ref(null);
 const loadingSankey = ref(true);
 const sankeyError = ref('');
 
+const sankeyGuard = latestGuard();
 async function loadSankey() {
+    const isLatest = sankeyGuard();
     loadingSankey.value = true;
     sankeyError.value = '';
     try {
-        sankey.value = await getSankey(scope.params, period.params);
+        const res = await getSankey(scope.params, period.params);
+        if (!isLatest()) return;
+        sankey.value = res;
     } catch (e) {
-        sankeyError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) sankeyError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingSankey.value = false;
+        if (isLatest()) loadingSankey.value = false;
     }
 }
 
@@ -324,15 +336,19 @@ const calendar = ref(null);
 const loadingCalendar = ref(true);
 const calendarError = ref('');
 
+const calendarGuard = latestGuard();
 async function loadCalendar() {
+    const isLatest = calendarGuard();
     loadingCalendar.value = true;
     calendarError.value = '';
     try {
-        calendar.value = await getCalendar(scope.params, period.params);
+        const res = await getCalendar(scope.params, period.params);
+        if (!isLatest()) return;
+        calendar.value = res;
     } catch (e) {
-        calendarError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) calendarError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingCalendar.value = false;
+        if (isLatest()) loadingCalendar.value = false;
     }
 }
 
@@ -425,7 +441,9 @@ const prevTrend = ref(null); // période précédente alignée mois par mois, nu
 const loadingTrend = ref(false);
 const trendError = ref('');
 
+const trendGuard = latestGuard();
 async function loadTrend() {
+    const isLatest = trendGuard();
     if (!trendCategoryId.value) {
         trend.value = null;
         prevTrend.value = null;
@@ -442,12 +460,13 @@ async function loadTrend() {
             getCategoryTrend(scope.params, period.params, trendCategoryId.value),
             prevParams ? getCategoryTrend(scope.params, prevParams, trendCategoryId.value) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         trend.value = cur;
         prevTrend.value = prev;
     } catch (e) {
-        trendError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) trendError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingTrend.value = false;
+        if (isLatest()) loadingTrend.value = false;
     }
 }
 
@@ -529,15 +548,19 @@ const balanceDay = ref(null);
 const loadingBalanceDay = ref(true);
 const balanceDayError = ref('');
 
+const balanceDayGuard = latestGuard();
 async function loadBalanceDay() {
+    const isLatest = balanceDayGuard();
     loadingBalanceDay.value = true;
     balanceDayError.value = '';
     try {
-        balanceDay.value = await getBalance(scope.params, period.params, 'day');
+        const res = await getBalance(scope.params, period.params, 'day');
+        if (!isLatest()) return;
+        balanceDay.value = res;
     } catch (e) {
-        balanceDayError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) balanceDayError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingBalanceDay.value = false;
+        if (isLatest()) loadingBalanceDay.value = false;
     }
 }
 
@@ -589,9 +612,12 @@ const loadingVehicles = ref(false);
 const vehiclesError = ref('');
 
 // Carte affichée seulement si au moins un véhicule existe dans le foyer.
+const vehiclesGuard = latestGuard();
 async function loadVehicles() {
+    const isLatest = vehiclesGuard();
     if (!vehiclesStore.list.length) {
         vehiclesStats.value = null;
+        loadingVehicles.value = false;
         return;
     }
     loadingVehicles.value = true;
@@ -602,12 +628,13 @@ async function loadVehicles() {
             getVehiclesStats(scope.params, period.params),
             prevParams ? getVehiclesStats(scope.params, prevParams) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         vehiclesStats.value = cur;
         prevVehiclesStats.value = prev;
     } catch (e) {
-        vehiclesError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) vehiclesError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingVehicles.value = false;
+        if (isLatest()) loadingVehicles.value = false;
     }
 }
 

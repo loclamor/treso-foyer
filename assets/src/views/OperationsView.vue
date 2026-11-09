@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -21,6 +21,7 @@ import { listRecurrences } from '@/api/recurrences';
 import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { centsToEuros, dateToIso, formatDate, formatDateTime, formatLiters, formatPricePerLiter, parseEuros } from '@/utils/format';
+import { latestGuard } from '@/utils/latest';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import CategoryTag from '@/components/CategoryTag.vue';
 import CategoryPicker from '@/components/CategoryPicker.vue';
@@ -191,11 +192,14 @@ function buildParams() {
 }
 
 // ---------- chargement ----------
+const loadGuard = latestGuard();
 async function load() {
+    const isLatest = loadGuard();
     loading.value = true;
     router.replace({ name: 'operations', query: buildQuery() });
     try {
         const res = await listOperations(buildParams());
+        if (!isLatest()) return;
         items.value = res.items;
         total.value = res.total;
         sums.value = res.sums ?? { debit: 0, credit: 0 };
@@ -204,9 +208,9 @@ async function load() {
             vehicleEdits[op.id] = op.vehicleSource === 'ignored' ? 'ignored' : op.vehicle?.id ?? null;
         }
     } catch (e) {
-        toast.add({ severity: 'error', summary: 'Chargement impossible', detail: apiMessage(e, 'Les opérations n’ont pas pu être chargées.'), life: 6000 });
+        if (isLatest()) toast.add({ severity: 'error', summary: 'Chargement impossible', detail: apiMessage(e, 'Les opérations n’ont pas pu être chargées.'), life: 6000 });
     } finally {
-        loading.value = false;
+        if (isLatest()) loading.value = false;
     }
 }
 
@@ -234,6 +238,9 @@ function debouncedFilter() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(onFilterChange, 300);
 }
+
+// Annule le debounce en cours au démontage (évite un chargement après démontage).
+onBeforeUnmount(() => clearTimeout(debounceTimer));
 
 watch(() => filters.q, debouncedFilter);
 watch(() => [filters.minEuros, filters.maxEuros], debouncedFilter);

@@ -32,6 +32,7 @@ import {
 } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { dateToIso, escapeHtml, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
+import { latestGuard } from '@/utils/latest';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
 import { CHART_FONT, baseGrid, baseLegend, baseTooltip, categoryAxis, chartColors, useChartTheme, valueAxis } from '@/charts/theme';
 import { CATEGORICAL, OTHERS_COLOR } from '@/charts/palette';
@@ -65,7 +66,9 @@ const loadingStats = ref(false);
 const EMPTY_STATS = { total: 0, usageTotal: 0, financingTotal: 0, count: 0, monthlyAverage: 0, usageMonthlyAverage: 0, byCategory: [], distance: null, costPerKm: null, costPerKmTotal: null };
 const statsError = ref('');
 
+const statsGuard = latestGuard();
 async function loadStats() {
+    const isLatest = statsGuard();
     if (!vehicle.value) return;
     loadingStats.value = true;
     statsError.value = '';
@@ -75,12 +78,13 @@ async function loadStats() {
             getVehiclesStats(scope.params, period.params),
             prevParams ? getVehiclesStats(scope.params, prevParams) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         vehicleStats.value = res.vehicles.find((v) => v.vehicle.id === vehicleId) ?? EMPTY_STATS;
         prevVehicleStats.value = prev ? prev.vehicles.find((v) => v.vehicle.id === vehicleId) ?? EMPTY_STATS : null;
     } catch (e) {
-        statsError.value = apiMessage(e, 'Statistiques indisponibles');
+        if (isLatest()) statsError.value = apiMessage(e, 'Statistiques indisponibles');
     } finally {
-        loadingStats.value = false;
+        if (isLatest()) loadingStats.value = false;
     }
 }
 
@@ -198,7 +202,9 @@ const prevFuelSummary = ref(null); // synthèse de la période précédente (cas
 const loadingFuel = ref(false);
 const fuelError = ref('');
 
+const fuelGuard = latestGuard();
 async function loadFuel() {
+    const isLatest = fuelGuard();
     if (!vehicle.value) return;
     loadingFuel.value = true;
     fuelError.value = '';
@@ -208,12 +214,13 @@ async function loadFuel() {
             getVehicleFuel(vehicleId, period.params),
             prevParams ? getVehicleFuel(vehicleId, prevParams) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         fuelData.value = cur;
         prevFuelSummary.value = prev?.summary ?? null;
     } catch (e) {
-        fuelError.value = apiMessage(e, 'Pleins indisponibles');
+        if (isLatest()) fuelError.value = apiMessage(e, 'Pleins indisponibles');
     } finally {
-        loadingFuel.value = false;
+        if (isLatest()) loadingFuel.value = false;
     }
 }
 
@@ -298,16 +305,19 @@ const fuelChartOption = computed(() => {
 const ops = ref([]);
 const loadingOps = ref(false);
 
+const opsGuard = latestGuard();
 async function loadOps() {
+    const isLatest = opsGuard();
     if (!vehicle.value) return;
     loadingOps.value = true;
     try {
         const res = await listOperations({ ...scope.params, vehicleId, page: 1, perPage: 10, sort: 'date', order: 'desc' });
+        if (!isLatest()) return;
         ops.value = res.items;
     } catch (e) {
-        toast.add({ severity: 'error', summary: 'Opérations illisibles', detail: apiMessage(e), life: 6000 });
+        if (isLatest()) toast.add({ severity: 'error', summary: 'Opérations illisibles', detail: apiMessage(e), life: 6000 });
     } finally {
-        loadingOps.value = false;
+        if (isLatest()) loadingOps.value = false;
     }
 }
 
@@ -331,15 +341,19 @@ function clearReadingErrors() {
     for (const k of Object.keys(readingErrors)) delete readingErrors[k];
 }
 
+const readingsGuard = latestGuard();
 async function loadReadings() {
+    const isLatest = readingsGuard();
     if (!vehicle.value) return;
     loadingReadings.value = true;
     try {
-        readings.value = await listOdometerReadings(vehicleId);
+        const res = await listOdometerReadings(vehicleId);
+        if (!isLatest()) return;
+        readings.value = res;
     } catch (e) {
-        toast.add({ severity: 'error', summary: 'Relevés illisibles', detail: apiMessage(e), life: 6000 });
+        if (isLatest()) toast.add({ severity: 'error', summary: 'Relevés illisibles', detail: apiMessage(e), life: 6000 });
     } finally {
-        loadingReadings.value = false;
+        if (isLatest()) loadingReadings.value = false;
     }
 }
 
@@ -429,7 +443,9 @@ function formatPer1000(v) {
     return v === null || v === undefined ? '—' : `${consumptionPer1000Fmt.format(v)} L/1000 km`;
 }
 
+const adblueGuard = latestGuard();
 async function loadAdblue() {
+    const isLatest = adblueGuard();
     if (!vehicle.value) return;
     loadingAdblue.value = true;
     adblueError.value = '';
@@ -439,12 +455,13 @@ async function loadAdblue() {
             getVehicleAdblue(vehicleId, period.params),
             prevParams ? getVehicleAdblue(vehicleId, prevParams) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         adblueData.value = cur;
         prevAdblueSummary.value = prev?.summary ?? null;
     } catch (e) {
-        adblueError.value = apiMessage(e, 'AdBlue indisponible');
+        if (isLatest()) adblueError.value = apiMessage(e, 'AdBlue indisponible');
     } finally {
-        loadingAdblue.value = false;
+        if (isLatest()) loadingAdblue.value = false;
     }
 }
 
@@ -527,16 +544,26 @@ function openAdblueEdit(f) {
     loadCandidates();
 }
 
+const candidatesGuard = latestGuard();
 async function loadCandidates() {
-    if (!adblueForm.date || adblueForm.source !== 'station') return;
+    const isLatest = candidatesGuard();
+    if (!adblueForm.date || adblueForm.source !== 'station') {
+        // Une requête précédente encore en vol sera ignorée : ne pas laisser le chargement affiché.
+        loadingCandidates.value = false;
+        return;
+    }
     loadingCandidates.value = true;
     try {
-        adblueCandidates.value = await listAdblueCandidates(vehicleId, dateToIso(adblueForm.date), editingAdblueId.value);
+        const res = await listAdblueCandidates(vehicleId, dateToIso(adblueForm.date), editingAdblueId.value);
+        if (!isLatest()) return;
+        adblueCandidates.value = res;
     } catch (e) {
-        adblueCandidates.value = [];
-        toast.add({ severity: 'error', summary: 'Opérations indisponibles', detail: apiMessage(e), life: 6000 });
+        if (isLatest()) {
+            adblueCandidates.value = [];
+            toast.add({ severity: 'error', summary: 'Opérations indisponibles', detail: apiMessage(e), life: 6000 });
+        }
     } finally {
-        loadingCandidates.value = false;
+        if (isLatest()) loadingCandidates.value = false;
     }
 }
 

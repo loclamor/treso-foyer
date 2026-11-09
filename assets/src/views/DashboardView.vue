@@ -18,6 +18,7 @@ import { getBalance, getCategoriesStats, getMonthly, getOverview } from '@/api/s
 import { deleteOperation } from '@/api/operations';
 import { apiMessage } from '@/api/http';
 import { escapeHtml, formatDate, formatDateTime, formatMoney, formatMonth, formatPercent, monthBounds } from '@/utils/format';
+import { latestGuard } from '@/utils/latest';
 import { chartColors, useChartTheme, baseTooltip, baseLegend, baseGrid, valueAxis, categoryAxis, categoryAxisY, barItemStyle } from '@/charts/theme';
 import { colorForCategory, foldToOthers, OTHERS_LABEL, slotColor, withAlpha } from '@/charts/palette';
 import PeriodFilter from '@/components/PeriodFilter.vue';
@@ -46,14 +47,18 @@ const percentCategorized = computed(() => {
     return Math.round((100 * s.categorizedCount) / s.operationsCount);
 });
 
+const summaryGuard = latestGuard();
 async function loadSummary() {
+    const isLatest = summaryGuard();
     loadingSummary.value = true;
     try {
-        summary.value = await getSummary(scope.params);
+        const res = await getSummary(scope.params);
+        if (!isLatest()) return;
+        summary.value = res;
     } catch (e) {
-        toast.add({ severity: 'error', summary: 'Tableau de bord indisponible', detail: apiMessage(e), life: 6000 });
+        if (isLatest()) toast.add({ severity: 'error', summary: 'Tableau de bord indisponible', detail: apiMessage(e), life: 6000 });
     } finally {
-        loadingSummary.value = false;
+        if (isLatest()) loadingSummary.value = false;
     }
 }
 
@@ -118,15 +123,19 @@ const overview = ref(null);
 const loadingOverview = ref(true);
 const overviewError = ref('');
 
+const overviewGuard = latestGuard();
 async function loadOverview() {
+    const isLatest = overviewGuard();
     loadingOverview.value = true;
     overviewError.value = '';
     try {
-        overview.value = await getOverview(scope.params, period.params);
+        const res = await getOverview(scope.params, period.params);
+        if (!isLatest()) return;
+        overview.value = res;
     } catch (e) {
-        overviewError.value = apiMessage(e, 'KPIs indisponibles');
+        if (isLatest()) overviewError.value = apiMessage(e, 'KPIs indisponibles');
     } finally {
-        loadingOverview.value = false;
+        if (isLatest()) loadingOverview.value = false;
     }
 }
 
@@ -212,7 +221,9 @@ const prevMonthly = ref(null); // période précédente (comparaison), null si i
 const loadingMonthly = ref(true);
 const monthlyError = ref('');
 
+const monthlyGuard = latestGuard();
 async function loadMonthly() {
+    const isLatest = monthlyGuard();
     loadingMonthly.value = true;
     monthlyError.value = '';
     try {
@@ -225,12 +236,13 @@ async function loadMonthly() {
             getMonthly(scope.params, period.params),
             prevParams ? getMonthly(scope.params, prevParams) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         monthly.value = cur;
         prevMonthly.value = prev;
     } catch (e) {
-        monthlyError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) monthlyError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingMonthly.value = false;
+        if (isLatest()) loadingMonthly.value = false;
     }
 }
 
@@ -593,7 +605,9 @@ const prevCats = ref(null); // période précédente (comparaison), null si inac
 const loadingCats = ref(true);
 const catsError = ref('');
 
+const categoriesGuard = latestGuard();
 async function loadCategories() {
+    const isLatest = categoriesGuard();
     loadingCats.value = true;
     catsError.value = '';
     try {
@@ -603,12 +617,13 @@ async function loadCategories() {
             getCategoriesStats(scope.params, period.params, opts),
             prevParams ? getCategoriesStats(scope.params, prevParams, opts) : Promise.resolve(null),
         ]);
+        if (!isLatest()) return;
         cats.value = res.rows;
         prevCats.value = prevRes?.rows ?? null;
     } catch (e) {
-        catsError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) catsError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingCats.value = false;
+        if (isLatest()) loadingCats.value = false;
     }
 }
 
@@ -712,15 +727,19 @@ const balance = ref(null);
 const loadingBalance = ref(true);
 const balanceError = ref('');
 
+const balanceGuard = latestGuard();
 async function loadBalance() {
+    const isLatest = balanceGuard();
     loadingBalance.value = true;
     balanceError.value = '';
     try {
-        balance.value = await getBalance(scope.params, period.params, 'month');
+        const res = await getBalance(scope.params, period.params, 'month');
+        if (!isLatest()) return;
+        balance.value = res;
     } catch (e) {
-        balanceError.value = apiMessage(e, 'Graphique indisponible');
+        if (isLatest()) balanceError.value = apiMessage(e, 'Graphique indisponible');
     } finally {
-        loadingBalance.value = false;
+        if (isLatest()) loadingBalance.value = false;
     }
 }
 
