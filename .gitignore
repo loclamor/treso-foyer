@@ -25,3 +25,6 @@
 # Front Vue (Vite)
 /assets/node_modules/
 /public/build/
+
+# Cache Python
+__pycache__/
