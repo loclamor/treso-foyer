@@ -130,8 +130,8 @@ final class PdfStatementParser implements StatementParserInterface
             }
             // En-tête de page : positions des colonnes Débit/Crédit (variables d'une page à l'autre).
             if (str_contains($line, 'Débit (¤)') && str_contains($line, 'Crédit (¤)')) {
-                $debitEnd = (int) strpos($line, 'Débit (¤)') + strlen('Débit (¤)');
-                $creditEnd = (int) strpos($line, 'Crédit (¤)') + strlen('Crédit (¤)');
+                $debitEnd = self::columnEnd($line, 'Débit (¤)');
+                $creditEnd = self::columnEnd($line, 'Crédit (¤)');
                 $inOperations = true;
                 continue;
             }
@@ -200,7 +200,7 @@ final class PdfStatementParser implements StatementParserInterface
             ) {
                 $close(); // clôt l'opération précédente
                 $amount = Money::parse($m[4][0]);
-                $montantEnd = $m[4][1] + strlen($m[4][0]);
+                $montantEnd = self::charOffset($line, $m[4][1]) + mb_strlen($m[4][0]);
                 // Débit ou crédit selon la colonne la plus proche de la fin du montant.
                 if ($this->isDebitColumn($montantEnd, $debitEnd, (int) $creditEnd)) {
                     $amount = -abs($amount);
@@ -301,8 +301,8 @@ final class PdfStatementParser implements StatementParserInterface
             }
             if (str_contains($line, 'Débit (¤)') && str_contains($line, 'Crédit (¤)')) {
                 $close();
-                $debitEnd = (int) strpos($line, 'Débit (¤)') + strlen('Débit (¤)');
-                $creditEnd = (int) strpos($line, 'Crédit (¤)') + strlen('Crédit (¤)');
+                $debitEnd = self::columnEnd($line, 'Débit (¤)');
+                $creditEnd = self::columnEnd($line, 'Crédit (¤)');
                 continue;
             }
             // En-tête de section : « Livret A n° 000 0000000 L » (seulement un compte de la synthèse).
@@ -331,7 +331,7 @@ final class PdfStatementParser implements StatementParserInterface
             if (preg_match('/^\s*(\d{2})\/(\d{2})\s+(.+)\s{2,}('.self::MONTANT.')\s*$/u', $line, $m, PREG_OFFSET_CAPTURE)) {
                 $close();
                 $amount = Money::parse($m[4][0]);
-                if ($this->isDebitColumn($m[4][1] + strlen($m[4][0]), $debitEnd, (int) $creditEnd)) {
+                if ($this->isDebitColumn(self::charOffset($line, $m[4][1]) + mb_strlen($m[4][0]), $debitEnd, (int) $creditEnd)) {
                     $amount = -abs($amount);
                 }
                 $current = ['day' => (int) $m[1][0], 'month' => (int) $m[2][0], 'amount' => $amount, 'label' => [trim($m[3][0])]];
@@ -478,7 +478,7 @@ final class PdfStatementParser implements StatementParserInterface
         if (null === $debitEnd || null === $creditEnd) {
             return $amount;
         }
-        $end = $m['montant'][1] + strlen($m['montant'][0]);
+        $end = self::charOffset($line, $m['montant'][1]) + mb_strlen($m['montant'][0]);
 
         return $this->isDebitColumn($end, $debitEnd, $creditEnd) ? -abs($amount) : $amount;
     }
@@ -491,6 +491,21 @@ final class PdfStatementParser implements StatementParserInterface
     private function isDebitColumn(int $amountEnd, int $debitEnd, int $creditEnd): bool
     {
         return abs($amountEnd - $debitEnd) < abs($amountEnd - $creditEnd);
+    }
+
+    /**
+     * Positions de colonnes en caractères (pdftotext -layout aligne en caractères) : en octets,
+     * chaque « é » ou « ¤ » d'une ligne la décalerait par rapport à l'en-tête.
+     */
+    private static function charOffset(string $line, int $byteOffset): int
+    {
+        return mb_strlen(substr($line, 0, $byteOffset));
+    }
+
+    /** Fin (en caractères) de l'en-tête de colonne $header dans $line. */
+    private static function columnEnd(string $line, string $header): int
+    {
+        return (int) mb_strpos($line, $header) + mb_strlen($header);
     }
 
     private function normalizeAccountNumber(string $raw): string
