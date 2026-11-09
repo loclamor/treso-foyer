@@ -303,7 +303,9 @@ final class OperationController extends AbstractController
             throw new BadRequestException('Seule une saisie manuelle en attente peut modifier accountId, spentAt, amount ou label.', 'not_a_manual_entry');
         }
 
-        $operation->setNote($input->note);
+        if (array_key_exists('note', $body)) {
+            $operation->setNote($input->note);
+        }
         if ($hasEntryFields) {
             if (array_key_exists('accountId', $body)) {
                 $account = $entityManager->getRepository(Account::class)->findOneBy(['id' => $input->accountId, 'household' => $household]);

@@ -180,6 +180,11 @@ final class ManualEntryApiTest extends ApiTestCase
         self::assertSame('modifiée', $op['note']);
         self::assertTrue($op['awaitingStatement']);
 
+        // note absente = inchangée.
+        $response = $this->json($client, 'PATCH', '/api/operations/'.$id, ['amount' => -200]);
+        self::assertSame(-200, $this->decode($response)['amount']);
+        self::assertSame('modifiée', $this->decode($response)['note']);
+
         // note: null efface la note (comme avant).
         $response = $this->json($client, 'PATCH', '/api/operations/'.$id, ['note' => null]);
         self::assertNull($this->decode($response)['note']);
