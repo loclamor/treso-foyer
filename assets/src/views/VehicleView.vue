@@ -16,12 +16,12 @@ import { usePeriodStore } from '@/stores/period';
 import { useVehiclesStore } from '@/stores/vehicles';
 import { listOperations } from '@/api/operations';
 import { getVehiclesStats } from '@/api/stats';
-import { createOdometerReading, deleteOdometerReading, listOdometerReadings, updateOdometerReading } from '@/api/vehicles';
+import { createOdometerReading, deleteOdometerReading, getVehicleFuel, listOdometerReadings, updateOdometerReading } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { dateToIso, formatDate, formatMoney, formatPercent } from '@/utils/format';
+import { dateToIso, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
-import { CHART_FONT, baseLegend, chartColors, useChartTheme } from '@/charts/theme';
-import { colorForCategory } from '@/charts/palette';
+import { CHART_FONT, baseGrid, baseLegend, baseTooltip, categoryAxis, chartColors, useChartTheme, valueAxis } from '@/charts/theme';
+import { CATEGORICAL, colorForCategory } from '@/charts/palette';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import KpiTile from '@/components/KpiTile.vue';
 import ChartCard from '@/components/ChartCard.vue';
@@ -129,6 +129,99 @@ const donutEmpty = computed(() => !vehicleStats.value || !vehicleStats.value.byC
 const donutRows = computed(() => (vehicleStats.value?.byCategory ?? []).map((b) => ({ category: b.category, total: b.total })));
 
 // L'API ne fournit pas de tendance mensuelle par véhicule : pas de graphique inventé.
+
+// ---------- pleins de carburant (ADR 0015) sur la période ----------
+const fuelData = ref(null); // {fills: [...], summary: {count, volumeMl, amount, avgPricePerLiter, consumption, distanceKm}}
+const loadingFuel = ref(false);
+const fuelError = ref('');
+
+async function loadFuel() {
+    if (!vehicle.value) return;
+    loadingFuel.value = true;
+    fuelError.value = '';
+    try {
+        fuelData.value = await getVehicleFuel(vehicleId, period.params);
+    } catch (e) {
+        fuelError.value = apiMessage(e, 'Pleins indisponibles');
+    } finally {
+        loadingFuel.value = false;
+    }
+}
+
+const fuelKpis = computed(() => {
+    const s = fuelData.value?.summary;
+    if (!s) return [];
+    const dist = s.distanceKm != null ? `${s.distanceKm.toLocaleString('fr-FR')} km` : null;
+    return [
+        {
+            label: 'Consommation moyenne',
+            value: formatConsumption(s.consumption),
+            subtext: dist ? `sur ${dist} entre pleins complets` : 'pleins complets avec kilométrage requis',
+        },
+        { label: 'Prix moyen au litre', value: formatPricePerLiter(s.avgPricePerLiter), subtext: '' },
+        { label: 'Volume total', value: formatLiters(s.volumeMl), subtext: '' },
+        { label: 'Nombre de pleins', value: String(s.count), subtext: '' },
+    ];
+});
+
+// Prix au litre par plein (€/L) + consommation par segment (L/100 km, axe Y secondaire).
+const fuelChartOption = computed(() => {
+    const fillsChrono = [...(fuelData.value?.fills ?? [])].reverse(); // fills reçus date desc
+    if (!fillsChrono.length) return {};
+    const c = chartColors(theme.mode.value);
+    const palette = CATEGORICAL[theme.mode.value] ?? CATEGORICAL.light;
+    const labels = fillsChrono.map((f) => formatDate(f.date));
+    const hasConsumption = fillsChrono.some((f) => f.consumption !== null && f.consumption !== undefined);
+    const series = [
+        {
+            name: 'Prix au litre (€/L)',
+            type: 'line',
+            data: fillsChrono.map((f) => f.pricePerLiter),
+            yAxisIndex: 0,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: { width: 2 },
+            itemStyle: { color: palette[0] },
+        },
+    ];
+    if (hasConsumption) {
+        series.push({
+            name: 'Consommation (L/100 km)',
+            type: 'line',
+            data: fillsChrono.map((f) => f.consumption),
+            yAxisIndex: 1,
+            smooth: true,
+            symbol: 'diamond',
+            symbolSize: 6,
+            lineStyle: { width: 2, type: 'dashed' },
+            itemStyle: { color: palette[1] },
+        });
+    }
+    return {
+        tooltip: {
+            ...baseTooltip(c),
+            formatter: (params) => {
+                const arr = Array.isArray(params) ? params : [params];
+                const head = arr[0]?.axisValueLabel ?? arr[0]?.name ?? '';
+                const lines = arr.map(
+                    (p) => `${p.marker} ${p.seriesName} : <strong>${p.seriesIndex === 0 ? formatPricePerLiter(p.value) : formatConsumption(p.value)}</strong>`,
+                );
+                return [head, ...lines].join('<br/>');
+            },
+        },
+        legend: baseLegend(c),
+        grid: baseGrid({ right: hasConsumption ? 56 : 16 }),
+        xAxis: categoryAxis(c, labels),
+        yAxis: [
+            valueAxis(c, { formatter: (v) => `${Number(v).toFixed(3).replace('.', ',')} €/L` }),
+            ...(hasConsumption
+                ? [valueAxis(c, { formatter: (v) => `${Number(v).toFixed(2).replace('.', ',')} L/100` })]
+                : []),
+        ],
+        series,
+    };
+});
 
 // ---------- dernières opérations du véhicule ----------
 const ops = ref([]);
@@ -252,7 +345,7 @@ function removeReading(r) {
 }
 
 // ---------- init ----------
-watch(() => [scope.params, period.params], () => { loadStats(); loadOps(); }, { deep: true });
+watch(() => [scope.params, period.params], () => { loadStats(); loadOps(); loadFuel(); }, { deep: true });
 
 onMounted(async () => {
     await vehiclesStore.refresh(true).catch(() => {});
@@ -261,6 +354,7 @@ onMounted(async () => {
         loadStats();
         loadOps();
         loadReadings();
+        loadFuel();
     }
 });
 </script>
@@ -327,6 +421,80 @@ onMounted(async () => {
                     </template>
                 </ChartCard>
             </div>
+
+            <div class="page-header section">
+                <h2>Pleins</h2>
+            </div>
+            <p v-if="fuelError" class="text-muted" role="alert">{{ fuelError }}</p>
+            <template v-if="fuelData">
+                <p v-if="!fuelData.summary.count" class="empty-state">
+                    Aucun plein renseigné : saisissez le volume lors de la saisie ou de la catégorisation d'une dépense Carburant.
+                </p>
+                <template v-else>
+                    <div class="kpi-grid">
+                        <KpiTile v-for="k in fuelKpis" :key="k.label" :label="k.label" :value="k.value" :subtext="k.subtext" />
+                    </div>
+
+                    <div class="charts-grid">
+                        <ChartCard
+                            v-if="fuelData.fills.length >= 2"
+                            title="Prix au litre par plein"
+                            subtitle="Évolution du prix au litre et de la consommation par segment (méthode du plein complet)"
+                            aria-label="Graphique du prix au litre par plein et de la consommation"
+                            :loading="loadingFuel"
+                            :error="fuelError"
+                            :empty="false"
+                            :height="320"
+                            @retry="loadFuel"
+                        >
+                            <VChart :option="fuelChartOption" aria-label="Prix au litre par plein et consommation par segment" />
+                        </ChartCard>
+                    </div>
+
+                    <DataTable :value="fuelData.fills" :loading="loadingFuel" size="small" data-key="operationId">
+                        <template #empty>Aucun plein sur la période.</template>
+                        <Column field="date" header="Date" style="width: 7.5rem">
+                            <template #body="{ data }">{{ formatDate(data.date) }}</template>
+                        </Column>
+                        <Column header="Libellé">
+                            <template #body="{ data }">
+                                <span :title="data.label">{{ data.label }}</span>
+                                <Tag
+                                    v-if="data.awaitingStatement"
+                                    value="en attente de relevé"
+                                    severity="warn"
+                                    icon="pi pi-clock"
+                                    class="awaiting-tag"
+                                />
+                            </template>
+                        </Column>
+                        <Column field="amount" header="Montant" class="text-right" style="width: 8.5rem">
+                            <template #body="{ data }"><MoneyAmount :amount="data.amount" /></template>
+                        </Column>
+                        <Column field="volumeMl" header="Volume" class="text-right" style="width: 8rem">
+                            <template #body="{ data }">{{ formatLiters(data.volumeMl) }}</template>
+                        </Column>
+                        <Column field="pricePerLiter" header="Prix/L" class="text-right" style="width: 8.5rem">
+                            <template #body="{ data }">{{ formatPricePerLiter(data.pricePerLiter) }}</template>
+                        </Column>
+                        <Column header="Plein" style="width: 7rem">
+                            <template #body="{ data }">
+                                <Tag v-if="data.fullTank === false" value="partiel" severity="warn" />
+                                <span v-else class="text-muted">complet</span>
+                            </template>
+                        </Column>
+                        <Column field="odometerKm" header="Km" class="text-right" style="width: 8rem">
+                            <template #body="{ data }">{{ data.odometerKm != null ? `${data.odometerKm.toLocaleString('fr-FR')} km` : '—' }}</template>
+                        </Column>
+                        <Column header="Conso. segment" class="text-right" style="width: 11rem">
+                            <template #body="{ data }">
+                                {{ formatConsumption(data.consumption)
+                                }}<span v-if="data.segmentKm != null" class="text-muted"> ({{ Math.round(data.segmentKm).toLocaleString('fr-FR') }} km)</span>
+                            </template>
+                        </Column>
+                    </DataTable>
+                </template>
+            </template>
 
             <h2>Dernières opérations</h2>
             <DataTable :value="ops" :loading="loadingOps" size="small" data-key="id">
@@ -487,6 +655,11 @@ onMounted(async () => {
     text-align: center;
     color: var(--p-text-muted-color);
     padding: 2rem;
+}
+.awaiting-tag {
+    margin-left: 0.4rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
 }
 @media (max-width: 900px) {
     .charts-grid {

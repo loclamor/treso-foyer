@@ -83,3 +83,17 @@ export async function bulkAssignVehicle(ids, vehicleId) {
     const { data } = await http.post('/operations/bulk-vehicle', { ids, ...vehiclePayload(vehicleId) });
     return data;
 }
+
+// ---------- pleins de carburant (ADR 0015) ----------
+
+// ?from=AAAA-MM-JJ&to=AAAA-MM-JJ optionnels (absents = tout l'historique).
+// ⇒ {fills: [{operationId, date, amount, volumeMl, fullTank, odometerKm, pricePerLiter,
+//    consumption, segmentKm, label, awaitingStatement}] (date desc),
+//    summary: {count, volumeMl, amount, avgPricePerLiter, consumption, distanceKm}}
+export async function getVehicleFuel(id, { from, to } = {}) {
+    const params = {};
+    if (from) params.from = from;
+    if (to) params.to = to;
+    const { data } = await http.get(`/vehicles/${id}/fuel`, { params });
+    return data;
+}

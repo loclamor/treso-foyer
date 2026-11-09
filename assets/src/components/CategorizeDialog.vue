@@ -7,7 +7,8 @@ import { useToast } from 'primevue/usetoast';
 import CategoryPicker from '@/components/CategoryPicker.vue';
 import VehiclePicker from '@/components/VehiclePicker.vue';
 import MoneyAmount from '@/components/MoneyAmount.vue';
-import { categorizeOperation } from '@/api/operations';
+import FuelFields from '@/components/FuelFields.vue';
+import { categorizeOperation, setOperationFuel, clearOperationFuel } from '@/api/operations';
 import { assignOperationVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { useCategoriesStore } from '@/stores/categories';
@@ -31,11 +32,15 @@ const loading = ref(false);
 const result = ref(null);
 // Affectation manuelle du véhicule après catégorisation (catégorie « liée à un véhicule »).
 const vehicleId = ref(null);
+// Plein de carburant (ADR 0015) : {volumeMl, fullTank, odometerKm}, volumeMl null = pas de plein.
+const fuelModel = ref({ volumeMl: null, fullTank: true, odometerKm: null });
 
 // Proposition de véhicule seulement si la catégorie choisie est vehicleRelated et qu'au moins
 // 2 véhicules sont actifs (avec un seul véhicule actif, l'affectation auto suffit).
 const selectedCategory = computed(() => categoriesStore.byId.get(categoryId.value));
 const showVehiclePicker = computed(() => !!selectedCategory.value?.vehicleRelated && vehiclesStore.active.length >= 2);
+// Catégorie carburant + débit ⇒ champs du plein (montant imposé = celui de l'opération).
+const showFuelFields = computed(() => !!selectedCategory.value?.fuel && (props.operation?.amount ?? 0) < 0);
 
 const visible = computed({
     get: () => props.visible,
@@ -51,6 +56,11 @@ watch(
             categoryId.value = op.category?.id ?? null;
             scopeChoice.value = props.defaultScope ?? (op.merchant ? 'merchant' : 'operation');
             vehicleId.value = op.vehicle?.id ?? null;
+            fuelModel.value = {
+                volumeMl: op.fuel?.volumeMl ?? null,
+                fullTank: op.fuel?.fullTank ?? true,
+                odometerKm: op.fuel?.odometerKm ?? null,
+            };
             result.value = null;
         }
     },
@@ -75,6 +85,28 @@ async function submit() {
         // Catégorie liée à un véhicule + choix explicite ⇒ affectation manuelle de l'opération.
         if (showVehiclePicker.value && vehicleId.value != null && res.operation?.vehicle?.id !== vehicleId.value) {
             res.operation = await assignOperationVehicle(props.operation.id, vehicleId.value);
+        }
+        // Plein (ADR 0015) : volume saisi et différent de l'existant ⇒ PUT ; volume vidé alors qu'il
+        // en existait un ⇒ DELETE (le plein complet et le kilométrage suivent le volume).
+        if (showFuelFields.value) {
+            const prevFuel = props.operation.fuel ?? null;
+            const nextFuel = fuelModel.value.volumeMl
+                ? { volumeMl: fuelModel.value.volumeMl, fullTank: fuelModel.value.fullTank, odometerKm: fuelModel.value.odometerKm ?? null }
+                : null;
+            const fuelChanged =
+                (prevFuel?.volumeMl ?? null) !== (nextFuel?.volumeMl ?? null) ||
+                (prevFuel?.fullTank ?? true) !== (nextFuel?.fullTank ?? true) ||
+                (prevFuel?.odometerKm ?? null) !== (nextFuel?.odometerKm ?? null);
+            if (fuelChanged) {
+                const fuelRes = nextFuel
+                    ? await setOperationFuel(props.operation.id, nextFuel)
+                    : await clearOperationFuel(props.operation.id);
+                res.operation = fuelRes.operation;
+                // Kilométrage incohérent avec les points voisins : avertissement, pas une erreur.
+                if (fuelRes.warning) {
+                    toast.add({ severity: 'warn', summary: 'Kilométrage incohérent', detail: fuelRes.warning, life: 10000 });
+                }
+            }
         }
         result.value = res;
         toast.add({ severity: 'success', summary: 'Catégorisation appliquée', detail: detailOf(res), life: 5000 });
@@ -113,6 +145,14 @@ async function removeCategory() {
                 <label for="categorize-vehicle">Véhicule (catégorie liée à un véhicule)</label>
                 <VehiclePicker id="categorize-vehicle" v-model="vehicleId" />
             </div>
+
+            <!-- Catégorie carburant + débit : saisie du plein, montant imposé (ligne de relevé). -->
+            <FuelFields
+                v-if="showFuelFields"
+                v-model="fuelModel"
+                :amount-cents="operation.amount"
+                :amount-editable="false"
+            />
 
             <div v-if="hasMerchant" class="field">
                 <span id="scope-label" class="field-label">Appliquer à</span>

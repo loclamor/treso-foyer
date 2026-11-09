@@ -60,7 +60,7 @@ const ICON_SUGGESTIONS = [
 const dialogVisible = ref(false);
 const dialogMode = ref('create'); // 'create' | 'edit'
 const editingId = ref(null);
-const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '', vehicleRelated: false });
+const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '', vehicleRelated: false, fuel: false });
 const saving = ref(false);
 
 function openCreate(parentId = null) {
@@ -72,6 +72,7 @@ function openCreate(parentId = null) {
     form.color = '#4caf50';
     form.icon = '';
     form.vehicleRelated = false;
+    form.fuel = false;
     dialogVisible.value = true;
 }
 
@@ -84,13 +85,14 @@ function openEdit(cat) {
     form.color = cat.color || '#4caf50';
     form.icon = cat.icon || '';
     form.vehicleRelated = !!cat.vehicleRelated;
+    form.fuel = !!cat.fuel;
     dialogVisible.value = true;
 }
 
 async function submit() {
     if (!form.name.trim()) return;
     saving.value = true;
-    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null, vehicleRelated: form.vehicleRelated };
+    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null, vehicleRelated: form.vehicleRelated, fuel: form.fuel };
     try {
         if (dialogMode.value === 'create') {
             await createCategory({ ...payload, parentId: form.parentId });
@@ -210,6 +212,7 @@ async function setChartSlot(cat, slot) {
                         <i v-if="node.data.icon" :class="node.data.icon" aria-hidden="true" />
                         {{ node.data.name }}
                         <i v-if="node.data.vehicleRelated" class="pi pi-car vehicle-icon" v-tooltip.top="'Catégorie liée à un véhicule'" aria-label="Catégorie liée à un véhicule" />
+                        <i v-if="node.data.fuel" class="pi pi-gauge vehicle-icon" v-tooltip.top="'Catégorie carburant (volume, prix au litre, kilométrage)'" aria-label="Catégorie carburant" />
                         <Tag v-if="node.data.archived" value="Archivée" severity="secondary" class="archived-tag" />
                     </span>
                 </template>
@@ -302,6 +305,10 @@ async function setChartSlot(cat, slot) {
                 <div class="field field-check">
                     <Checkbox id="cat-vehicle" v-model="form.vehicleRelated" binary />
                     <label for="cat-vehicle">Liée à un véhicule (affectation auto quand un seul véhicule est actif à la date de l'opération)</label>
+                </div>
+                <div class="field field-check">
+                    <Checkbox id="cat-fuel" v-model="form.fuel" binary />
+                    <label for="cat-fuel">Catégorie carburant (volume, prix au litre, kilométrage)</label>
                 </div>
                 <div class="field">
                     <label for="cat-icon">Icône (classe PrimeIcons)</label>

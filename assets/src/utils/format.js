@@ -91,3 +91,48 @@ export function monthBounds(ym) {
 export function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
+
+// ---------- carburant (ADR 0015) : volume en mL côté API, affiché en litres ----------
+
+const litersFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// 42370 mL → '42,37 L'
+export function formatLiters(ml) {
+    if (ml === null || ml === undefined || Number.isNaN(Number(ml))) return '—';
+    return `${litersFmt.format(Number(ml) / 1000)} L`;
+}
+
+const pricePerLiterFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+// 1.789 (euros) → '1,789 €/L'
+export function formatPricePerLiter(eur) {
+    if (eur === null || eur === undefined || Number.isNaN(Number(eur))) return '—';
+    return `${pricePerLiterFmt.format(Number(eur))} €/L`;
+}
+
+const consumptionFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// 5.84 → '5,84 L/100 km'
+export function formatConsumption(v) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+    return `${consumptionFmt.format(Number(v))} L/100 km`;
+}
+
+// '42,37' | '42.37' | '42' → 42370 (mL entier, arrondi au mL près) ; null si vide ou invalide.
+export function parseLiters(str) {
+    if (typeof str !== 'string') return null;
+    const s = str.trim().replace(/[\s ]/g, '').replace(',', '.');
+    if (!/^\d+(\.\d+)?$/.test(s)) return null;
+    return Math.round(parseFloat(s) * 1000);
+}
+
+// mL → '42,37' (pré-remplir une saisie en litres, virgule française). '' si null.
+export function mlToLiters(ml) {
+    if (ml === null || ml === undefined) return '';
+    return litersFmt.format(Number(ml) / 1000);
+}
+
+// '1,789' | '1.789' | '1' → 1.789 (euros/L, 3 décimales max) ; null si vide ou invalide.
+export function parsePricePerLiter(str) {
+    if (typeof str !== 'string') return null;
+    const s = str.trim().replace(/[\s ]/g, '').replace(',', '.');
+    if (!/^\d+(\.\d{1,3})?$/.test(s)) return null;
+    return Number(s);
+}

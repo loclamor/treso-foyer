@@ -10,12 +10,14 @@ import Textarea from 'primevue/textarea';
 import { useToast } from 'primevue/usetoast';
 import CategoryPicker from '@/components/CategoryPicker.vue';
 import VehiclePicker from '@/components/VehiclePicker.vue';
-import { createOperation, patchOperation, categorizeOperation } from '@/api/operations';
+import FuelFields from '@/components/FuelFields.vue';
+import { createOperation, patchOperation, categorizeOperation, setOperationFuel, clearOperationFuel } from '@/api/operations';
 import { assignOperationVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { useAccountsStore } from '@/stores/accounts';
 import { useScopeStore } from '@/stores/scope';
 import { useVehiclesStore } from '@/stores/vehicles';
+import { useCategoriesStore } from '@/stores/categories';
 import { centsToEuros, dateToIso, parseEuros } from '@/utils/format';
 
 // Création ET modification d'une saisie manuelle (dépense saisie sur le moment, en attente de relevé).
@@ -31,6 +33,7 @@ const toast = useToast();
 const accountsStore = useAccountsStore();
 const scope = useScopeStore();
 const vehiclesStore = useVehiclesStore();
+const categoriesStore = useCategoriesStore();
 
 const accountId = ref(null);
 const date = ref(new Date());
@@ -41,6 +44,8 @@ const categoryId = ref(null);
 const vehicleId = ref(null);
 const note = ref('');
 const loading = ref(false);
+// Plein de carburant (ADR 0015) : {volumeMl, fullTank, odometerKm}, volumeMl null = pas de plein.
+const fuelModel = ref({ volumeMl: null, fullTank: true, odometerKm: null });
 
 const directionOptions = [
     { label: 'Dépense', value: 'debit' },
@@ -54,6 +59,10 @@ const accountOptions = computed(() =>
 
 // Véhicule proposé dès qu'au moins un véhicule existe (saisie souvent liée à une voiture).
 const showVehiclePicker = computed(() => vehiclesStore.list.length > 0);
+
+// Catégorie carburant + dépense ⇒ champs du plein (le champ Montant est alors rendu par FuelFields).
+const selectedCategory = computed(() => categoriesStore.byId.get(categoryId.value));
+const showFuelFields = computed(() => !!selectedCategory.value?.fuel && direction.value === 'debit');
 
 // Présélection du compte du périmètre courant quand c'est un compte.
 const defaultAccountId = computed(() => (scope.current.type === 'account' ? scope.current.id : null));
@@ -95,6 +104,11 @@ function reset() {
         categoryId.value = op.category?.id ?? null;
         vehicleId.value = op.vehicle?.id ?? null;
         note.value = op.note ?? '';
+        fuelModel.value = {
+            volumeMl: op.fuel?.volumeMl ?? null,
+            fullTank: op.fuel?.fullTank ?? true,
+            odometerKm: op.fuel?.odometerKm ?? null,
+        };
     } else {
         accountId.value = defaultAccountId.value ?? accountOptions.value[0]?.value ?? null;
         date.value = new Date();
@@ -104,7 +118,18 @@ function reset() {
         categoryId.value = null;
         vehicleId.value = null;
         note.value = '';
+        fuelModel.value = { volumeMl: null, fullTank: true, odometerKm: null };
     }
+}
+
+// Montant dérivé par FuelFields (volume × prix au litre) ⇒ on met à jour le champ Montant.
+function onFuelAmount(cents) {
+    if (cents === null) {
+        amountEuros.value = '';
+        return;
+    }
+    amountEuros.value = centsToEuros(Math.abs(cents));
+    direction.value = cents > 0 ? 'credit' : 'debit';
 }
 
 watch(
@@ -117,6 +142,7 @@ watch(
 onMounted(() => {
     if (!accountsStore.loaded) accountsStore.refresh().catch(() => {});
     if (!vehiclesStore.loaded) vehiclesStore.refresh().catch(() => {});
+    if (!categoriesStore.loaded) categoriesStore.refresh().catch(() => {});
 });
 
 async function submit() {
@@ -127,7 +153,7 @@ async function submit() {
         if (isEditing.value) {
             // Contrat PATCH : seuls accountId, spentAt, amount, label (et note) sont modifiables sur une
             // saisie en attente. Catégorie et véhicule passent par leurs endpoints dédiés.
-            const updated = await patchOperation(props.entry.id, {
+            let updated = await patchOperation(props.entry.id, {
                 accountId: accountId.value,
                 spentAt: spentAtIso.value,
                 amount: signedAmount.value,
@@ -140,10 +166,30 @@ async function submit() {
             if ((vehicleId.value ?? null) !== (props.entry.vehicle?.id ?? null)) {
                 await assignOperationVehicle(props.entry.id, vehicleId.value ?? null);
             }
+            // Plein (ADR 0015) : PUT/DELETE dédié si le volume a changé (les autres champs du plein
+            // — plein complet, kilométrage — sont remplacés avec).
+            const prevFuel = props.entry.fuel ?? null;
+            const nextFuel = fuelModel.value.volumeMl
+                ? { volumeMl: fuelModel.value.volumeMl, fullTank: fuelModel.value.fullTank, odometerKm: fuelModel.value.odometerKm ?? null }
+                : null;
+            const fuelChanged =
+                (prevFuel?.volumeMl ?? null) !== (nextFuel?.volumeMl ?? null) ||
+                (prevFuel?.fullTank ?? true) !== (nextFuel?.fullTank ?? true) ||
+                (prevFuel?.odometerKm ?? null) !== (nextFuel?.odometerKm ?? null);
+            if (fuelChanged) {
+                const res = nextFuel
+                    ? await setOperationFuel(props.entry.id, nextFuel)
+                    : await clearOperationFuel(props.entry.id);
+                updated = res.operation;
+                // Kilométrage incohérent avec les points voisins : avertissement, pas une erreur.
+                if (res.warning) {
+                    toast.add({ severity: 'warn', summary: 'Kilométrage incohérent', detail: res.warning, life: 10000 });
+                }
+            }
             toast.add({ severity: 'success', summary: 'Saisie mise à jour', detail: `Opération #${updated.id}.`, life: 4000 });
             emit('saved', { operation: updated, reconciled: false });
         } else {
-            const res = await createOperation({
+            const payload = {
                 accountId: accountId.value,
                 spentAt: spentAtIso.value,
                 amount: signedAmount.value,
@@ -151,7 +197,14 @@ async function submit() {
                 categoryId: categoryId.value ?? null,
                 vehicleId: vehicleId.value ?? null,
                 note: noteValue,
-            });
+            };
+            // Plein (ADR 0015) : envoyé avec la création si un volume est saisi.
+            if (showFuelFields.value && fuelModel.value.volumeMl) {
+                payload.fuelVolumeMl = fuelModel.value.volumeMl;
+                payload.fuelFullTank = fuelModel.value.fullTank;
+                if (fuelModel.value.odometerKm !== null) payload.odometerKm = fuelModel.value.odometerKm;
+            }
+            const res = await createOperation(payload);
             if (res.reconciled) {
                 toast.add({
                     severity: 'success',
@@ -223,7 +276,7 @@ async function submit() {
                 />
             </div>
 
-            <div class="field">
+            <div v-if="!showFuelFields" class="field">
                 <label for="entry-amount">Montant (€)</label>
                 <InputText
                     id="entry-amount"
@@ -233,6 +286,16 @@ async function submit() {
                     class="w-full"
                 />
             </div>
+
+            <!-- Catégorie carburant + dépense : le plein (volume, prix au litre, kilométrage) ;
+                 FuelFields rend alors aussi le champ Montant, lié aux deux autres grandeurs. -->
+            <FuelFields
+                v-if="showFuelFields"
+                v-model="fuelModel"
+                :amount-cents="signedAmount"
+                amount-editable
+                @update:amount-cents="onFuelAmount"
+            />
 
             <div class="field">
                 <label for="entry-label">Libellé</label>

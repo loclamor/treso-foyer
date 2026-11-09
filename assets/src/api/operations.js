@@ -58,3 +58,18 @@ export async function reconcileOperation(id, operationId) {
     const { data } = await http.post(`/operations/${id}/reconcile`, { operationId });
     return data; // {operation}
 }
+
+// ---------- pleins de carburant (ADR 0015) ----------
+
+// payload : {volumeMl: int > 0, fullTank?: bool (défaut true), odometerKm?: int ≥ 0|null}
+// ⇒ 200 {operation, warning?} (remplace le plein existant ; 400 not_a_debit sur un crédit).
+export async function setOperationFuel(id, payload) {
+    const { data } = await http.put(`/operations/${id}/fuel`, payload);
+    return data; // {operation, warning?}
+}
+
+// ⇒ 200 {operation} avec fuel: null.
+export async function clearOperationFuel(id) {
+    const { data } = await http.delete(`/operations/${id}/fuel`);
+    return data; // {operation}
+}

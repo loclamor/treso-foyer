@@ -20,7 +20,7 @@ import { bulkCategorize, deleteOperation, listOperations, patchOperation } from 
 import { listRecurrences } from '@/api/recurrences';
 import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { centsToEuros, dateToIso, formatDate, formatDateTime, parseEuros } from '@/utils/format';
+import { centsToEuros, dateToIso, formatDate, formatDateTime, formatLiters, formatPricePerLiter, parseEuros } from '@/utils/format';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import CategoryTag from '@/components/CategoryTag.vue';
 import CategoryPicker from '@/components/CategoryPicker.vue';
@@ -652,6 +652,11 @@ onMounted(() => {
                         <div class="label-text">
                             <strong v-if="data.merchant" class="merchant" :title="data.merchant">{{ data.merchant }}</strong>
                             <span class="raw-label" :title="data.rawLabel">{{ data.rawLabel }}</span>
+                            <!-- Plein de carburant (ADR 0015) : volume, prix au litre calculé, partiel, km. -->
+                            <span v-if="data.fuel" class="fuel-line text-muted">
+                                <i class="pi pi-gauge" aria-hidden="true" />
+                                {{ formatLiters(data.fuel.volumeMl) }} · {{ formatPricePerLiter(data.fuel.pricePerLiter) }}<template v-if="data.fuel.fullTank === false"> · partiel</template><template v-if="data.fuel.odometerKm !== null && data.fuel.odometerKm !== undefined"> · {{ data.fuel.odometerKm.toLocaleString('fr-FR') }} km</template>
+                            </span>
                         </div>
                         <i
                             v-if="data.labelSource"
@@ -694,36 +699,49 @@ onMounted(() => {
             <Column field="amount" header="Montant" sortable style="width: 8.5rem" body-class="text-right">
                 <template #body="{ data }"><MoneyAmount :amount="data.amount" /></template>
             </Column>
-            <Column header="Actions" style="width: 7.5rem">
+            <Column header="Actions" style="width: 10rem">
                 <template #body="{ data }">
-                    <!-- Une saisie en attente de relevé peut être modifiée, rapprochée ou supprimée. -->
-                    <div v-if="data.awaitingStatement" class="row-actions">
+                    <div class="row-actions">
+                        <!-- Une saisie en attente de relevé peut être modifiée, rapprochée ou supprimée. -->
+                        <template v-if="data.awaitingStatement">
+                            <Button
+                                icon="pi pi-pencil"
+                                size="small"
+                                text
+                                severity="secondary"
+                                aria-label="Modifier la saisie"
+                                v-tooltip.top="'Modifier la saisie'"
+                                @click="openEditEntry(data)"
+                            />
+                            <Button
+                                icon="pi pi-link"
+                                size="small"
+                                text
+                                severity="secondary"
+                                aria-label="Rapprocher avec le relevé"
+                                v-tooltip.top="'Rapprocher avec une ligne du relevé'"
+                                @click="openReconcile(data)"
+                            />
+                            <Button
+                                icon="pi pi-trash"
+                                size="small"
+                                text
+                                severity="danger"
+                                aria-label="Supprimer la saisie"
+                                v-tooltip.top="'Supprimer la saisie'"
+                                @click="confirmDeleteEntry(data)"
+                            />
+                        </template>
+                        <!-- Débit d'une ligne de relevé : saisir/modifier le plein via le dialogue de catégorisation. -->
                         <Button
-                            icon="pi pi-pencil"
+                            v-else-if="data.amount < 0"
+                            icon="pi pi-gauge"
                             size="small"
                             text
                             severity="secondary"
-                            aria-label="Modifier la saisie"
-                            v-tooltip.top="'Modifier la saisie'"
-                            @click="openEditEntry(data)"
-                        />
-                        <Button
-                            icon="pi pi-link"
-                            size="small"
-                            text
-                            severity="secondary"
-                            aria-label="Rapprocher avec le relevé"
-                            v-tooltip.top="'Rapprocher avec une ligne du relevé'"
-                            @click="openReconcile(data)"
-                        />
-                        <Button
-                            icon="pi pi-trash"
-                            size="small"
-                            text
-                            severity="danger"
-                            aria-label="Supprimer la saisie"
-                            v-tooltip.top="'Supprimer la saisie'"
-                            @click="confirmDeleteEntry(data)"
+                            aria-label="Saisir ou modifier le plein"
+                            v-tooltip.top="'Saisir ou modifier le plein'"
+                            @click="openCategorize(data)"
                         />
                     </div>
                 </template>
@@ -901,6 +919,14 @@ onMounted(() => {
     white-space: nowrap;
     color: var(--p-text-muted-color);
     font-size: 0.85rem;
+}
+.fuel-line {
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+.fuel-line .pi {
+    font-size: 0.7rem;
+    margin-right: 0.2rem;
 }
 .date-cell {
     display: flex;
