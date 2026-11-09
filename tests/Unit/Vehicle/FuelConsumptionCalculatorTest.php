@@ -56,6 +56,22 @@ final class FuelConsumptionCalculatorTest extends TestCase
         self::assertSame(800, $summary['distanceKm']);
     }
 
+    public function testTooShortSegmentIsMergedIntoTheNextOne(): void
+    {
+        // Remise à niveau 2 km après un plein complet : pas de segment aberrant (3 L / 2 km).
+        $result = $this->calculator->compute([
+            $this->fill(1, '2026-01-10', 40000, true, 10000),
+            $this->fill(2, '2026-01-11', 3000, true, 10002),
+            $this->fill(3, '2026-02-10', 42000, true, 10800),
+        ], []);
+
+        self::assertNull($result['fills'][1]['consumption']);
+        // Segment 1 → 3 : (3 + 42) L ÷ 800 km × 100 = 5.625 → 5.63.
+        self::assertEqualsWithDelta(5.63, $result['fills'][2]['consumption'], 1e-9);
+        self::assertEqualsWithDelta(800.0, $result['fills'][2]['segmentKm'], 1e-9);
+        self::assertEqualsWithDelta(5.63, $result['summary']['consumption'], 1e-9);
+    }
+
     public function testPartialTankBetweenTwoFullTanksIsCountedInTheSegment(): void
     {
         $result = $this->calculator->compute([

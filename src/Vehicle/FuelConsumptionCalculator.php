@@ -14,6 +14,9 @@ namespace App\Vehicle;
  * - le km d'un plein = son `odometerKm` saisi, sinon interpolé sur les points de compteur
  *   (`OdometerCalculator::kmAt`, null hors de l'intervalle couvert) ;
  * - segment ignoré si une borne n'a pas de km ou si la distance est ≤ 0 ;
+ * - plein complet à moins de MIN_SEGMENT_KM du précédent (remise à niveau, km interpolé sur une
+ *   courte durée) : pas de segment, son volume est reporté sur le segment suivant (sinon une
+ *   consommation aberrante, ex. 3 L sur 2 km = 150 L/100) ;
  * - les pleins antérieurs au premier plein complet ne comptent dans aucun segment ;
  * - la synthèse de la période somme les segments **se terminant** dans la période
  *   (le plein complet précédent peut être antérieur à la période).
@@ -22,6 +25,8 @@ namespace App\Vehicle;
  */
 final class FuelConsumptionCalculator
 {
+    public const MIN_SEGMENT_KM = 50;
+
     public function __construct(
         private readonly OdometerCalculator $odometerCalculator = new OdometerCalculator(),
     ) {
@@ -77,6 +82,9 @@ final class FuelConsumptionCalculator
                 }
                 $kmStart = $kmOf[$previousFull];
                 $kmEnd = $kmOf[$index];
+                if (null !== $kmStart && null !== $kmEnd && ($kmEnd - $kmStart) > 0 && ($kmEnd - $kmStart) < self::MIN_SEGMENT_KM) {
+                    continue; // segment trop court : fusionné avec le suivant (previousFull inchangé)
+                }
                 if (null !== $kmStart && null !== $kmEnd && ($kmEnd - $kmStart) > 0) {
                     $segments[$index] = ['volumeMl' => $volumeMl, 'km' => $kmEnd - $kmStart];
                 }
