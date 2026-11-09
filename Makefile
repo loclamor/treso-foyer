@@ -10,7 +10,7 @@ SHELL       := bash
 .SHELLFLAGS := -eo pipefail -c
 
 .DEFAULT_GOAL := help
-.PHONY: help build up start down logs sh composer sf cc db-migrate db-diff test test-tools lint phpstan eslint test-db front-install front-build front-logs npm ranger ranger-apply backup
+.PHONY: help build up start down logs sh composer sf cc db-migrate db-diff test test-tools test-front lint phpstan eslint test-db front-install front-build front-logs npm ranger ranger-apply backup
 
 help: ## Liste des commandes
 	@grep -E '(^[a-zA-Z0-9_-]+:.*?##.*$$)|(^##)' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}{printf "\033[32m%-16s\033[0m %s\n", $$1, $$2}' | sed -e 's/\[32m##/[33m/'
@@ -74,6 +74,9 @@ test: ## Lance PHPUnit, ex : make test c='--filter Csv'
 
 test-tools: ## Tests des outils Python (tools/)
 	@python3 -I -m unittest discover -s tools -p 'test_*.py'
+
+test-front: ## Tests du front (Vitest, assets/tests/)
+	@$(DOCKER_COMP) exec node npx vitest run $(c)
 
 lint: phpstan eslint ## Analyse statique PHP + lint du front
 

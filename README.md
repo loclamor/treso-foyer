@@ -141,6 +141,7 @@ make sf c='app:transfers:match'       # apparie les virements internes entre com
 ```bash
 make test          # PHPUnit
 make test-tools    # tests des outils Python (tools/)
+make test-front    # tests du front (Vitest : utils, client HTTP, composants)
 make lint          # PHPStan (niveau 5) + ESLint (front)
 ```
 PHPStan part d'une baseline (`phpstan-baseline.neon`) : le code existant y est toléré, tout nouveau
