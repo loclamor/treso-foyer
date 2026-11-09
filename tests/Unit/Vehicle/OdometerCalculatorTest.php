@@ -142,6 +142,34 @@ final class OdometerCalculatorTest extends TestCase
         self::assertSame('2026-02-05', $distance->coveredTo->format('Y-m-d'));
     }
 
+    public function testIsolatedTypoDoesNotDiscardLaterReadings(): void
+    {
+        // 1 000 000 saisi par erreur : seul ce relevé est écarté, pas les suivants.
+        $readings = [
+            ['date' => '2026-01-01', 'km' => 100000],
+            ['date' => '2026-02-01', 'km' => 1000000],
+            ['date' => '2026-03-01', 'km' => 101000],
+            ['date' => '2026-04-01', 'km' => 102000],
+        ];
+
+        $distance = $this->calculator->distance($readings, new \DateTimeImmutable('2026-01-01'), new \DateTimeImmutable('2026-04-01'));
+
+        self::assertSame(2000.0, $distance?->km);
+        self::assertSame(101000.0, $this->calculator->kmAt($readings, new \DateTimeImmutable('2026-03-01')));
+    }
+
+    public function testAberrantFirstReadingIsDiscarded(): void
+    {
+        $distance = $this->calculator->distance([
+            ['date' => '2026-01-01', 'km' => 1000000],
+            ['date' => '2026-02-01', 'km' => 100000],
+            ['date' => '2026-03-01', 'km' => 101000],
+        ], new \DateTimeImmutable('2026-01-01'), new \DateTimeImmutable('2026-03-31'));
+
+        self::assertSame(1000.0, $distance?->km);
+        self::assertSame('2026-02-01', $distance?->coveredFrom->format('Y-m-d'));
+    }
+
     public function testEqualKmIsCoherent(): void
     {
         // km constant = cohérent (0 km parcouru), ce n'est pas une incohérence.

@@ -128,7 +128,7 @@ Après création/modification/suppression d'un véhicule, d'une règle (champ `v
 | PATCH | `/api/odometer-readings/{id}` | `{"date"?, "km"?, "note"?}` ⇒ `204`. Champ absent = inchangé ; `note: null` explicite (clé présente) efface la note ; doublon de date ⇒ `409 reading_date_exists` ; `km < 0` ⇒ `422` |
 | DELETE | `/api/odometer-readings/{id}` | `204` |
 
-Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404`. Un relevé incohérent (km décroissant avec la date) reste stocké mais est **ignoré** par le calcul de distance.
+Véhicule ou relevé hors foyer (vérifié via le véhicule du relevé) ⇒ `404`. Un relevé incohérent (km décroissant avec la date) reste stocké ; le calcul de distance garde la plus longue suite de relevés croissante et **ignore** les autres (un relevé aberrant isolé, même en premier, est écarté seul sans invalider les suivants).
 
 ## Pleins de carburant (ADR 0015)
 

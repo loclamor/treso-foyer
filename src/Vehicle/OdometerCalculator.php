@@ -117,10 +117,43 @@ final class OdometerCalculator
         $points = array_values($byDate);
 
         // Relevés incohérents ignorés : km strictement inférieur au dernier relevé cohérent.
+        return $this->longestNonDecreasing($points);
+    }
+
+    /**
+     * Plus longue suite de relevés à kilométrage croissant (au sens large) : un relevé aberrant
+     * isolé (faute de frappe 1 000 000 entre 100 000 et 101 000, y compris en premier) est écarté
+     * seul au lieu d'invalider tous les suivants. À longueur égale, on garde à chaque étape le
+     * relevé le plus ancien possible (même choix que l'ancien filtrage glouton).
+     *
+     * @param list<array{date: \DateTimeImmutable, km: int}> $points triés par date
+     * @return list<array{date: \DateTimeImmutable, km: int}>
+     */
+    private function longestNonDecreasing(array $points): array
+    {
+        $count = count($points);
+        if ($count < 2) {
+            return $points;
+        }
+
+        // $best[$i] = longueur de la plus longue suite croissante commençant au point $i.
+        $best = array_fill(0, $count, 1);
+        for ($i = $count - 2; $i >= 0; $i--) {
+            for ($j = $i + 1; $j < $count; $j++) {
+                if ($points[$j]['km'] >= $points[$i]['km'] && $best[$j] + 1 > $best[$i]) {
+                    $best[$i] = $best[$j] + 1;
+                }
+            }
+        }
+
         $kept = [];
-        foreach ($points as $point) {
-            if ([] === $kept || $point['km'] >= $kept[count($kept) - 1]['km']) {
-                $kept[] = $point;
+        $remaining = max($best);
+        $lastKm = \PHP_INT_MIN;
+        for ($i = 0; $i < $count && $remaining > 0; $i++) {
+            if ($best[$i] === $remaining && $points[$i]['km'] >= $lastKm) {
+                $kept[] = $points[$i];
+                $lastKm = $points[$i]['km'];
+                --$remaining;
             }
         }
 

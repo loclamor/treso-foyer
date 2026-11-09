@@ -7,8 +7,9 @@ namespace App\Vehicle;
 /**
  * Avertissement d'incohérence d'un point de compteur (relevé saisi ou kilométrage d'un plein,
  * ADR 0015) avec ses points voisins : km strictement inférieur au point précédent, ou
- * strictement supérieur au point suivant (comparaison sur les dates strictes). Le point
- * incohérent reste stocké mais est ignoré par le calcul de distance (OdometerCalculator).
+ * strictement supérieur au point suivant (comparaison sur les dates strictes). Le point reste
+ * stocké ; le calcul de distance (OdometerCalculator) garde la plus longue suite croissante,
+ * donc écarte ce point ou son voisin aberrant.
  */
 final class OdometerCoherence
 {
@@ -34,7 +35,7 @@ final class OdometerCoherence
             || (null !== $next && $km > $next['km']);
 
         return $incoherent
-            ? 'Kilométrage incohérent avec les points voisins (décroissant avec la date) : il sera ignoré par le calcul de distance.'
+            ? 'Kilométrage incohérent avec les points voisins (décroissant avec la date) : ce point ou son voisin aberrant sera ignoré par le calcul de distance.'
             : null;
     }
 }
