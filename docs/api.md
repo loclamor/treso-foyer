@@ -3,7 +3,7 @@
 Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (Vue, `assets/src/api/`).
 
 ## Conventions
-- Préfixe `/api`, JSON uniquement (`Content-Type: application/json` exigé sur `POST`/`PATCH`/`PUT`/`DELETE` avec corps, sauf upload `multipart/form-data` de `/api/imports`). Une requête d'écriture sans ce type ⇒ `415`.
+- Préfixe `/api`, JSON uniquement (`Content-Type: application/json` exigé sur `POST`/`PATCH`/`PUT`/`DELETE` avec corps, sauf upload `multipart/form-data` de `/api/imports`). Une requête d'écriture sans ce type ⇒ `415`. Toute écriture (`POST`/`PATCH`/`PUT`/`DELETE`, login compris) exige aussi l'en-tête `X-Requested-With: XMLHttpRequest` (anti-CSRF : force le preflight CORS) ; absent ⇒ `403 missing_requested_with`.
 - **Montants en centimes** (entiers signés, négatif = débit). **Dates** `YYYY-MM-DD`, horodatages ISO 8601.
 - Authentification par **session/cookie** (même origine, `SameSite=Lax`). Non connecté ⇒ `401 {"error":"unauthenticated"}`.
 - Erreurs : `{"error": "<code>", "message": "<texte FR>", "violations"?: [{"field","message"}]}` avec `400` (requête invalide), `404`, `409` (conflit), `422` (validation).

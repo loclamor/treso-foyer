@@ -4,7 +4,8 @@ import axios from 'axios';
 const http = axios.create({
     baseURL: '/api',
     withCredentials: true,
-    headers: { Accept: 'application/json' },
+    // X-Requested-With : exigé par l'API sur les écritures (anti-CSRF, voir JsonContentTypeListener).
+    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
 });
 
 // Handler 401 injecté par le router (évite un import circulaire http → router).

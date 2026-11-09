@@ -76,6 +76,21 @@ final class AuthApiTest extends ApiTestCase
         self::assertSame('unsupported_media_type', $this->decode($client->getResponse())['error']);
     }
 
+    public function testWriteWithoutRequestedWithHeaderIsForbidden(): void
+    {
+        $client = $this->client();
+        // Requête « simple » (sans corps, sans en-tête personnalisé) : ce qu'une page d'un autre
+        // site pourrait envoyer avec le cookie de session.
+        $client->setServerParameter('HTTP_X_REQUESTED_WITH', '');
+        $client->request('POST', '/api/transfers/confirm-all');
+        self::assertSame(Response::HTTP_FORBIDDEN, $client->getResponse()->getStatusCode());
+        self::assertSame('missing_requested_with', $this->decode($client->getResponse())['error']);
+
+        // Les lectures ne sont pas concernées.
+        $client->request('GET', '/api/operations');
+        self::assertSame(Response::HTTP_OK, $client->getResponse()->getStatusCode());
+    }
+
     public function testInvalidJsonBodyReturns400(): void
     {
         $client = $this->client();

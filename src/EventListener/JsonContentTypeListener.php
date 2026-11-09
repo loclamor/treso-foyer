@@ -15,6 +15,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * Exige Content-Type: application/json sur les écritures /api avec corps
  * (POST/PATCH/PUT/DELETE), sauf l'upload multipart de POST /api/imports ⇒ sinon 415.
  */
+/**
+ * Écritures sur /api :
+ * - en-tête `X-Requested-With: XMLHttpRequest` obligatoire (anti-CSRF) : il rend toute requête
+ *   « non simple », donc soumise au preflight CORS, refusé faute de configuration CORS. Sans lui,
+ *   un POST sans corps ou multipart depuis une autre page du même site (ex. un autre port de
+ *   localhost, que SameSite=Lax laisse passer) partirait avec le cookie de session ;
+ * - corps non vide ⇒ `Content-Type: application/json` (sauf upload multipart de /api/imports).
+ */
 final class JsonContentTypeListener implements EventSubscriberInterface
 {
     private const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
@@ -35,6 +43,14 @@ final class JsonContentTypeListener implements EventSubscriberInterface
             return;
         }
         if (!in_array($request->getMethod(), self::WRITE_METHODS, true)) {
+            return;
+        }
+        if ('XMLHttpRequest' !== $request->headers->get('X-Requested-With')) {
+            $event->setResponse(new JsonResponse(
+                ['error' => 'missing_requested_with', 'message' => 'En-tête X-Requested-With: XMLHttpRequest exigé.'],
+                Response::HTTP_FORBIDDEN,
+            ));
+
             return;
         }
         if ('' === trim($request->getContent())) {

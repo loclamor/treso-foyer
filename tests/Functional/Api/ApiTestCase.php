@@ -38,6 +38,8 @@ abstract class ApiTestCase extends WebTestCase
     {
         // createClient() amorce le noyau (un seul client par test).
         $this->testClient = static::createClient();
+        // Comme le front (axios) : exigé sur les écritures /api (JsonContentTypeListener).
+        $this->testClient->setServerParameter('HTTP_X_REQUESTED_WITH', 'XMLHttpRequest');
         $entityManager = $this->em();
 
         $this->household = new Household('Foyer test');
