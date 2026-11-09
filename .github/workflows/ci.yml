@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP (PHPUnit + PHPStan)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: banque
+          POSTGRES_PASSWORD: banque
+          POSTGRES_DB: banque
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U banque"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Base de test = banque_test (suffixe ajouté par la config Doctrine en env test).
+      DATABASE_URL: postgresql://banque:banque@127.0.0.1:5432/banque?serverVersion=17&charset=utf8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: intl, pdo_pgsql, apcu, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Dépendances Composer
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Base de test
+        run: |
+          php bin/console doctrine:database:create --env=test --if-not-exists
+          php bin/console doctrine:migrations:migrate --env=test --no-interaction
+
+      - name: PHPUnit
+        run: php bin/phpunit
+
+      - name: PHPStan
+        env:
+          # Conteneur dev compilé pour phpstan-symfony ; pepper factice (la valeur versionnée est refusée).
+          ACCOUNT_NUMBER_PEPPER: ci-only-pepper
+        run: |
+          php bin/console cache:warmup --env=dev
+          vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+
+  front:
+    name: Front (ESLint + Vitest + build)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: assets/package-lock.json
+
+      - name: Dépendances npm
+        run: npm ci --no-fund --no-audit
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: Vitest
+        run: npx vitest run
+
+      - name: Build Vite
+        run: npx vite build
+
+  tools:
+    name: Outils Python
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tests de tools/
+        run: python3 -I -m unittest discover -s tools -p 'test_*.py'

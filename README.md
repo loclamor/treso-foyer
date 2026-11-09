@@ -1,5 +1,7 @@
 # Treso Foyer — suivi des dépenses du foyer
 
+[![CI](https://github.com/loclamor/treso-foyer/actions/workflows/ci.yml/badge.svg)](https://github.com/loclamor/treso-foyer/actions/workflows/ci.yml)
+
 Application personnelle de suivi des dépenses à partir des relevés La Banque Postale (PDF et CSV) :
 import sans doublons, catégorisation (règles + apprentissage), statistiques, récurrences, budgets, prévisions.
 Plusieurs comptes (perso ×2 + commun) consolidés au niveau du foyer.
