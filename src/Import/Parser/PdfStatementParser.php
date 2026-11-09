@@ -172,10 +172,19 @@ final class PdfStatementParser implements StatementParserInterface
             }
             if (str_starts_with($trimmed, 'Total des opérations')) {
                 $close();
-                // « Total des opérations   <total débits>   <total crédits> » : ordre fixe.
-                if (preg_match_all('/'.self::MONTANT.'/u', $line, $mm)) {
-                    $totalDebits = Money::parse($mm[0][0]);
-                    $totalCredits = isset($mm[0][1]) ? Money::parse($mm[0][1]) : null;
+                // « Total des opérations   <total débits>   <total crédits> » : ordre fixe. Un seul
+                // montant (relevé sans débit ou sans crédit) : sa colonne dit lequel des deux.
+                if (preg_match_all('/'.self::MONTANT.'/u', $line, $mm, PREG_OFFSET_CAPTURE)) {
+                    $first = $mm[0][0];
+                    $onlyCredits = !isset($mm[0][1]) && null !== $debitEnd && null !== $creditEnd
+                        && !$this->isDebitColumn(self::charOffset($line, $first[1]) + mb_strlen($first[0]), $debitEnd, $creditEnd);
+                    if ($onlyCredits) {
+                        $totalDebits = 0;
+                        $totalCredits = Money::parse($first[0]);
+                    } else {
+                        $totalDebits = Money::parse($first[0]);
+                        $totalCredits = isset($mm[0][1]) ? Money::parse($mm[0][1][0]) : null;
+                    }
                 }
                 continue;
             }

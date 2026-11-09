@@ -127,6 +127,16 @@ final class PdfStatementParserTest extends TestCase
         self::assertSame(235000, $statement->operations[2]->amount);
     }
 
+    public function testTotalAvecSeulementDesCredits(): void
+    {
+        // « Total des opérations » à un seul montant, en colonne Crédit : aucun débit sur le relevé.
+        $statement = $this->parser()->parseText($this->fixture('releve-credits-seuls.txt'));
+
+        self::assertCount(1, $statement->operations);
+        self::assertSame(235000, $statement->operations[0]->amount);
+        self::assertSame(285000, $statement->closingBalance);
+    }
+
     public function testSoldeAEgaleDistanceDesColonnesEstUnCredit(): void
     {
         // Régression (relevé réel de septembre 2018, compte commun) : le montant de l'ancien solde finit

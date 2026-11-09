@@ -1,0 +1,28 @@
+Relevé de votre CCP - n° 1                                                          Relevé édité le 13 janvier 2027
+> Périodicité mensuelle
+
+           M. CLIENT FICTIF
+           1 RUE DE L'EXEMPLE
+           00000 VILLE FICTIVE
+
+   IBAN : FR00 2004 1000 0112 3456 7R99 999 | BIC : PSSTFRPPXXX
+   Votre nouveau solde au 12/01/2027                                                   + 2 850,00 ¤
+
+  Vos opérations
+   Date        Opération                                                                                                Débit (¤)            Crédit (¤)
+
+                                                                    Ancien solde au 12/12/2026                                                   500,00
+La Banque Postale - S.A. à Directoire et Conseil de Surveillance. Capital social 0 000 000 000 ¤. 115 rue de Sèvres 75275 Paris Cedex 06.
+RCS Paris 000 000 000. ORIAS n° 00 000 000.
+                                                                                                                                          Page 1/2
+
+
+Vos opérations CCP n° 12 345 67 R 999 (suite)
+Date    Opération                                                                          Débit (¤)         Crédit (¤)
+05/01   VIREMENT DE EMPLOYEUR FICTIF SA                                                                        2 350,00
+        SALAIRE DECEMBRE REFERENCE : 0000000000000000
+
+                                                                Total des opérations                           2 350,00
+                                                   Nouveau solde au 12/01/2027                                 2 850,00
+
+Il vous est conseillé de conserver ce relevé.                                                     Page 2/2
