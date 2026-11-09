@@ -95,7 +95,7 @@ onMounted(load);
                         <p class="text-muted">Glissez-déposez des relevés <strong>PDF</strong> ou <strong>CSV</strong> ici (20 Mo max par fichier), ou cliquez sur « Choisir des fichiers ».</p>
                     </template>
                 </FileUpload>
-                <p v-if="uploading" class="text-muted upload-progress"><i class="pi pi-spin pi-spinner" aria-hidden="true" /> Envoi en cours…</p>
+                <p v-if="uploading" class="text-muted upload-progress" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true" /> Envoi en cours…</p>
             </template>
         </Card>
 

@@ -48,7 +48,7 @@ async function submit() {
                     <div class="field">
                         <label for="login-password">Mot de passe</label>
                         <Password
-                            id="login-password"
+                            input-id="login-password"
                             v-model="password"
                             :feedback="false"
                             toggle-mask
