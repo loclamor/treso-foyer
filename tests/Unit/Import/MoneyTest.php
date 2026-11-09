@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Import;
 
+use App\Import\Exception\ParseException;
 use App\Import\Money;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -31,7 +32,7 @@ final class MoneyTest extends TestCase
     #[DataProvider('provideInvalid')]
     public function testParseInvalide(string $invalid): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(ParseException::class);
         Money::parse($invalid);
     }
 

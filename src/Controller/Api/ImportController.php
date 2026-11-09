@@ -11,11 +11,13 @@ use App\Api\Presenter\ImportBatchPresenter;
 use App\Entity\ImportBatch;
 use App\Entity\Member;
 use App\Import\Exception\NotAnAccountStatementException;
+use App\Import\ImportFailure;
 use App\Import\Model\ImportOptions;
 use App\Import\Model\ImportReport;
 use App\Import\PostImportProcessor;
 use App\Import\StatementImporter;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -76,6 +78,7 @@ final class ImportController extends AbstractController
         StatementImporter $importer,
         PostImportProcessor $postImportProcessor,
         AccountPresenter $accountPresenter,
+        LoggerInterface $logger,
         #[Autowire('%app.uploads_dir%')] string $uploadsDir,
     ): JsonResponse {
         $user = $this->getUser();
@@ -97,7 +100,7 @@ final class ImportController extends AbstractController
         $reports = [];
         $addedOrEnriched = 0;
         foreach ($files as $file) {
-            $report = $this->importOne($file, $uploadsDir, $importer, $entityManager, $user, $accountPresenter);
+            $report = $this->importOne($file, $uploadsDir, $importer, $entityManager, $user, $accountPresenter, $logger);
             $reports[] = $report['payload'];
             $addedOrEnriched += $report['added'] + $report['enriched'];
         }
@@ -113,8 +116,9 @@ final class ImportController extends AbstractController
                     'vehiclesAssigned' => $result->vehiclesAssigned(),
                     'recurrences' => $result->recurrences->toArray(),
                 ];
-            } catch (\Throwable) {
+            } catch (\Throwable $exception) {
                 // Un échec du post-traitement ne fait pas échouer l'import déjà réussi.
+                $logger->error('Échec du post-traitement des imports', ['exception' => $exception]);
             }
         }
 
@@ -124,7 +128,7 @@ final class ImportController extends AbstractController
     /**
      * @return array{payload: array<string, mixed>, added: int, enriched: int}
      */
-    private function importOne(mixed $file, string $uploadsDir, StatementImporter $importer, EntityManagerInterface $entityManager, Member $user, AccountPresenter $accountPresenter): array
+    private function importOne(mixed $file, string $uploadsDir, StatementImporter $importer, EntityManagerInterface $entityManager, Member $user, AccountPresenter $accountPresenter, LoggerInterface $logger): array
     {
         $result = static fn (array $payload, int $added = 0, int $enriched = 0): array => ['added' => $added, 'enriched' => $enriched, 'payload' => $payload];
         if (!$file instanceof UploadedFile) {
@@ -160,7 +164,11 @@ final class ImportController extends AbstractController
         } catch (NotAnAccountStatementException) {
             return $result($this->reportPayload(filename: $filename, status: 'ignored'));
         } catch (\Throwable $exception) {
-            return $result($this->reportPayload(filename: $filename, status: 'failed', error: $exception->getMessage()));
+            if (!ImportFailure::isExpected($exception)) {
+                $logger->error('Échec inattendu de l\'import de {file}', ['file' => $filename, 'exception' => $exception]);
+            }
+
+            return $result($this->reportPayload(filename: $filename, status: 'failed', error: ImportFailure::publicMessage($exception)));
         }
 
         $batch = $entityManager->getRepository(ImportBatch::class)->findOneBy(['sha256' => $sha256]);

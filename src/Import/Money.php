@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Import;
 
+use App\Import\Exception\ParseException;
+
 /**
  * Conversion montants texte <-> centimes (entiers), sans jamais passer par un float
  * (voir docs/adr/0004-montants-en-centimes.md).
@@ -19,7 +21,7 @@ final class Money
     /**
      * Parse un montant texte en centimes.
      *
-     * @throws \InvalidArgumentException si le format est invalide
+     * @throws ParseException si le format est invalide
      */
     public static function parse(string $text): int
     {
@@ -28,7 +30,7 @@ final class Money
         $clean = str_replace(',', '.', $clean);
 
         if (!preg_match('/^([+-]?)(\d+)(?:\.(\d{1,2}))?$/', $clean, $m)) {
-            throw new \InvalidArgumentException(sprintf('Montant invalide : « %s » (forme attendue : -1 234,56).', trim($text)));
+            throw new ParseException(sprintf('Montant invalide : « %s » (forme attendue : -1 234,56).', trim($text)));
         }
 
         $sign = '-' === $m[1] ? -1 : 1;

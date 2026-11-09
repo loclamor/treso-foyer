@@ -23,6 +23,8 @@ use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 
 /**
@@ -42,6 +44,7 @@ final class StatementImporter
         private readonly LabelNormalizer $labelNormalizer,
         private readonly OperationFingerprinter $fingerprinter,
         private readonly CardDateExtractor $cardDateExtractor = new CardDateExtractor(),
+        private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
 
@@ -106,6 +109,7 @@ final class StatementImporter
             try {
                 $reports[] = $this->importOne($path, $relatedSha, $options, static fn (): ParsedStatement => $related);
             } catch (\Throwable $exception) {
+                $this->logUnexpected($exception, $path);
                 $reports[] = new ImportReport(
                     filename: $options->originalFilename ?? basename($path),
                     status: 'failed',
@@ -116,7 +120,7 @@ final class StatementImporter
                     added: 0,
                     skipped: 0,
                     probableDuplicates: 0,
-                    error: $exception->getMessage(),
+                    error: ImportFailure::publicMessage($exception),
                 );
             }
         }
@@ -360,6 +364,13 @@ final class StatementImporter
      * Enregistre (hors transaction courante, dans une nouvelle) un lot en échec
      * avec le message d'erreur, puis l'exception est relancée par l'appelant.
      */
+    private function logUnexpected(\Throwable $exception, string $path): void
+    {
+        if (!ImportFailure::isExpected($exception)) {
+            $this->logger->error('Échec inattendu de l\'import de {file}', ['file' => basename($path), 'exception' => $exception]);
+        }
+    }
+
     private function recordFailedBatch(string $path, string $sha256, ?\App\Entity\Account $account, \Throwable $exception): void
     {
         try {
@@ -371,7 +382,7 @@ final class StatementImporter
             if (null !== $account?->getId() && null !== $entityManager->find(\App\Entity\Account::class, $account->getId())) {
                 $batch->setAccount($entityManager->getReference(\App\Entity\Account::class, $account->getId()));
             }
-            $batch->setErrorMessage($exception->getMessage());
+            $batch->setErrorMessage(ImportFailure::publicMessage($exception));
             $entityManager->persist($batch);
             $entityManager->flush();
         } catch (\Throwable) {
