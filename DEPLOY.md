@@ -9,7 +9,8 @@ personnes de confiance différentes sans filtrage réseau (voir « Sécurité r�
 
 ## 1. Prérequis serveur
 
-- Docker + Docker Compose v2 (rien d'autre à installer : PHP 8.5 est embarqué dans l'image).
+- Docker + Docker Compose v2 (rien d'autre à installer sur le serveur : PHP 8.5, `pdftotext`
+  et Python 3 sont embarqués dans l'image).
 - Ports ouverts sur le pare-feu : **80 TCP, 443 TCP, 443 UDP** (HTTP/3).
 - Un nom de domaine avec un enregistrement DNS A/AAAA pointant sur le serveur (nécessaire pour
   le certificat HTTPS Let's Encrypt automatique de Caddy).
@@ -85,6 +86,13 @@ docker compose -f compose.yaml -f compose.prod.yaml exec php bin/console app:mem
   ```
 
   puis ajoutez `-f compose.prod.local.yaml` à toutes les commandes Compose.
+- Rangement des relevés côté serveur (l'image embarque `python3`, `pdftotext` et `tools/`) :
+
+  ```bash
+  docker compose -f compose.yaml -f compose.prod.yaml exec php python3 -I tools/ranger_releves.py            # simulation
+  docker compose -f compose.yaml -f compose.prod.yaml exec php python3 -I tools/ranger_releves.py --apply    # réel
+  ```
+
 - Sauvegarde de la base : `make backup` (dump dans `data/backups/banque-<date>.sql.gz`) —
   en prod, préfixer par les mêmes `-f` Compose. Restauration : `zcat <dump> | docker compose ... exec -T database psql -U banque banque`.
 - Planifier la sauvegarde (cron) et la rotation des dumps hors du serveur si possible.

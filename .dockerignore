@@ -35,8 +35,7 @@ vendor/
 .env.local.php
 .env.test
 
-# Données bancaires et outillage local : jamais dans une image
+# Données bancaires : jamais dans une image
 data/
-tools/
 *.pdf
 *.csv

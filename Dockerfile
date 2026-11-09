@@ -22,7 +22,8 @@ RUN <<-EOF
 	apt-get install -y --no-install-recommends \
 		file \
 		git \
-		poppler-utils
+		poppler-utils \
+		python3
 	install-php-extensions \
 		@composer \
 		apcu \
@@ -181,9 +182,9 @@ COPY --from=frankenphp_prod_builder /usr/lib/file/magic.mgc /usr/lib/file/magic.
 
 ENV  OPENSSL_CONF=/etc/ssl/openssl.cnf XDG_CONFIG_HOME=/config XDG_DATA_HOME=/data SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-# pdftotext (import des relevés PDF)
+# pdftotext (import des relevés PDF) + python3 (outil de rangement tools/ranger_releves.py)
 # hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils python3 && rm -rf /var/lib/apt/lists/*
 
 RUN <<-EOF
 	mkdir -p /data/caddy /config/caddy

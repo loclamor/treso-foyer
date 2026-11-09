@@ -7,8 +7,7 @@ Plusieurs comptes (perso ×2 + commun) consolidés au niveau du foyer.
 Choix techniques : voir [`docs/adr/`](docs/adr/README.md).
 
 ## Prérequis
-- Docker + Docker Compose v2
-- Python 3 et `pdftotext` (poppler-utils) sur l'hôte, uniquement pour l'outil de rangement des fichiers
+- Docker + Docker Compose v2 (rien d'autre sur l'hôte : PHP, PostgreSQL, `pdftotext` et Python 3 sont embarqués dans les images)
 
 ## Démarrage
 ```bash
@@ -79,7 +78,7 @@ src/, templates/, …   # application Symfony (templates/spa.html.twig = coquill
 
 ## Ajouter de nouveaux relevés
 1. Télécharger les relevés (PDF) ou exports (CSV) depuis l'espace client, les déposer dans `data/inbox/`.
-2. `make ranger` (simulation) puis `make ranger-apply`.
+2. `make ranger` (simulation) puis `make ranger-apply` — exécuté dans le conteneur `php` (`python3` + `pdftotext` embarqués, rien à installer sur l'hôte).
 3. Import dans l'application : voir « Importer des relevés » ci-dessous.
 
 ## Importer des relevés

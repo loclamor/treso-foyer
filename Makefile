@@ -72,8 +72,8 @@ npm: ## npm, ex : make npm c='install foo'
 test: ## Lance PHPUnit, ex : make test c='--filter Csv'
 	@$(PHP_CONT) env APP_ENV=test php bin/phpunit $(c)
 
-test-tools: ## Tests des outils Python (tools/)
-	@python3 -I -m unittest discover -s tools -p 'test_*.py'
+test-tools: ## Tests des outils Python (tools/, dans le conteneur php)
+	@$(PHP_CONT) python3 -I -m unittest discover -s tools -p 'test_*.py'
 
 test-front: ## Tests du front (Vitest, assets/tests/)
 	@$(DOCKER_COMP) exec node npx vitest run $(c)
@@ -88,11 +88,11 @@ eslint: ## ESLint sur le front (assets/)
 	@$(DOCKER_COMP) exec node npx eslint . $(c)
 
 ## —— Données ——————————————————————————————————————————
-ranger: ## Simulation du rangement des fichiers de data/inbox/
-	@python3 -I tools/ranger_releves.py
+ranger: ## Simulation du rangement des fichiers de data/inbox/ (dans le conteneur php)
+	@$(PHP_CONT) python3 -I tools/ranger_releves.py
 
-ranger-apply: ## Rangement réel des fichiers de data/inbox/
-	@python3 -I tools/ranger_releves.py --apply
+ranger-apply: ## Rangement réel des fichiers de data/inbox/ (dans le conteneur php)
+	@$(PHP_CONT) python3 -I tools/ranger_releves.py --apply
 
 backup: ## Sauvegarde de la base dans data/backups/
 	@mkdir -p data/backups

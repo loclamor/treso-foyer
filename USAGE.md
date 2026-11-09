@@ -26,7 +26,8 @@ Puis se connecter sur https://localhost:8543 avec son identifiant (mot de passe 
 ## 2. Premier import de relevés
 
 1. Télécharger les relevés PDF ou exports CSV depuis l'espace client La Banque Postale.
-2. Les déposer dans `data/inbox/`, puis ranger : `make ranger` (simulation) puis `make ranger-apply`.
+2. Les déposer dans `data/inbox/`, puis ranger : `make ranger` (simulation) puis `make ranger-apply`
+   (tournent dans le conteneur `php` : `python3` et `pdftotext` y sont embarqués, rien à installer sur le poste).
    Les fichiers sont déplacés dans `data/releves/<alias>/<AAAA>/…`. L'alias se règle dans `data/comptes.ini`.
 3. Importer :
 
