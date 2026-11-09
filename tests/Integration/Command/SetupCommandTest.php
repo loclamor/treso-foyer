@@ -76,9 +76,30 @@ final class SetupCommandTest extends KernelTestCase
         self::assertSame([
             'Transport › Assurance auto',
             'Transport › Carburant',
+            'Transport › Crédit véhicule',
             'Transport › Entretien véhicule',
             'Transport › Péages & parking',
         ], $flagged);
+    }
+
+    public function testCreditVehiculeCategoryIsFlaggedFinancing(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+
+        $setup = $container->get(SetupCommand::class);
+        (new CommandTester($setup))->execute([]);
+
+        $entityManager = $container->get(EntityManagerInterface::class);
+        $financingFlagged = [];
+        foreach ($entityManager->getRepository(Category::class)->findAll() as $category) {
+            if ($category->isFinancing()) {
+                $financingFlagged[] = $category->getFullName();
+            }
+        }
+
+        // Seule « Transport › Crédit véhicule » porte le flag financing (ADR 0011).
+        self::assertSame(['Transport › Crédit véhicule'], $financingFlagged);
     }
 
     public function testCarburantCategoryIsFlaggedFuel(): void

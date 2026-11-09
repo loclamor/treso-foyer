@@ -63,6 +63,13 @@ class Category
     #[ORM\Column(options: ['default' => false])]
     private bool $fuel = false;
 
+    /**
+     * Poste de financement d'un véhicule (crédit, LOA…) : rattaché au véhicule mais exclu du
+     * coût d'usage (coût au km d'usage, ADR 0011).
+     */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $financing = false;
+
     /** Emplacement 1-8 sur le graphique (racines de dépense uniquement, unique par foyer). */
     #[ORM\Column(nullable: true)]
     private ?int $chartSlot = null;
@@ -237,6 +244,18 @@ class Category
     public function setFuel(bool $fuel): static
     {
         $this->fuel = $fuel;
+
+        return $this;
+    }
+
+    public function isFinancing(): bool
+    {
+        return $this->financing;
+    }
+
+    public function setFinancing(bool $financing): static
+    {
+        $this->financing = $financing;
 
         return $this;
     }

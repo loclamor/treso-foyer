@@ -612,6 +612,8 @@ const vehicleRows = computed(() =>
         monthlyAverage: v.monthlyAverage,
         km: v.distance ? Math.round(v.distance.km) : null,
         costPerKm: v.costPerKm,
+        costPerKmTotal: v.costPerKmTotal,
+        financingTotal: v.financingTotal ?? 0,
     })),
 );
 
@@ -627,8 +629,10 @@ const vehiclesOption = computed(() => {
             formatter: (params) => {
                 const p = Array.isArray(params) ? params[0] : params;
                 const row = rows[p.dataIndex];
-                const cost = row?.costPerKm != null ? `<br/>Coût au km : <strong>${formatMoney(row.costPerKm)}/km</strong>` : '';
-                return `${p.name}<br/>Total : <strong>${formatMoney(p.value)}</strong> (${row?.count ?? 0} op.)${cost}`;
+                const financing = row?.financingTotal > 0 ? `<br/>dont financement : <strong>${formatMoney(row.financingTotal)}</strong>` : '';
+                const cost = row?.costPerKm != null ? `<br/>Coût d'usage au km : <strong>${formatMoney(row.costPerKm)}/km</strong>` : '';
+                const costTotal = row?.financingTotal > 0 && row?.costPerKmTotal != null ? `<br/>Coût total au km : <strong>${formatMoney(row.costPerKmTotal)}/km</strong>` : '';
+                return `${p.name}<br/>Total : <strong>${formatMoney(p.value)}</strong> (${row?.count ?? 0} op.)${financing}${cost}${costTotal}`;
             },
         },
         grid: baseGrid({ left: 8, right: 16, top: 8, bottom: 8 }),
@@ -770,8 +774,14 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                         <Column field="km" header="Km" class="text-right">
                             <template #body="{ data }">{{ data.km != null ? data.km.toLocaleString('fr-FR') : '—' }}</template>
                         </Column>
-                        <Column field="costPerKm" header="Coût/km" class="text-right">
+                        <Column field="financingTotal" header="Dont financement" class="text-right">
+                            <template #body="{ data }">{{ data.financingTotal > 0 ? formatMoney(data.financingTotal) : '—' }}</template>
+                        </Column>
+                        <Column field="costPerKm" header="Coût d'usage/km" class="text-right">
                             <template #body="{ data }">{{ data.costPerKm != null ? `${formatMoney(data.costPerKm)}/km` : '—' }}</template>
+                        </Column>
+                        <Column field="costPerKmTotal" header="Coût total/km" class="text-right">
+                            <template #body="{ data }">{{ data.costPerKmTotal != null ? `${formatMoney(data.costPerKmTotal)}/km` : '—' }}</template>
                         </Column>
                         <Column field="count" header="Nb opérations" class="text-right">
                             <template #body="{ data }">{{ data.count.toLocaleString('fr-FR') }}</template>

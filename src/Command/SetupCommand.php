@@ -75,6 +75,7 @@ final class SetupCommand extends Command
                     $child->setPosition($childPosition);
                     $child->setVehicleRelated(DefaultCategories::isVehicleRelated($rootData['name'], $childName));
                     $child->setFuel(DefaultCategories::isFuel($rootData['name'], $childName));
+                    $child->setFinancing(DefaultCategories::isFinancing($rootData['name'], $childName));
                     $this->entityManager->persist($child);
                     ++$createdCount;
                 }

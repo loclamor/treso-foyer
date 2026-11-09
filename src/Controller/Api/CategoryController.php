@@ -74,6 +74,7 @@ final class CategoryController extends AbstractController
         $category->setIcon($input->icon);
         $category->setVehicleRelated($input->vehicleRelated ?? false);
         $category->setFuel($input->fuel ?? false);
+        $category->setFinancing($input->financing ?? false);
         // Position : après les frères et sœurs existants.
         $siblings = $entityManager->getRepository(Category::class)->findBy(['household' => $household, 'parent' => $parent]);
         $category->setPosition(array_reduce($siblings, static fn (int $carry, Category $c): int => max($carry, $c->getPosition() + 1), 0));
@@ -129,6 +130,10 @@ final class CategoryController extends AbstractController
         // fuel : même traitement que vehicleRelated, mais sans resynchronisation de l'axe véhicule.
         if (null !== $input->fuel) {
             $category->setFuel($input->fuel);
+        }
+        // financing : simple drapeau de restitution (stats véhicule), sans resynchronisation.
+        if (null !== $input->financing) {
+            $category->setFinancing($input->financing);
         }
         if (null !== $input->parentId) {
             $parent = $this->find($entityManager, $household, $input->parentId);

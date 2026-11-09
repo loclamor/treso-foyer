@@ -625,10 +625,11 @@ final class StatsRepository
     /**
      * Dépenses par véhicule sur la période (même convention de signe que `categories` :
      * total positif = somme de -amount, kind « expense » uniquement, virements internes exclus)
-     * + non affectées (catégories vehicleRelated sans véhicule).
+     * + non affectées (catégories vehicleRelated sans véhicule). `financingTotal` : part des
+     * catégories `financing` (crédit…), exclue du coût d'usage (ADR 0011).
      *
      * @param list<int>|null $accountIds
-     * @return array{vehicles: list<array{vehicleId: int, total: int, count: int, byCategory: list<array{categoryId: ?int, total: int, count: int}>}>, unassigned: array{total: int, count: int}}
+     * @return array{vehicles: list<array{vehicleId: int, total: int, financingTotal: int, count: int, byCategory: list<array{categoryId: ?int, total: int, count: int}>}>, unassigned: array{total: int, count: int}}
      */
     public function vehicles(Household $household, ?array $accountIds, StatsPeriod $period): array
     {
@@ -639,7 +640,8 @@ final class StatsRepository
         // Totaux par véhicule (tri total desc).
         $vehicleRows = $this->connection()->fetchAllAssociative(
             $cte."\n"
-            ."SELECT o.vehicle_id AS vehicle_id, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total\n"
+            ."SELECT o.vehicle_id AS vehicle_id, COUNT(*) AS cnt, COALESCE(SUM(-o.amount), 0) AS total,\n"
+            ."       COALESCE(SUM(-o.amount) FILTER (WHERE c.financing), 0) AS financing_total\n"
             .$this->fromWhere($accountIds)."\n"
             ."$expense AND o.vehicle_id IS NOT NULL\n"
             ."GROUP BY 1\n"
@@ -684,6 +686,7 @@ final class StatsRepository
             $vehicles[] = [
                 'vehicleId' => $vehicleId,
                 'total' => (int) $row['total'],
+                'financingTotal' => (int) $row['financing_total'],
                 'count' => (int) $row['cnt'],
                 'byCategory' => $byCategory[$vehicleId] ?? [],
             ];
@@ -698,11 +701,13 @@ final class StatsRepository
     /**
      * Dépense d'un véhicule (même convention que vehicles() : total positif = somme de
      * -amount, kind « expense » uniquement, virements internes exclus) restreinte à
-     * [from, to], périmètre comptes inclus. Utilisée pour le coût au km (lot 4).
+     * [from, to], périmètre comptes inclus, séparée en usage / financement (catégories
+     * `financing`, ADR 0011). Utilisée pour le coût au km (lot 4).
      *
      * @param list<int>|null $accountIds
+     * @return array{usage: int, financing: int}
      */
-    public function vehicleExpenseBetween(Household $household, ?array $accountIds, int $vehicleId, \DateTimeImmutable $from, \DateTimeImmutable $to): int
+    public function vehicleExpenseBetween(Household $household, ?array $accountIds, int $vehicleId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
         [$cte, $params, $types] = $this->base($household, $accountIds, new StatsPeriod($from, $to));
         $kind = AmountClassifier::kindExpr();
@@ -711,14 +716,15 @@ final class StatsRepository
 
         $row = $this->connection()->fetchAssociative(
             $cte."\n"
-            ."SELECT COALESCE(SUM(-o.amount), 0) AS total\n"
+            ."SELECT COALESCE(SUM(-o.amount) FILTER (WHERE c.financing IS NOT TRUE), 0) AS usage_total,\n"
+            ."       COALESCE(SUM(-o.amount) FILTER (WHERE c.financing), 0) AS financing_total\n"
             .$this->fromWhere($accountIds)."\n"
             ."AND $kind = '".AmountClassifier::EXPENSE."' AND o.vehicle_id = :vehicleId",
             $params,
             $types,
         );
 
-        return (int) $row['total'];
+        return ['usage' => (int) $row['usage_total'], 'financing' => (int) $row['financing_total']];
     }
 
     private function connection(): Connection

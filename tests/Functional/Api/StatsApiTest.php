@@ -628,6 +628,57 @@ final class StatsApiTest extends ApiTestCase
         self::assertEqualsWithDelta(3000.0, $row['distance']['km'], 1e-9);
         // coût au km : seule la vidange (3000 c) tombe dans [coveredFrom, coveredTo] ⇒ 3000 / 3000 = 1.0.
         self::assertEqualsWithDelta(1.0, $row['costPerKm'], 1e-9);
+        // Pas de financement : coût total = coût d'usage.
+        self::assertSame(0, $row['financingTotal']);
+        self::assertSame(15000, $row['usageTotal']);
+        self::assertEqualsWithDelta(1.0, $row['costPerKmTotal'], 1e-9);
+    }
+
+    public function testVehiclesFinancingExcludedFromUsageCostPerKm(): void
+    {
+        $vehicle = new \App\Entity\Vehicle($this->household, 'Sharan', \App\Enum\VehicleType::Car);
+        $this->em()->persist($vehicle);
+        $carburant = $this->category('Transport › Carburant');
+        $credit = $this->category('Transport › Crédit véhicule');
+        $this->em()->flush();
+
+        // Relevés : 20 000 km le 01/01, 22 000 km le 31/03 ⇒ 2000 km sur toute la période.
+        $managed = $this->em()->find(\App\Entity\Vehicle::class, (int) $vehicle->getId());
+        $this->em()->persist(new \App\Entity\OdometerReading($managed, new \DateTimeImmutable('2026-01-01'), 20000));
+        $this->em()->persist(new \App\Entity\OdometerReading($managed, new \DateTimeImmutable('2026-03-31'), 22000));
+
+        // Usage : 2 pleins (6000 + 4000 c) ; financement : 3 mensualités de 30 000 c.
+        foreach ([['2026-01-15', -6000], ['2026-02-15', -4000]] as [$date, $amount]) {
+            $this->addOperation($this->account, $date, $amount, 'ESSENCE', 'STATION', $carburant, CategorizationSource::Manual)
+                ->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        }
+        foreach (['2026-01-05', '2026-02-05', '2026-03-05'] as $date) {
+            $this->addOperation($this->account, $date, -30000, 'PRLV CREDIT AUTO', 'BANQUE', $credit, CategorizationSource::Manual)
+                ->assignVehicle($managed, \App\Enum\VehicleSource::Manual);
+        }
+        $this->em()->flush();
+
+        $client = $this->client();
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/vehicles?from=2026-01-01&to=2026-03-31'));
+
+        self::assertCount(1, $data['vehicles']);
+        $row = $data['vehicles'][0];
+        self::assertSame(100000, $row['total']);
+        self::assertSame(90000, $row['financingTotal']);
+        self::assertSame(10000, $row['usageTotal']);
+        self::assertSame(5, $row['count']);
+        // 3 mois : moyenne totale 100000/3, usage 10000/3.
+        self::assertSame(33333, $row['monthlyAverage']);
+        self::assertSame(3333, $row['usageMonthlyAverage']);
+        // Coût d'usage au km = 10000 / 2000 = 5.0 c/km ; total = 100000 / 2000 = 50.0 c/km.
+        self::assertEqualsWithDelta(5.0, $row['costPerKm'], 1e-9);
+        self::assertEqualsWithDelta(50.0, $row['costPerKmTotal'], 1e-9);
+        // Le détail par catégorie garde la mensualité (financement visible dans le donut).
+        $byCategory = [];
+        foreach ($row['byCategory'] as $entry) {
+            $byCategory[$entry['category']['id']] = $entry['total'];
+        }
+        self::assertSame(90000, $byCategory[(int) $credit->getId()]);
     }
 
     public function testVehiclesDistanceInterpolatedBoundsAndNullCases(): void

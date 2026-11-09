@@ -25,10 +25,14 @@ final class DefaultCategories
         'Entretien véhicule',
         'Assurance auto',
         'Péages & parking',
+        'Crédit véhicule',
     ];
 
     /** Sous-catégorie « Carburant » de « Transport » : poste carburant (champs du plein, ADR 0015). */
     public const FUEL_CHILD = 'Carburant';
+
+    /** Sous-catégorie « Crédit véhicule » de « Transport » : poste de financement, hors coût d'usage (ADR 0011). */
+    public const FINANCING_CHILD = 'Crédit véhicule';
 
     /**
      * @var list<array{name: string, kind: CategoryKind, icon: string, color: string, chartSlot: ?int, children: list<string>}>
@@ -73,6 +77,7 @@ final class DefaultCategories
                 'Entretien véhicule',
                 'Assurance auto',
                 'Péages & parking',
+                'Crédit véhicule',
                 'Transports en commun',
                 'Train & avion',
             ],
@@ -250,5 +255,11 @@ final class DefaultCategories
     public static function isFuel(string $rootName, string $childName): bool
     {
         return self::TRANSPORT_ROOT === $rootName && self::FUEL_CHILD === $childName;
+    }
+
+    /** Vrai si la sous-catégorie est le poste de financement (« Transport › Crédit véhicule », ADR 0011). */
+    public static function isFinancing(string $rootName, string $childName): bool
+    {
+        return self::TRANSPORT_ROOT === $rootName && self::FINANCING_CHILD === $childName;
     }
 }

@@ -79,7 +79,8 @@ export async function getCategoryTrend(scopeParams, range, categoryId) {
     return data;
 }
 
-// {vehicles: [{vehicle, total, count, monthlyAverage, byCategory, distance, costPerKm}], unassigned: {total, count}}
+// {vehicles: [{vehicle, total, usageTotal, financingTotal, count, monthlyAverage, usageMonthlyAverage, byCategory, distance, costPerKm, costPerKmTotal}], unassigned: {total, count}}
+// costPerKm = usage seul (hors catégories financing, ADR 0011), costPerKmTotal = usage + financement.
 // (lot 4) — véhicules ayant au moins une dépense sur la période, triés par total desc.
 export async function getVehiclesStats(scopeParams, range) {
     const { data } = await http.get('/stats/vehicles', { params: buildParams(scopeParams, range) });

@@ -124,4 +124,39 @@ final class CategoryApiTest extends ApiTestCase
         self::assertNotNull($found);
         self::assertTrue($found['vehicleRelated']); // Carburant est vehicleRelated par défaut
     }
+
+    public function testFinancingFlagCreateAndPatch(): void
+    {
+        $transport = $this->category('Transport');
+        $client = $this->client();
+
+        // Création avec le flag (catégorie de LOA personnalisée).
+        $response = $this->json($client, 'POST', '/api/categories', ['name' => 'LOA', 'kind' => 'expense', 'parentId' => (int) $transport->getId(), 'vehicleRelated' => true, 'financing' => true]);
+        self::assertSame(Response::HTTP_CREATED, $response->getStatusCode());
+        $created = $this->decode($response);
+        self::assertTrue($created['financing']);
+
+        // PATCH false ⇒ flag retiré ; type invalide ⇒ 422.
+        $response = $this->json($client, 'PATCH', '/api/categories/'.(int) $created['id'], ['financing' => false]);
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertFalse($this->decode($response)['financing']);
+        $response = $this->json($client, 'PATCH', '/api/categories/'.(int) $created['id'], ['financing' => 'oui']);
+        self::assertSame(Response::HTTP_UNPROCESSABLE_ENTITY, $response->getStatusCode());
+
+        // « Transport › Crédit véhicule » est un poste de financement par défaut.
+        $tree = $this->decode($this->json($client, 'GET', '/api/categories'));
+        $found = null;
+        foreach ($tree as $root) {
+            if ('Transport' === $root['name']) {
+                foreach ($root['children'] as $child) {
+                    if ('Crédit véhicule' === $child['name']) {
+                        $found = $child;
+                    }
+                }
+            }
+        }
+        self::assertNotNull($found);
+        self::assertTrue($found['financing']);
+        self::assertTrue($found['vehicleRelated']);
+    }
 }

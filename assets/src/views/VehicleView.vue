@@ -45,7 +45,7 @@ const vehicle = computed(() => vehiclesStore.list.find((v) => v.id === vehicleId
 const notFound = ref(false);
 
 // ---------- stats du véhicule sur la période (KPIs + donut) ----------
-const vehicleStats = ref(null); // entrée {vehicle, total, count, monthlyAverage, byCategory, distance, costPerKm}
+const vehicleStats = ref(null); // entrée {vehicle, total, usageTotal, financingTotal, count, monthlyAverage, usageMonthlyAverage, byCategory, distance, costPerKm, costPerKmTotal}
 const loadingStats = ref(false);
 const statsError = ref('');
 
@@ -67,16 +67,19 @@ const kpis = computed(() => {
     const vs = vehicleStats.value;
     if (!vs) return [];
     const km = vs.distance ? Math.round(vs.distance.km).toLocaleString('fr-FR') + ' km' : '—';
-    return [
+    // Financement (crédit…, ADR 0011) : rattaché au véhicule mais hors coût d'usage.
+    const hasFinancing = (vs.financingTotal ?? 0) > 0;
+    const ops = `${vs.count.toLocaleString('fr-FR')} opération(s) sur la période`;
+    const tiles = [
         {
             label: 'Total dépensé',
             value: formatMoney(vs.total),
-            subtext: `${vs.count.toLocaleString('fr-FR')} opération(s) sur la période`,
+            subtext: hasFinancing ? `dont ${formatMoney(vs.financingTotal)} de financement · ${ops}` : ops,
         },
         {
             label: 'Moyenne mensuelle',
             value: formatMoney(vs.monthlyAverage),
-            subtext: '',
+            subtext: hasFinancing ? `usage seul : ${formatMoney(vs.usageMonthlyAverage)}/mois` : '',
         },
         {
             label: 'Km parcourus',
@@ -84,11 +87,19 @@ const kpis = computed(() => {
             subtext: vs.distance ? `du ${formatDate(vs.distance.coveredFrom)} au ${formatDate(vs.distance.coveredTo)}` : 'moins de 2 relevés',
         },
         {
-            label: 'Coût au km',
+            label: hasFinancing ? "Coût d'usage au km" : 'Coût au km',
             value: vs.costPerKm != null ? `${formatMoney(vs.costPerKm)}/km` : '—',
-            subtext: 'dépenses de la période couverte ÷ km',
+            subtext: hasFinancing ? 'hors financement · période couverte ÷ km' : 'dépenses de la période couverte ÷ km',
         },
     ];
+    if (hasFinancing) {
+        tiles.push({
+            label: 'Coût total au km',
+            value: vs.costPerKmTotal != null ? `${formatMoney(vs.costPerKmTotal)}/km` : '—',
+            subtext: 'usage + financement · période couverte ÷ km',
+        });
+    }
+    return tiles;
 });
 
 // ---------- donut par catégorie ----------

@@ -28,6 +28,9 @@ final class CategoryCreateInput
         /** Poste carburant : affiche les champs du plein (ADR 0015). */
         #[Assert\Type(type: 'bool', message: 'fuel doit être un booléen.')]
         public readonly ?bool $fuel = null,
+        /** Poste de financement d'un véhicule : exclu du coût d'usage (ADR 0011). */
+        #[Assert\Type(type: 'bool', message: 'financing doit être un booléen.')]
+        public readonly ?bool $financing = null,
     ) {
     }
 }

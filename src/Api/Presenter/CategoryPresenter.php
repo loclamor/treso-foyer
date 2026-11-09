@@ -38,6 +38,7 @@ final class CategoryPresenter
             'archived' => $category->isArchived(),
             'vehicleRelated' => $category->isVehicleRelated(),
             'fuel' => $category->isFuel(),
+            'financing' => $category->isFinancing(),
             'parentId' => null !== $category->getParent() ? (int) $category->getParent()->getId() : null,
             'operationsCount' => $operationsCountById[$id] ?? 0,
             'children' => array_map(

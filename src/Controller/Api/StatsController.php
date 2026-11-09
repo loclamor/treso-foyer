@@ -451,19 +451,25 @@ final class StatsController extends AbstractController
                     $vehicle = $vehicleMap[$row['vehicleId']] ?? null;
 
                     // Distance parcourue sur la période (intersection avec [premier, dernier relevé],
-                    // km aux bornes interpolés) et coût au km sur [coveredFrom, coveredTo].
+                    // km aux bornes interpolés) et coût au km sur [coveredFrom, coveredTo] :
+                    // costPerKm = usage seul (hors financement, ADR 0011), costPerKmTotal = tout compris.
                     $distance = $odometerCalculator->distance($pointsByVehicle[$row['vehicleId']] ?? [], $period->from, $period->to);
                     $costPerKm = null;
+                    $costPerKmTotal = null;
                     if (null !== $distance && $distance->km > 0.0) {
                         $expense = $statsRepository->vehicleExpenseBetween($household, $accountIds, (int) $row['vehicleId'], $distance->coveredFrom, $distance->coveredTo);
-                        $costPerKm = round($expense / $distance->km, 1);
+                        $costPerKm = round($expense['usage'] / $distance->km, 1);
+                        $costPerKmTotal = round(($expense['usage'] + $expense['financing']) / $distance->km, 1);
                     }
 
                     return [
                         'vehicle' => null !== $vehicle ? $vehiclePresenter->presentRef($vehicle) : null,
                         'total' => $row['total'],
+                        'usageTotal' => $row['total'] - $row['financingTotal'],
+                        'financingTotal' => $row['financingTotal'],
                         'count' => $row['count'],
                         'monthlyAverage' => $monthCount > 0 ? (int) round($row['total'] / $monthCount) : 0,
+                        'usageMonthlyAverage' => $monthCount > 0 ? (int) round(($row['total'] - $row['financingTotal']) / $monthCount) : 0,
                         'byCategory' => array_map(
                             static fn (array $entry): array => [
                                 'category' => null !== $entry['categoryId'] && isset($categories[$entry['categoryId']])
@@ -475,6 +481,7 @@ final class StatsController extends AbstractController
                         ),
                         'distance' => null !== $distance ? $distance->toArray() : null,
                         'costPerKm' => $costPerKm,
+                        'costPerKmTotal' => $costPerKmTotal,
                     ];
                 },
                 $data['vehicles'],
