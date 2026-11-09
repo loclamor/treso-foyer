@@ -24,9 +24,9 @@ final class RuleCreateInput
         public readonly ?string $pattern = null,
         #[Assert\Choice(choices: ['any', 'debit', 'credit'], message: 'direction doit être « any », « debit » ou « credit ».')]
         public readonly string $direction = 'any',
-        #[Assert\PositiveOrNull(message: 'amountMin doit être positif (centimes).')]
+        #[Assert\PositiveOrZero(message: 'amountMin doit être positif (centimes).')]
         public readonly ?int $amountMin = null,
-        #[Assert\PositiveOrNull(message: 'amountMax doit être positif (centimes).')]
+        #[Assert\PositiveOrZero(message: 'amountMax doit être positif (centimes).')]
         public readonly ?int $amountMax = null,
         #[Assert\Positive(message: 'accountId doit être un identifiant positif.')]
         public readonly ?int $accountId = null,

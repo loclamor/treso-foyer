@@ -245,6 +245,14 @@ final class OperationApiTest extends ApiTestCase
         self::assertNull($this->em()->find(Operation::class, $csv->getId()));
     }
 
+    public function testBulkVehicleWithoutIdsIsRejected(): void
+    {
+        $response = $this->json($this->client(), 'POST', '/api/operations/bulk-vehicle', ['ids' => [], 'vehicleId' => null]);
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertContains('ids', array_column($this->decode($response)['violations'], 'field'));
+    }
+
     public function testValidationErrorReturns422WithViolations(): void
     {
         $client = $this->client();

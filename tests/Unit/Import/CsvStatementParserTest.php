@@ -101,6 +101,19 @@ final class CsvStatementParserTest extends TestCase
         $this->parser->parse(self::FIXTURES.'/releve-invalide.csv');
     }
 
+    public function testSoldeIllisibleIndiqueLaLigne(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'csv_bad_').'.csv';
+        file_put_contents($tmp, "Numéro Compte   ;1234567R999\nSolde (EUROS)   ;abc\nDate;Libellé;Montant(EUROS)\n");
+        try {
+            $this->expectException(ParseException::class);
+            $this->expectExceptionMessage('Ligne 2 : solde illisible.');
+            $this->parser->parse($tmp);
+        } finally {
+            unlink($tmp);
+        }
+    }
+
     public function testParseSansNumeroCompte(): void
     {
         $tmp = tempnam(sys_get_temp_dir(), 'csv_bad_').'.csv';

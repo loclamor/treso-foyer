@@ -77,6 +77,21 @@ final class RuleApiTest extends ApiTestCase
         self::assertNull($reloaded?->getAppliedRule());
     }
 
+    public function testNegativeAmountBoundsAreRejected(): void
+    {
+        $courses = $this->category('Alimentation › Courses');
+        $response = $this->json($this->client(), 'POST', '/api/rules', [
+            'categoryId' => (int) $courses->getId(),
+            'matchField' => 'label',
+            'matchType' => 'contains',
+            'pattern' => 'MONSHOP',
+            'amountMin' => -500,
+        ]);
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertContains('amountMin', array_column($this->decode($response)['violations'], 'field'));
+    }
+
     public function testPreview(): void
     {
         $courses = $this->category('Alimentation › Courses');

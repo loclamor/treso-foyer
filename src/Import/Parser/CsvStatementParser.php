@@ -67,7 +67,7 @@ final class CsvStatementParser implements StatementParserInterface
                 case 'Solde (EUROS)':
                     try {
                         $closingBalance = Money::parse($value);
-                    } catch (\InvalidArgumentException) {
+                    } catch (ParseException) {
                         throw new ParseException(sprintf('Ligne %d : solde illisible.', $lineNo));
                     }
                     break;

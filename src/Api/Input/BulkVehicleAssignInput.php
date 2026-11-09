@@ -13,7 +13,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 final class BulkVehicleAssignInput
 {
     public function __construct(
-        #[Assert\NotEmpty(message: 'ids ne doit pas être vide.')]
+        #[Assert\Count(min: 1, minMessage: 'ids ne doit pas être vide.')]
         #[Assert\Type(type: 'array', message: 'ids doit être un tableau.')]
         #[Assert\All([new Assert\Positive(message: 'Chaque id doit être positif.')])]
         public readonly array $ids = [],

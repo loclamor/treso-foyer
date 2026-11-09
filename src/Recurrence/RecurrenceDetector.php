@@ -320,7 +320,7 @@ final class RecurrenceDetector
                             'updatedAt' => ParameterType::STRING,
                         ],
                     );
-                    $seriesId = (int) $connection->lastInsertId('recurring_series');
+                    $seriesId = (int) $connection->lastInsertId();
                 } else {
                     $seriesId = -1 - $report->created;
                 }
