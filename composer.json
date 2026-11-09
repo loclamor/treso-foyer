@@ -1,5 +1,5 @@
 {
-    "name": "loic-favier/treso-foyer",
+    "name": "loclamor/treso-foyer",
     "type": "project",
     "license": "MIT",
     "description": "Treso Foyer : suivi des dépenses du foyer à partir des relevés bancaires (import, catégorisation, statistiques, récurrences, véhicules)",
