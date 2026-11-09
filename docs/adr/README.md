@@ -19,3 +19,4 @@ Chaque décision technique structurante est consignée ici (format court : conte
 | [0013](0013-regroupement-commercants.md) | Regroupement des variantes de commerçant (CSV/PDF, ponctuation, troncature) | Acceptée |
 | [0014](0014-saisie-manuelle-rapprochement.md) | Saisie manuelle de dépenses + rapprochement avec les relevés (deux dates, appariement univoque) | Acceptée |
 | [0015](0015-pleins-carburant.md) | Pleins de carburant : volume, prix au litre, kilométrage, consommation (méthode du plein complet) | Acceptée |
+| [0016](0016-adblue.md) | AdBlue : journal des remplissages (station / bidon), coût réel ou estimé, consommation L/1000 km | Acceptée |

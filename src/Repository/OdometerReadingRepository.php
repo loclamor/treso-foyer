@@ -16,8 +16,9 @@ use Doctrine\Persistence\ManagerRegistry;
  *
  * Les points de compteur d'un véhicule = relevés `odometer_reading` UNION pleins des
  * opérations (`vehicle_id` non nul, `odometer_km` non nul, date effective
- * COALESCE(spent_at, date), ADR 0015). À date égale, le relevé saisi prime (source 0
- * avant source 1) : OdometerCalculator garde le premier point d'une date.
+ * COALESCE(spent_at, date), ADR 0015) UNION remplissages d'AdBlue avec kilométrage
+ * (ADR 0016). À date égale, le relevé saisi prime (source 0, puis plein 1, puis AdBlue 2) :
+ * OdometerCalculator garde le premier point d'une date.
  */
 final class OdometerReadingRepository extends ServiceEntityRepository
 {
@@ -68,9 +69,9 @@ final class OdometerReadingRepository extends ServiceEntityRepository
      * @param ?int $excludeOperationId opération à exclure des points (ex. plein en cours de saisie)
      * @return list<array{date: string, km: int}> points {date, km} du véhicule, date asc (relevé avant plein à date égale)
      */
-    public function findPointsByVehicle(Vehicle $vehicle, ?int $excludeOperationId = null): array
+    public function findPointsByVehicle(Vehicle $vehicle, ?int $excludeOperationId = null, ?int $excludeAdblueFillId = null): array
     {
-        return $this->pointsByVehicleIds([(int) $vehicle->getId()], $excludeOperationId)[(int) $vehicle->getId()] ?? [];
+        return $this->pointsByVehicleIds([(int) $vehicle->getId()], $excludeOperationId, $excludeAdblueFillId)[(int) $vehicle->getId()] ?? [];
     }
 
     /**
@@ -79,9 +80,10 @@ final class OdometerReadingRepository extends ServiceEntityRepository
      *
      * @param list<int> $vehicleIds
      * @param ?int $excludeOperationId opération à exclure des points (ex. plein en cours de saisie)
+     * @param ?int $excludeAdblueFillId remplissage d'AdBlue à exclure (ex. celui en cours de modification)
      * @return array<int, list<array{date: string, km: int}>> indexé par vehicle_id
      */
-    public function pointsByVehicleIds(array $vehicleIds, ?int $excludeOperationId = null): array
+    public function pointsByVehicleIds(array $vehicleIds, ?int $excludeOperationId = null, ?int $excludeAdblueFillId = null): array
     {
         if ([] === $vehicleIds) {
             return [];
@@ -90,7 +92,7 @@ final class OdometerReadingRepository extends ServiceEntityRepository
             'SELECT p.vehicle_id, p.date, p.km
              FROM ('.$this->pointsUnionSql().') p
              ORDER BY p.date ASC, p.source ASC',
-            $this->pointParams($vehicleIds, $excludeOperationId),
+            $this->pointParams($vehicleIds, $excludeOperationId, $excludeAdblueFillId),
             $this->pointParamTypes(),
         );
 
@@ -106,8 +108,9 @@ final class OdometerReadingRepository extends ServiceEntityRepository
     }
 
     /**
-     * UNION ALL des points de compteur : relevés (source 0) puis pleins des opérations
-     * (source 1, date effective COALESCE(spent_at, date), odometer_km non nul).
+     * UNION ALL des points de compteur : relevés (source 0), pleins des opérations
+     * (source 1, date effective COALESCE(spent_at, date), odometer_km non nul), puis
+     * remplissages d'AdBlue (source 2, odometer_km non nul, ADR 0016).
      */
     private function pointsUnionSql(): string
     {
@@ -121,18 +124,24 @@ final class OdometerReadingRepository extends ServiceEntityRepository
             WHERE o.vehicle_id IN (:ids)
               AND o.odometer_km IS NOT NULL
               AND (CAST(:excludeOperationId AS INTEGER) IS NULL OR o.id <> :excludeOperationId)
+            UNION ALL
+            SELECT f.vehicle_id, f.date, f.odometer_km AS km, 2 AS source
+            FROM adblue_fill f
+            WHERE f.vehicle_id IN (:ids)
+              AND f.odometer_km IS NOT NULL
+              AND (CAST(:excludeAdblueFillId AS INTEGER) IS NULL OR f.id <> :excludeAdblueFillId)
             SQL;
     }
 
-    /** @param list<int> $vehicleIds @return array{ids: list<int>, excludeOperationId: ?int} */
-    private function pointParams(array $vehicleIds, ?int $excludeOperationId): array
+    /** @param list<int> $vehicleIds @return array{ids: list<int>, excludeOperationId: ?int, excludeAdblueFillId: ?int} */
+    private function pointParams(array $vehicleIds, ?int $excludeOperationId, ?int $excludeAdblueFillId = null): array
     {
-        return ['ids' => array_values($vehicleIds), 'excludeOperationId' => $excludeOperationId];
+        return ['ids' => array_values($vehicleIds), 'excludeOperationId' => $excludeOperationId, 'excludeAdblueFillId' => $excludeAdblueFillId];
     }
 
-    /** @return array{ids: ArrayParameterType, excludeOperationId: ParameterType} */
+    /** @return array{ids: ArrayParameterType, excludeOperationId: ParameterType, excludeAdblueFillId: ParameterType} */
     private function pointParamTypes(): array
     {
-        return ['ids' => ArrayParameterType::INTEGER, 'excludeOperationId' => ParameterType::INTEGER];
+        return ['ids' => ArrayParameterType::INTEGER, 'excludeOperationId' => ParameterType::INTEGER, 'excludeAdblueFillId' => ParameterType::INTEGER];
     }
 }

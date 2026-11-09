@@ -9,6 +9,8 @@ import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';
 import DatePicker from 'primevue/datepicker';
 import Tag from 'primevue/tag';
+import Select from 'primevue/select';
+import SelectButton from 'primevue/selectbutton';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import { useScopeStore } from '@/stores/scope';
@@ -16,7 +18,18 @@ import { usePeriodStore } from '@/stores/period';
 import { useVehiclesStore } from '@/stores/vehicles';
 import { listOperations } from '@/api/operations';
 import { getVehiclesStats } from '@/api/stats';
-import { createOdometerReading, deleteOdometerReading, getVehicleFuel, listOdometerReadings, updateOdometerReading } from '@/api/vehicles';
+import {
+    createAdblueFill,
+    createOdometerReading,
+    deleteAdblueFill,
+    deleteOdometerReading,
+    getVehicleAdblue,
+    getVehicleFuel,
+    listAdblueCandidates,
+    listOdometerReadings,
+    updateAdblueFill,
+    updateOdometerReading,
+} from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { dateToIso, formatConsumption, formatDate, formatLiters, formatMoney, formatPercent, formatPricePerLiter } from '@/utils/format';
 import { VEHICLE_ENERGY_LABELS, VEHICLE_TYPE_ICONS, VEHICLE_TYPE_LABELS } from '@/utils/vehicles';
@@ -355,8 +368,200 @@ function removeReading(r) {
     });
 }
 
+// ---------- AdBlue (ADR 0016) ----------
+const adblueData = ref(null); // {fills: [...], summary: {count, volumeMl, cost, estimatedCost, avgPricePerLiter, consumption, distanceKm}}
+const loadingAdblue = ref(false);
+const adblueError = ref('');
+const ADBLUE_SOURCES = [
+    { label: 'Station', value: 'station' },
+    { label: 'Bidon', value: 'can' },
+];
+const consumptionPer1000Fmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatPer1000(v) {
+    return v === null || v === undefined ? '—' : `${consumptionPer1000Fmt.format(v)} L/1000 km`;
+}
+
+async function loadAdblue() {
+    if (!vehicle.value) return;
+    loadingAdblue.value = true;
+    adblueError.value = '';
+    try {
+        adblueData.value = await getVehicleAdblue(vehicleId, period.params);
+    } catch (e) {
+        adblueError.value = apiMessage(e, 'AdBlue indisponible');
+    } finally {
+        loadingAdblue.value = false;
+    }
+}
+
+const adblueKpis = computed(() => {
+    const s = adblueData.value?.summary;
+    if (!s) return [];
+    return [
+        {
+            label: 'Consommation AdBlue',
+            value: formatPer1000(s.consumption),
+            subtext: s.distanceKm != null ? `sur ${s.distanceKm.toLocaleString('fr-FR')} km couverts par les relevés` : '2 relevés kilométriques requis',
+        },
+        { label: 'Volume versé', value: formatLiters(s.volumeMl), subtext: `${s.count} remplissage(s)` },
+        { label: 'Coût en station', value: formatMoney(s.cost), subtext: 'lignes de relevé liées' },
+        {
+            label: 'Coût bidons (estimé)',
+            value: formatMoney(s.estimatedCost),
+            subtext: 'au prorata du prix du bidon · déjà compté dans les courses',
+        },
+    ];
+});
+
+// Section affichée pour un diesel, ou dès qu'un remplissage existe.
+const showAdblue = computed(() => vehicle.value?.energy === 'diesel' || (adblueData.value?.fills?.length ?? 0) > 0);
+
+const adblueDialogVisible = ref(false);
+const editingAdblueId = ref(null);
+const savingAdblue = ref(false);
+const adblueForm = reactive({ date: null, source: 'station', volumeL: null, odometerKm: null, operationId: null, canPriceEur: null, canVolumeL: null, note: '' });
+const adblueErrors = reactive({});
+const adblueCandidates = ref([]);
+const loadingCandidates = ref(false);
+
+function clearAdblueErrors() {
+    for (const k of Object.keys(adblueErrors)) delete adblueErrors[k];
+}
+
+// Dernier bidon saisi : pré-remplit prix et contenance (même bidon le plus souvent).
+function lastCan() {
+    return (adblueData.value?.fills ?? []).find((f) => f.source === 'can' && f.canPrice != null) ?? null;
+}
+
+function openAdblueCreate() {
+    editingAdblueId.value = null;
+    const can = lastCan();
+    Object.assign(adblueForm, {
+        date: new Date(),
+        source: 'station',
+        volumeL: null,
+        odometerKm: null,
+        operationId: null,
+        canPriceEur: can ? can.canPrice / 100 : null,
+        canVolumeL: can ? can.canVolumeMl / 1000 : null,
+        note: '',
+    });
+    clearAdblueErrors();
+    adblueDialogVisible.value = true;
+    loadCandidates();
+}
+
+function openAdblueEdit(f) {
+    editingAdblueId.value = f.id;
+    const can = lastCan();
+    Object.assign(adblueForm, {
+        date: isoToDate(f.date),
+        source: f.source,
+        volumeL: f.volumeMl / 1000,
+        odometerKm: f.odometerKm,
+        operationId: f.operation?.id ?? null,
+        canPriceEur: f.canPrice != null ? f.canPrice / 100 : can ? can.canPrice / 100 : null,
+        canVolumeL: f.canVolumeMl != null ? f.canVolumeMl / 1000 : can ? can.canVolumeMl / 1000 : null,
+        note: f.note ?? '',
+    });
+    clearAdblueErrors();
+    adblueDialogVisible.value = true;
+    loadCandidates();
+}
+
+async function loadCandidates() {
+    if (!adblueForm.date || adblueForm.source !== 'station') return;
+    loadingCandidates.value = true;
+    try {
+        adblueCandidates.value = await listAdblueCandidates(vehicleId, dateToIso(adblueForm.date), editingAdblueId.value);
+    } catch (e) {
+        adblueCandidates.value = [];
+        toast.add({ severity: 'error', summary: 'Opérations indisponibles', detail: apiMessage(e), life: 6000 });
+    } finally {
+        loadingCandidates.value = false;
+    }
+}
+
+watch(() => [adblueForm.date, adblueForm.source], () => {
+    if (adblueDialogVisible.value) loadCandidates();
+});
+
+const candidateOptions = computed(() =>
+    adblueCandidates.value.map((o) => ({
+        value: o.id,
+        label: `${formatDate(o.date)} · ${formatMoney(o.amount)} · ${o.merchant || o.label}${o.awaitingStatement ? ' (saisie)' : ''}`,
+    })),
+);
+
+// Coût estimé du remplissage au bidon, en centimes (aperçu dans le dialogue).
+const adblueEstimate = computed(() => {
+    if (adblueForm.source !== 'can' || !adblueForm.volumeL || !adblueForm.canPriceEur || !adblueForm.canVolumeL) return null;
+    return Math.round((adblueForm.canPriceEur * 100 * adblueForm.volumeL) / adblueForm.canVolumeL);
+});
+
+const adblueCanSubmit = computed(() => !!adblueForm.date && !!adblueForm.volumeL && adblueForm.volumeL > 0);
+
+async function submitAdblue() {
+    if (!adblueCanSubmit.value) return;
+    savingAdblue.value = true;
+    clearAdblueErrors();
+    const isCan = adblueForm.source === 'can';
+    const hasCan = isCan && adblueForm.canPriceEur > 0 && adblueForm.canVolumeL > 0;
+    const payload = {
+        date: dateToIso(adblueForm.date),
+        source: adblueForm.source,
+        volumeMl: Math.round(adblueForm.volumeL * 1000),
+        odometerKm: adblueForm.odometerKm === null || adblueForm.odometerKm === undefined ? null : Math.round(adblueForm.odometerKm),
+        operationId: isCan ? null : adblueForm.operationId,
+        canPrice: hasCan ? Math.round(adblueForm.canPriceEur * 100) : null,
+        canVolumeMl: hasCan ? Math.round(adblueForm.canVolumeL * 1000) : null,
+        note: adblueForm.note.trim() || null,
+    };
+    try {
+        const saved = editingAdblueId.value
+            ? await updateAdblueFill(editingAdblueId.value, payload)
+            : await createAdblueFill(vehicleId, payload);
+        toast.add({ severity: 'success', summary: editingAdblueId.value ? 'Remplissage mis à jour' : 'Remplissage ajouté', life: 3000 });
+        if (saved.warning) {
+            toast.add({ severity: 'warn', summary: 'Kilométrage incohérent', detail: saved.warning, life: 10000 });
+        }
+        adblueDialogVisible.value = false;
+        await Promise.all([loadAdblue(), loadStats(), loadOps(), vehiclesStore.refresh(true)]);
+    } catch (e) {
+        const data = e.response?.data;
+        if (Array.isArray(data?.violations)) {
+            for (const v of data.violations) adblueErrors[v.field] = v.message;
+        } else if (e.response?.status === 409) {
+            adblueErrors.operationId = data?.message;
+        }
+        toast.add({ severity: e.response?.status === 409 ? 'warn' : 'error', summary: 'Remplissage non enregistré', detail: apiMessage(e), life: 8000 });
+    } finally {
+        savingAdblue.value = false;
+    }
+}
+
+function removeAdblue(f) {
+    confirm.require({
+        message: `Supprimer le remplissage d'AdBlue du ${formatDate(f.date)} (${formatLiters(f.volumeMl)}) ? L'opération liée est conservée.`,
+        header: 'Suppression',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Supprimer',
+        rejectLabel: 'Annuler',
+        acceptClass: 'p-button-danger',
+        accept: async () => {
+            try {
+                await deleteAdblueFill(f.id);
+                toast.add({ severity: 'success', summary: 'Remplissage supprimé', life: 3000 });
+                await Promise.all([loadAdblue(), vehiclesStore.refresh(true)]);
+            } catch (e) {
+                toast.add({ severity: 'error', summary: 'Suppression impossible', detail: apiMessage(e), life: 6000 });
+            }
+        },
+    });
+}
+
 // ---------- init ----------
-watch(() => [scope.params, period.params], () => { loadStats(); loadOps(); loadFuel(); }, { deep: true });
+watch(() => [scope.params, period.params], () => { loadStats(); loadOps(); loadFuel(); loadAdblue(); }, { deep: true });
 
 onMounted(async () => {
     await vehiclesStore.refresh(true).catch(() => {});
@@ -366,6 +571,7 @@ onMounted(async () => {
         loadOps();
         loadReadings();
         loadFuel();
+        loadAdblue();
     }
 });
 </script>
@@ -507,6 +713,70 @@ onMounted(async () => {
                 </template>
             </template>
 
+            <template v-if="showAdblue">
+                <div class="page-header section">
+                    <h2>AdBlue</h2>
+                    <Button label="Ajouter un remplissage" icon="pi pi-plus" size="small" @click="openAdblueCreate" />
+                </div>
+                <p v-if="adblueError" class="text-muted" role="alert">{{ adblueError }}</p>
+                <template v-if="adblueData">
+                    <p v-if="!adblueData.summary.count" class="empty-state">
+                        Aucun remplissage sur la période. En station, liez la ligne du relevé ; au bidon, indiquez son prix et sa contenance pour estimer le coût.
+                    </p>
+                    <template v-else>
+                        <div class="kpi-grid">
+                            <KpiTile v-for="k in adblueKpis" :key="k.label" :label="k.label" :value="k.value" :subtext="k.subtext" />
+                        </div>
+                        <DataTable :value="adblueData.fills" :loading="loadingAdblue" size="small" data-key="id">
+                            <Column field="date" header="Date" style="width: 7.5rem">
+                                <template #body="{ data }">{{ formatDate(data.date) }}</template>
+                            </Column>
+                            <Column header="Origine" style="width: 7rem">
+                                <template #body="{ data }">
+                                    <Tag :value="data.source === 'can' ? 'Bidon' : 'Station'" :severity="data.source === 'can' ? 'secondary' : 'info'" />
+                                </template>
+                            </Column>
+                            <Column header="Détail">
+                                <template #body="{ data }">
+                                    <template v-if="data.source === 'station'">
+                                        <span v-if="data.operation" :title="data.operation.label">{{ data.operation.label }}</span>
+                                        <Tag v-else value="ligne de relevé à lier" severity="warn" icon="pi pi-link" />
+                                    </template>
+                                    <span v-else-if="data.canPrice != null" class="text-muted">
+                                        bidon de {{ formatLiters(data.canVolumeMl) }} à {{ formatMoney(data.canPrice) }}
+                                    </span>
+                                    <span v-else class="text-muted">prix du bidon non renseigné</span>
+                                    <span v-if="data.note" class="text-muted"> · {{ data.note }}</span>
+                                </template>
+                            </Column>
+                            <Column field="volumeMl" header="Volume" class="text-right" style="width: 7.5rem">
+                                <template #body="{ data }">{{ formatLiters(data.volumeMl) }}</template>
+                            </Column>
+                            <Column field="cost" header="Coût" class="text-right" style="width: 9rem">
+                                <template #body="{ data }">
+                                    <template v-if="data.cost != null">
+                                        {{ formatMoney(data.cost) }}<span v-if="data.costEstimated" class="text-muted" title="Estimation au prorata du prix du bidon"> (est.)</span>
+                                    </template>
+                                    <span v-else class="text-muted">—</span>
+                                </template>
+                            </Column>
+                            <Column field="pricePerLiter" header="Prix/L" class="text-right" style="width: 8rem">
+                                <template #body="{ data }">{{ formatPricePerLiter(data.pricePerLiter) }}</template>
+                            </Column>
+                            <Column field="odometerKm" header="Km" class="text-right" style="width: 8rem">
+                                <template #body="{ data }">{{ data.odometerKm != null ? `${data.odometerKm.toLocaleString('fr-FR')} km` : '—' }}</template>
+                            </Column>
+                            <Column header="Actions" style="width: 7rem">
+                                <template #body="{ data }">
+                                    <Button icon="pi pi-pencil" text rounded size="small" :aria-label="'Modifier le remplissage du ' + formatDate(data.date)" @click="openAdblueEdit(data)" />
+                                    <Button icon="pi pi-trash" text rounded size="small" severity="danger" :aria-label="'Supprimer le remplissage du ' + formatDate(data.date)" @click="removeAdblue(data)" />
+                                </template>
+                            </Column>
+                        </DataTable>
+                    </template>
+                </template>
+            </template>
+
             <h2>Dernières opérations</h2>
             <DataTable :value="ops" :loading="loadingOps" size="small" data-key="id">
                 <template #empty>Aucune opération pour ce véhicule.</template>
@@ -559,6 +829,108 @@ onMounted(async () => {
             <p>Véhicule introuvable dans ce foyer.</p>
             <p><RouterLink :to="{ name: 'vehicles' }">Retour à la liste des véhicules</RouterLink></p>
         </div>
+
+        <Dialog
+            v-model:visible="adblueDialogVisible"
+            modal
+            :header="editingAdblueId ? 'Modifier le remplissage d’AdBlue' : 'Ajouter un remplissage d’AdBlue'"
+            :style="{ width: '30rem' }"
+            :breakpoints="{ '575px': '95vw' }"
+            :draggable="false"
+        >
+            <div class="form">
+                <div class="field">
+                    <label for="adblue-source">Origine</label>
+                    <SelectButton
+                        id="adblue-source"
+                        v-model="adblueForm.source"
+                        :options="ADBLUE_SOURCES"
+                        option-label="label"
+                        option-value="value"
+                        :allow-empty="false"
+                    />
+                </div>
+                <div class="field">
+                    <label for="adblue-date">Date</label>
+                    <DatePicker input-id="adblue-date" v-model="adblueForm.date" date-format="dd/mm/yy" show-icon class="w-full" :invalid="!!adblueErrors.date" />
+                    <small v-if="adblueErrors.date" class="field-error">{{ adblueErrors.date }}</small>
+                </div>
+                <div class="field">
+                    <label for="adblue-volume">Volume versé (L)</label>
+                    <InputNumber
+                        input-id="adblue-volume"
+                        v-model="adblueForm.volumeL"
+                        locale="fr-FR"
+                        :min-fraction-digits="0"
+                        :max-fraction-digits="2"
+                        :min="0"
+                        suffix=" L"
+                        class="w-full"
+                        :invalid="!!adblueErrors.volumeMl"
+                    />
+                    <small v-if="adblueErrors.volumeMl" class="field-error">{{ adblueErrors.volumeMl }}</small>
+                </div>
+                <div class="field">
+                    <label for="adblue-km">Kilométrage au compteur (optionnel)</label>
+                    <InputNumber input-id="adblue-km" v-model="adblueForm.odometerKm" :use-grouping="true" :min="0" suffix=" km" class="w-full" :invalid="!!adblueErrors.odometerKm" />
+                    <small v-if="adblueErrors.odometerKm" class="field-error">{{ adblueErrors.odometerKm }}</small>
+                </div>
+                <div v-if="adblueForm.source === 'station'" class="field">
+                    <label for="adblue-op">Ligne du relevé (paiement)</label>
+                    <Select
+                        input-id="adblue-op"
+                        v-model="adblueForm.operationId"
+                        :options="candidateOptions"
+                        option-label="label"
+                        option-value="value"
+                        :loading="loadingCandidates"
+                        show-clear
+                        filter
+                        placeholder="Pas encore sur le relevé"
+                        empty-message="Aucun débit libre à ± 10 jours"
+                        class="w-full"
+                        :invalid="!!adblueErrors.operationId"
+                    />
+                    <small v-if="adblueErrors.operationId" class="field-error">{{ adblueErrors.operationId }}</small>
+                    <small v-else class="text-muted form-hint">Débits à ± 10 jours de la date. La ligne liée est affectée au véhicule.</small>
+                </div>
+                <template v-else>
+                    <div class="field-row">
+                        <div class="field">
+                            <label for="adblue-can-price">Prix du bidon</label>
+                            <InputNumber input-id="adblue-can-price" v-model="adblueForm.canPriceEur" mode="currency" currency="EUR" locale="fr-FR" :min="0" class="w-full" :invalid="!!adblueErrors.canPrice" />
+                        </div>
+                        <div class="field">
+                            <label for="adblue-can-volume">Contenance</label>
+                            <InputNumber
+                                input-id="adblue-can-volume"
+                                v-model="adblueForm.canVolumeL"
+                                locale="fr-FR"
+                                :min-fraction-digits="0"
+                                :max-fraction-digits="2"
+                                :min="0"
+                                suffix=" L"
+                                class="w-full"
+                                :invalid="!!adblueErrors.canVolumeMl"
+                            />
+                        </div>
+                    </div>
+                    <small v-if="adblueErrors.canPrice || adblueErrors.canVolumeMl" class="field-error form-hint">{{ adblueErrors.canPrice || adblueErrors.canVolumeMl }}</small>
+                    <small v-else class="text-muted form-hint">
+                        <template v-if="adblueEstimate != null">Coût estimé : {{ formatMoney(adblueEstimate) }} · </template>
+                        déjà compté dans les courses côté banque : affiché à part, jamais ajouté aux dépenses du véhicule.
+                    </small>
+                </template>
+                <div class="field">
+                    <label for="adblue-note">Note (optionnelle)</label>
+                    <InputText id="adblue-note" v-model="adblueForm.note" class="w-full" />
+                </div>
+            </div>
+            <template #footer>
+                <Button label="Annuler" severity="secondary" text @click="adblueDialogVisible = false" />
+                <Button :label="editingAdblueId ? 'Enregistrer' : 'Ajouter'" icon="pi pi-check" :loading="savingAdblue" :disabled="!adblueCanSubmit" @click="submitAdblue" />
+            </template>
+        </Dialog>
 
         <Dialog
             v-model:visible="readingDialogVisible"
@@ -661,6 +1033,18 @@ onMounted(async () => {
     display: block;
     margin-top: 0.3rem;
     color: var(--p-red-500);
+}
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+.field-row .field {
+    margin-bottom: 0.3rem;
+}
+.form-hint {
+    display: block;
+    margin: 0.3rem 0 1rem;
 }
 .empty-state {
     text-align: center;

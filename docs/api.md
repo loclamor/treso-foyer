@@ -142,6 +142,18 @@ Un plein est porté par l'opération elle-même (au plus un plein par opération
 
 `POST /api/operations` accepte en plus `fuelVolumeMl` (?int > 0), `fuelFullTank` (?bool, défaut `true` si volume fourni) et `odometerKm` (?int ≥ 0, **refusé 422 sans `fuelVolumeMl`**) ; volume avec montant positif ⇒ `422` sur `fuelVolumeMl`. `POST /api/operations/{id}/duplicate` (`merge`) reporte le plein de l'opération supprimée sur l'opération conservée si elle n'en a pas (et qu'elle est un débit) ; le rapprochement (`ManualEntryReconciler::merge`) copie de même le plein de la saisie sur la ligne de relevé.
 
+## AdBlue (ADR 0016)
+
+`AdblueFill` = `{"id", "date", "volumeMl", "odometerKm", "source": "station"|"can", "operation": {"id", "date" (effective), "amount", "label", "awaitingStatement"} | null, "canPrice", "canVolumeMl", "cost" (centimes, positif, null si inconnu), "costEstimated" (true au bidon), "pricePerLiter" (€/L, 3 déc., null sans coût), "note"}`. Coût : station = `-operation.amount` ; bidon = `round(canPrice × volumeMl / canVolumeMl)` (estimé, jamais ajouté aux dépenses du véhicule).
+
+| Méthode | Route | Notes |
+|---|---|---|
+| GET | `/api/vehicles/{id}/adblue?from=AAAA-MM-JJ&to=AAAA-MM-JJ` | Bornes optionnelles (absentes = tout l'historique), `from > to` ⇒ `400 invalid_query`. ⇒ `{"fills": [AdblueFill] (date desc, période), "summary": {"count", "volumeMl", "cost" (station), "estimatedCost" (bidons), "avgPricePerLiter" (remplissages au coût connu, null sinon), "consumption" (L/1000 km, 2 déc. : Σ volumes datés dans ]coveredFrom, coveredTo] ÷ km de cette fenêtre, null sans distance ou sans remplissage), "distanceKm"}}` |
+| POST | `/api/vehicles/{id}/adblue` | `{"date", "volumeMl": int > 0, "source", "odometerKm"?: int ≥ 0, "operationId"? (station), "canPrice"? + "canVolumeMl"? (bidon, ensemble), "note"?}` ⇒ `201 AdblueFill` (+ `"warning"` si km incohérent). `operationId` au bidon, prix du bidon en station, prix sans contenance, opération hors foyer ou crédit ⇒ `422` ; opération déjà liée ⇒ `409 operation_already_linked`. L'opération liée est affectée au véhicule (manuelle) sauf affectation manuelle existante |
+| PATCH | `/api/adblue-fills/{id}` | Mêmes champs, absents = inchangés ; `odometerKm`, `operationId`, `canPrice`/`canVolumeMl`, `note` : clé présente (même `null`) = appliquée ; changer `source` sans préciser les champs de l'autre origine les efface ⇒ `200 AdblueFill` (+ `"warning"`) |
+| DELETE | `/api/adblue-fills/{id}` | ⇒ `204` (l'opération liée et son affectation sont conservées) |
+| GET | `/api/vehicles/{id}/adblue/candidates?date=AAAA-MM-JJ&fillId=N?` | Débits du foyer à ± 10 jours (date effective), sans plein de carburant, non liés à un autre remplissage (`fillId` : garde celui de ce remplissage), triés par proximité, 30 max ⇒ `[{"id", "date", "amount", "label", "merchant", "category": CategoryRef \| null, "awaitingStatement"}]` ; `date` absente ⇒ `400 invalid_query` |
+
 ## Opérations
 | Méthode | Route | Notes |
 |---|---|---|

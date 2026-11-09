@@ -97,3 +97,43 @@ export async function getVehicleFuel(id, { from, to } = {}) {
     const { data } = await http.get(`/vehicles/${id}/fuel`, { params });
     return data;
 }
+
+// ---------- remplissages d'AdBlue (ADR 0016) ----------
+
+// ?from=AAAA-MM-JJ&to=AAAA-MM-JJ optionnels (absents = tout l'historique).
+// ⇒ {fills: [AdblueFill] (date desc), summary: {count, volumeMl, cost, estimatedCost, avgPricePerLiter, consumption (L/1000 km), distanceKm}}
+// AdblueFill = {id, date, volumeMl, odometerKm, source: 'station'|'can', operation: {id, date, amount, label, awaitingStatement}|null,
+//   canPrice, canVolumeMl, cost (centimes, positif), costEstimated, pricePerLiter (€/L), note}
+export async function getVehicleAdblue(id, { from, to } = {}) {
+    const params = {};
+    if (from) params.from = from;
+    if (to) params.to = to;
+    const { data } = await http.get(`/vehicles/${id}/adblue`, { params });
+    return data;
+}
+
+// {date, volumeMl, source, odometerKm?, operationId? (station), canPrice?, canVolumeMl? (bidon), note?}
+// ⇒ 201 AdblueFill (+ « warning » si km incohérent) ; 409 operation_already_linked, 422 violations.
+export async function createAdblueFill(vehicleId, payload) {
+    const { data } = await http.post(`/vehicles/${vehicleId}/adblue`, payload);
+    return data;
+}
+
+// PATCH partiel ⇒ 200 AdblueFill ; odometerKm/operationId/canPrice/canVolumeMl/note : null explicite = efface.
+export async function updateAdblueFill(id, payload) {
+    const { data } = await http.patch(`/adblue-fills/${id}`, payload);
+    return data;
+}
+
+export async function deleteAdblueFill(id) {
+    await http.delete(`/adblue-fills/${id}`); // 204
+}
+
+// Débits à ± 10 jours de la date, libres (fillId : garde celle déjà liée à ce remplissage).
+// ⇒ [{id, date, amount, label, merchant, category, awaitingStatement}] triés par proximité.
+export async function listAdblueCandidates(vehicleId, date, fillId = null) {
+    const params = { date };
+    if (fillId) params.fillId = fillId;
+    const { data } = await http.get(`/vehicles/${vehicleId}/adblue/candidates`, { params });
+    return data;
+}

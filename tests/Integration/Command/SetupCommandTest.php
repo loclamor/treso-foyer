@@ -74,6 +74,7 @@ final class SetupCommandTest extends KernelTestCase
         sort($flagged);
 
         self::assertSame([
+            'Transport › AdBlue',
             'Transport › Assurance auto',
             'Transport › Carburant',
             'Transport › Crédit véhicule',

@@ -26,6 +26,7 @@ final class DefaultCategories
         'Assurance auto',
         'Péages & parking',
         'Crédit véhicule',
+        'AdBlue',
     ];
 
     /** Sous-catégorie « Carburant » de « Transport » : poste carburant (champs du plein, ADR 0015). */
@@ -78,6 +79,7 @@ final class DefaultCategories
                 'Assurance auto',
                 'Péages & parking',
                 'Crédit véhicule',
+                'AdBlue',
                 'Transports en commun',
                 'Train & avion',
             ],

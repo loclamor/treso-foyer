@@ -46,6 +46,7 @@ erDiagram
 | `RecurringSeries` | Dépense/revenu récurrent détecté (ADR 0012) | unicité (compte, `matchKey` = `coalesce(merchant_group, merchant, normalized_label)`, `direction`) ; fréquence (ajout de `bimonthly`), montant attendu **toujours positif** ± tolérance, `lastOccurrence`/`nextExpected`, `activeMonths` (mois 1..12 actifs ou null), statut `detected`/`confirmed`/`ignored`/`ended` |
 | `Vehicle` | Véhicule du foyer | plaque toujours stockée normalisée (SIV `AA-123-AA`, FNI sans séparateurs), unicité (foyer, nom) et (foyer, plaque) ; période de service `acquiredAt`/`disposedAt` (`isActiveOn()`), conducteur principal, données brutes d'une API de plaque (`lookupData`/`lookupAt`) |
 | `OdometerReading` | Relevé de compteur d'un véhicule | un relevé par (véhicule, date), `km` ≥ 0 |
+| `AdblueFill` | Remplissage d'AdBlue d'un véhicule (ADR 0016) | `source` : `station` (opération du paiement liée, facultative, unique) / `can` (bidon : `can_price` + `can_volume_ml`, coût estimé au prorata) ; `volume_ml` > 0 ; `odometer_km` facultatif (point de compteur) ; contrainte CHECK `ck_adblue_fill` (SQL brut) |
 
 ## Commandes
 - `make sf c='app:setup'` : crée le foyer et l'arbre de 62 catégories par défaut (`src/Setup/DefaultCategories.php`). Idempotente.

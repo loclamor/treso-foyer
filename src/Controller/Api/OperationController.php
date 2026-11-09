@@ -26,6 +26,7 @@ use App\Categorization\CategorizeOptions;
 use App\Categorization\Categorizer;
 use App\Categorization\ManualCategorizer;
 use App\Entity\Account;
+use App\Entity\AdblueFill;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Operation;
@@ -538,6 +539,8 @@ final class OperationController extends AbstractController
         if (!$kept->hasFuel() && $removed->hasFuel() && $kept->isDebit()) {
             $kept->recordFuel((int) $removed->getFuelVolumeMl(), $removed->getFuelFullTank() ?? true, $removed->getOdometerKm());
         }
+        // Remplissage d'AdBlue lié (ADR 0016) : passe sur l'opération conservée.
+        $entityManager->getRepository(AdblueFill::class)->transferOperation($removed, $kept);
         $kept->setDuplicateStatus(DuplicateStatus::None);
         $kept->setDuplicateOf(null);
         $entityManager->remove($removed);

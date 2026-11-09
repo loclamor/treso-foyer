@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Reconciliation;
 
+use App\Entity\AdblueFill;
 use App\Entity\Household;
 use App\Entity\Operation;
 use App\Enum\CategorizationSource;
@@ -225,6 +226,9 @@ final class ManualEntryReconciler
             $note = null === $note ? $saisie : $note."\n".$saisie;
         }
         $statementLine->setNote($note);
+
+        // Remplissage d'AdBlue lié à la saisie (ADR 0016) : passe sur la ligne du relevé.
+        $this->entityManager->getRepository(AdblueFill::class)->transferOperation($entry, $statementLine);
 
         $statementLine->setReconciledAt($this->clock->now());
         $this->entityManager->remove($entry);
