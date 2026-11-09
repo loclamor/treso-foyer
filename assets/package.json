@@ -1,5 +1,5 @@
 {
-  "name": "banque-front",
+  "name": "treso-foyer-front",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

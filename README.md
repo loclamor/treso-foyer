@@ -1,4 +1,4 @@
-# Banque — suivi des dépenses du foyer
+# Treso Foyer — suivi des dépenses du foyer
 
 Application personnelle de suivi des dépenses à partir des relevés La Banque Postale (PDF et CSV) :
 import sans doublons, catégorisation (règles + apprentissage), statistiques, récurrences, budgets, prévisions.

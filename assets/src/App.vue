@@ -89,7 +89,7 @@ watch(
 <template>
     <Menubar v-if="showChrome" :model="items">
         <template #start>
-            <span class="brand"><i class="pi pi-wallet" aria-hidden="true" /> Banque</span>
+            <span class="brand"><i class="pi pi-wallet" aria-hidden="true" /> Treso Foyer</span>
         </template>
         <template #end>
             <div class="app-menubar-end">

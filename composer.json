@@ -1,8 +1,8 @@
 {
-    "name": "symfony/skeleton",
+    "name": "loic-favier/treso-foyer",
     "type": "project",
     "license": "MIT",
-    "description": "A minimal Symfony project recommended to create bare bones applications",
+    "description": "Treso Foyer : suivi des dépenses du foyer à partir des relevés bancaires (import, catégorisation, statistiques, récurrences, véhicules)",
     "minimum-stability": "stable",
     "prefer-stable": true,
     "require": {
