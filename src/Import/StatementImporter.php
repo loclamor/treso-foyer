@@ -213,6 +213,16 @@ final class StatementImporter
                         foreach ($rows as $row) {
                             $existingFingerprints[$row['fingerprint']] = $row;
                         }
+                        // Lignes supprimées par la fusion d'un doublon : déjà connues, jamais recréées
+                        // (label_source null ⇒ pas d'enrichissement, simplement ignorées).
+                        $tombstones = $this->entityManager->getConnection()->fetchAllAssociative(
+                            'SELECT fingerprint, kept_operation_id AS id, NULL AS label_source FROM merged_fingerprint WHERE fingerprint IN (?)',
+                            [$fingerprints],
+                            [ArrayParameterType::STRING],
+                        );
+                        foreach ($tombstones as $row) {
+                            $existingFingerprints[$row['fingerprint']] ??= $row;
+                        }
                     }
 
                     $added = 0;

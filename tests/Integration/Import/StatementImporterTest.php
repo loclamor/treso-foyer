@@ -12,6 +12,7 @@ use App\Entity\Statement;
 use App\Enum\DuplicateStatus;
 use App\Enum\ImportStatus;
 use App\Import\Exception\UnknownAccountException;
+use App\Import\DuplicateMerger;
 use App\Import\Model\ImportOptions;
 use App\Import\StatementImporter;
 use Doctrine\ORM\EntityManagerInterface;
@@ -162,6 +163,27 @@ final class StatementImporterTest extends KernelTestCase
         self::assertSame(-2756, $op->getAmount());
         self::assertNotNull($op->getDuplicateOf());
         self::assertSame('2026-08-26', $op->getDuplicateOf()->getDate()->format('Y-m-d'));
+    }
+
+    public function testMergedDuplicateIsNotRecreatedByALaterExport(): void
+    {
+        $this->importA();
+        $this->importer->import(self::FIXTURES.'/releve-d.csv', new ImportOptions(autoCreateAccount: true));
+        $probable = $this->entityManager->getRepository(Operation::class)->findOneBy(['duplicateStatus' => DuplicateStatus::Probable]);
+        self::assertNotNull($probable);
+        $kept = self::getContainer()->get(DuplicateMerger::class)->merge($probable);
+        self::assertNotNull($kept);
+        $countAfterMerge = \count($this->entityManager->getRepository(Operation::class)->findAll());
+
+        // Export suivant (autre fichier) contenant encore la ligne fusionnée.
+        $report = $this->importer->import(self::FIXTURES.'/releve-d-reexport.csv', new ImportOptions(autoCreateAccount: true));
+
+        self::assertSame('imported', $report->status);
+        self::assertSame(0, $report->added);
+        self::assertSame(0, $report->probableDuplicates);
+        $this->entityManager->clear();
+        self::assertCount($countAfterMerge, $this->entityManager->getRepository(Operation::class)->findAll());
+        self::assertNull($this->entityManager->getRepository(Operation::class)->findOneBy(['duplicateStatus' => DuplicateStatus::Probable]));
     }
 
     public function testDryRunNAucuneEcriture(): void

@@ -7,6 +7,7 @@ namespace App\Tests\Integration\Command;
 use App\Command\RebuildFingerprintsCommand;
 use App\Entity\Account;
 use App\Entity\Household;
+use App\Entity\MergedFingerprint;
 use App\Entity\Operation;
 use App\Enum\AccountType;
 use App\Import\LabelNormalizer;
@@ -110,6 +111,33 @@ final class RebuildFingerprintsCommandTest extends KernelTestCase
         $again = $this->entityManager->getRepository(Operation::class)->findBy(['account' => $account], ['id' => 'ASC']);
         self::assertSame($operations[0]->getFingerprint(), $again[0]->getFingerprint());
         self::assertSame($operations[1]->getFingerprint(), $again[1]->getFingerprint());
+    }
+
+    public function testRebuildRecalculeAussiLesEmpreintesDesDoublonsFusionnes(): void
+    {
+        $account = $this->createAccount();
+        $kept = $this->createOperation($account, '2026-08-26', -2756, 'ACHAT CB SUPERMARCHE EXEMPLE 26.08.26 CARTE NUMERO 789', 'old-fingerprint-kept', 0);
+        $removedLabel = 'ACHAT CB SUPERMARCHE EXEMPLE 26.08.26 CARTE NUMERO 789 BIS';
+        $removed = $this->createOperation($account, '2026-08-27', -2756, $removedLabel, 'old-fingerprint-removed', 2);
+        $this->entityManager->flush();
+        $this->entityManager->persist(new MergedFingerprint($removed, $kept));
+        $this->entityManager->remove($removed);
+        $this->entityManager->flush();
+
+        $tester = new CommandTester(self::getContainer()->get(RebuildFingerprintsCommand::class));
+        self::assertSame(Command::SUCCESS, $tester->execute([]));
+
+        $this->entityManager->clear();
+        $tombstone = $this->entityManager->getRepository(MergedFingerprint::class)->findOneBy([]);
+        self::assertNotNull($tombstone);
+        $expected = (new OperationFingerprinter())->fingerprint(
+            $account,
+            new \DateTimeImmutable('2026-08-27'),
+            -2756,
+            (new LabelNormalizer())->key($removedLabel),
+            2, // rang d'origine conservé
+        );
+        self::assertSame($expected, $tombstone->getFingerprint());
     }
 
     public function testRenormalizeRecalculeAussiLibelleEtCommercant(): void

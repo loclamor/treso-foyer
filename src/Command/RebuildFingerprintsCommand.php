@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Entity\MergedFingerprint;
 use App\Entity\Operation;
 use App\Import\LabelNormalizer;
 use App\Import\OperationFingerprinter;
@@ -97,6 +98,24 @@ final class RebuildFingerprintsCommand extends Command
             }
         }
 
+        // Pierres tombales des doublons fusionnés : même recalcul, rang d'origine conservé
+        // (l'opération supprimée n'existe plus ; le compte est celui de l'opération conservée).
+        /** @var array<int, string> $tombstoneValues id => nouvelle empreinte */
+        $tombstoneValues = [];
+        $seen = [];
+        foreach ($entityManager->getRepository(MergedFingerprint::class)->findBy([], ['id' => 'ASC']) as $tombstone) {
+            $fingerprint = $this->fingerprinter->fingerprint(
+                $tombstone->getKeptOperation()->getAccount(),
+                $tombstone->getDate(),
+                $tombstone->getAmount(),
+                $this->labelNormalizer->key($tombstone->getRawLabel()),
+                $tombstone->getOccurrenceIndex(),
+            );
+            // Deux pierres tombales devenues identiques : une seule suffit (empreinte unique).
+            $tombstoneValues[(int) $tombstone->getId()] = isset($seen[$fingerprint]) ? '' : $fingerprint;
+            $seen[$fingerprint] = true;
+        }
+
         $io->writeln(sprintf(
             '%d opération(s) analysée(s), %d modifiée(s)%s.',
             count($operations),
@@ -126,6 +145,14 @@ final class RebuildFingerprintsCommand extends Command
                         'UPDATE operation SET fingerprint = ?, occurrence_index = ? WHERE id = ?',
                         [$values['fingerprint'], $values['occurrenceIndex'], $id],
                     );
+                }
+            }
+            if ([] !== $tombstoneValues) {
+                $connection->executeStatement("UPDATE merged_fingerprint SET fingerprint = 'tmp-' || id");
+                foreach ($tombstoneValues as $id => $fingerprint) {
+                    '' === $fingerprint
+                        ? $connection->executeStatement('DELETE FROM merged_fingerprint WHERE id = ?', [$id])
+                        : $connection->executeStatement('UPDATE merged_fingerprint SET fingerprint = ? WHERE id = ?', [$fingerprint, $id]);
                 }
             }
             $connection->commit();

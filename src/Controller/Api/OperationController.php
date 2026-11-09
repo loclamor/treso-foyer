@@ -26,15 +26,14 @@ use App\Categorization\CategorizeOptions;
 use App\Categorization\Categorizer;
 use App\Categorization\ManualCategorizer;
 use App\Entity\Account;
-use App\Entity\AdblueFill;
 use App\Entity\Category;
 use App\Entity\Household;
 use App\Entity\Operation;
 use App\Entity\Vehicle;
 use App\Enum\CategorizationSource;
 use App\Enum\DuplicateStatus;
-use App\Enum\ImportFormat;
 use App\Enum\VehicleSource;
+use App\Import\DuplicateMerger;
 use App\Import\LabelNormalizer;
 use App\Reconciliation\ManualEntryReconciler;
 use App\Repository\OdometerReadingRepository;
@@ -510,6 +509,7 @@ final class OperationController extends AbstractController
         EntityManagerInterface $entityManager,
         OperationPresenter $operationPresenter,
         VehicleAssigner $vehicleAssigner,
+        DuplicateMerger $duplicateMerger,
     ): JsonResponse {
         $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
 
@@ -521,32 +521,11 @@ final class OperationController extends AbstractController
             return new JsonResponse(['kept' => $operationPresenter->present($operation)]);
         }
 
-        // merge : on conserve l'opération de référence (libellé PDF prioritaire, sinon duplicateOf).
-        $reference = $operation->getDuplicateOf();
-        $kept = ImportFormat::Pdf === $operation->getLabelSource() || null === $reference ? $operation : $reference;
-        $removed = $kept === $operation ? $reference : $operation;
-        if (null === $removed) {
+        // merge : voir DuplicateMerger (report des données, pierre tombale de l'empreinte supprimée).
+        $kept = $duplicateMerger->merge($operation);
+        if (null === $kept) {
             throw new BadRequestException('Cette opération n’est pas un doublon probable.', 'not_a_duplicate');
         }
-        // Report de la catégorie manuelle et de la note sur l'opération conservée si elle n'en a pas.
-        if (null === $kept->getCategory()
-            && null !== $removed->getCategory()
-            && CategorizationSource::Manual === $removed->getCategorizationSource()) {
-            $kept->categorize($removed->getCategory(), CategorizationSource::Manual);
-        }
-        if (null === $kept->getNote()) {
-            $kept->setNote($removed->getNote());
-        }
-        // Plein (ADR 0015) : reporté sur l'opération conservée si elle n'en a pas (et qu'elle est un débit).
-        if (!$kept->hasFuel() && $removed->hasFuel() && $kept->isDebit()) {
-            $kept->recordFuel((int) $removed->getFuelVolumeMl(), $removed->getFuelFullTank() ?? true, $removed->getOdometerKm());
-        }
-        // Remplissage d'AdBlue lié (ADR 0016) : passe sur l'opération conservée.
-        $entityManager->getRepository(AdblueFill::class)->transferOperation($removed, $kept);
-        $kept->setDuplicateStatus(DuplicateStatus::None);
-        $kept->setDuplicateOf(null);
-        $entityManager->remove($removed);
-        $entityManager->flush();
         // L'opération supprimée pouvait porter une affectation véhicule : resynchronise le foyer.
         $vehicleAssigner->sync($householdProvider->get());
 

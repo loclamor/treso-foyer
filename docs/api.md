@@ -168,7 +168,7 @@ Un plein est porté par l'opération elle-même (au plus un plein par opération
 | POST | `/api/operations/bulk-vehicle` | `{"ids": [int], "vehicleId": int|null, "ignore": bool}` (même sémantique) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
 | POST | `/api/operations/bulk-categorize` | `{"ids": [int], "categoryId": int}` (manuel, sans règle) ⇒ `{"updatedCount": n}` |
-| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle, note et plein (ADR 0015) si elle n'en a pas, supprime l'autre. `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
+| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle, note et plein (ADR 0015) si elle n'en a pas, supprime l'autre et garde son empreinte (un import ultérieur ne la recrée pas, ADR 0005). `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
 
 ## Commerçants (écran « à catégoriser »)
 | Méthode | Route | Notes |
