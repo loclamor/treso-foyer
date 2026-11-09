@@ -451,6 +451,7 @@ final class StatsRepository
             ."    SELECT o.account_id, o.date::date AS d, SUM(o.amount) AS s\n"
             ."    FROM operation o\n"
             ."    WHERE o.account_id IN (SELECT id FROM accounts)\n"
+            ."      AND o.duplicate_status <> 'probable'\n"
             ."      AND o.date <= (SELECT to_d FROM params)\n"
             ."    GROUP BY 1, 2\n"
             ."),\n"
@@ -820,6 +821,7 @@ final class StatsRepository
                 '.AmountClassifier::joins().$series.'
                 CROSS JOIN params
                 WHERE a.household_id = params.household_id'.$scope.'
+                  AND o.duplicate_status <> \'probable\'
                   AND '.$eff.' >= params.from_d
                   AND '.$eff.' <= params.to_d';
     }

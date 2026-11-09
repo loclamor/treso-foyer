@@ -7,8 +7,10 @@ namespace App\Tests\Functional\Api;
 use App\Entity\Account;
 use App\Entity\ImportBatch;
 use App\Entity\InternalTransfer;
+use App\Entity\Operation;
 use App\Entity\Statement;
 use App\Enum\CategorizationSource;
+use App\Enum\DuplicateStatus;
 use App\Enum\ImportFormat;
 use App\Enum\ImportStatus;
 use App\Enum\TransferStatus;
@@ -365,6 +367,24 @@ final class StatsApiTest extends ApiTestCase
             [null, null, null, null, null, null, null, null, null, null, 90000, 90000, 90000],
             $data['total'],
         );
+    }
+
+    public function testProbableDuplicatesAreLeftOutOfStatsAndBalance(): void
+    {
+        $this->seedStatsData();
+        // Même achat vu dans un autre export, date décalée d'un jour : doublon probable non traité.
+        $original = $this->em()->getRepository(Operation::class)->findOneBy(['rawLabel' => 'ACHAT CB INCONNU']);
+        $copy = $this->addOperation($this->account, '2026-03-06', -450, 'ACHAT CB INCONNU', 'INCONNU');
+        $copy->setDuplicateStatus(DuplicateStatus::Probable)->setDuplicateOf($original);
+        $this->em()->flush();
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', $this->statsUri('overview')));
+        self::assertSame(3250, $data['expense']);
+        self::assertSame(10, $data['operationsCount']);
+
+        $data = $this->decode($this->json($client, 'GET', $this->statsUri('balance', ['granularity' => 'month', 'accountId' => [(int) $this->account->getId()]])));
+        self::assertSame([99000, 97800, 337350], $data['accounts'][0]['values']);
     }
 
     public function testBalanceCountsOperationsBetweenAnchorAndPeriodStart(): void
