@@ -65,6 +65,41 @@ final class StatementImporterTest extends KernelTestCase
         self::assertNull($batch->getAccount());
     }
 
+    public function testDryRunKeepsThePreviousFailedBatch(): void
+    {
+        $path = self::FIXTURES.'/releve-compte-inconnu.csv';
+        $sha256 = hash('sha256', (string) file_get_contents($path));
+        $batches = fn (): array => $this->entityManager->getRepository(ImportBatch::class)->findBy(['sha256' => $sha256]);
+        try {
+            $this->importer->import($path, new ImportOptions(autoCreateAccount: false, originalFilename: 'mon-releve.csv'));
+            self::fail('UnknownAccountException attendue.');
+        } catch (UnknownAccountException) {
+        }
+
+        // Le dry-run ne doit pas effacer le lot en échec existant.
+        $report = $this->importer->import($path, new ImportOptions(dryRun: true, autoCreateAccount: true));
+        self::assertSame('dry_run', $report->status);
+        $this->entityManager->clear();
+        self::assertCount(1, $batches());
+        self::assertSame(ImportStatus::Failed, $batches()[0]->getStatus());
+        // Nom d'origine du fichier, pas « <sha256>.csv ».
+        self::assertSame('mon-releve.csv', $batches()[0]->getOriginalFilename());
+
+        // Nouvel échec : un seul lot en échec, remplacé.
+        try {
+            $this->importer->import($path, new ImportOptions(autoCreateAccount: false));
+        } catch (UnknownAccountException) {
+        }
+        $this->entityManager->clear();
+        self::assertCount(1, $batches());
+
+        // Import réel ensuite : le lot en échec laisse la place au lot terminé.
+        self::assertSame('imported', $this->importer->import($path, new ImportOptions(autoCreateAccount: true))->status);
+        $this->entityManager->clear();
+        self::assertCount(1, $batches());
+        self::assertSame(ImportStatus::Completed, $batches()[0]->getStatus());
+    }
+
     public function testImportAvecAutoCreationCompte(): void
     {
         $report = $this->importA();

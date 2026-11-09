@@ -156,15 +156,19 @@ final class StatementImporter
                     enriched: $existing->getEnrichedCount(),
                 );
             }
-            // Lot en échec avec ce hash : on le supprime avant de réessayer.
-            $this->entityManager->remove($existing);
-            $this->entityManager->flush();
         }
+        // Lot en échec avec ce hash : supprimé avant de réessayer, dans la transaction de l'import
+        // (un dry-run ou un nouvel échec le restaure par rollback au lieu de le perdre).
+        $failedBatch = $existing instanceof ImportBatch ? $existing : null;
 
         $resolvedAccount = null;
         try {
             return $this->entityManager->wrapInTransaction(
-                function () use ($path, $sha256, $parse, $options, &$resolvedAccount): ImportReport {
+                function () use ($path, $sha256, $parse, $options, &$resolvedAccount, $failedBatch): ImportReport {
+                    if (null !== $failedBatch) {
+                        $this->entityManager->remove($failedBatch);
+                        $this->entityManager->flush();
+                    }
                     $parsed = $parse();
                                         $account = $this->accountResolver->resolve($parsed->accountNumber, $options->autoCreateAccount, $parsed->accountType, $parsed->accountLabel);
                     $resolvedAccount = $account;
@@ -360,7 +364,7 @@ final class StatementImporter
             throw $exception;
         } catch (\Throwable $exception) {
             if (!$options->dryRun) {
-                $this->recordFailedBatch($path, $sha256, $resolvedAccount, $exception);
+                $this->recordFailedBatch($path, $options->originalFilename ?? basename($path), $sha256, $resolvedAccount, $exception);
             }
             throw $exception;
         } finally {
@@ -381,13 +385,18 @@ final class StatementImporter
         }
     }
 
-    private function recordFailedBatch(string $path, string $sha256, ?\App\Entity\Account $account, \Throwable $exception): void
+    private function recordFailedBatch(string $path, string $filename, string $sha256, ?\App\Entity\Account $account, \Throwable $exception): void
     {
         try {
             $entityManager = $this->openEntityManager();
             $entityManager->clear();
             $format = str_ends_with(mb_strtolower($path), '.pdf') ? ImportFormat::Pdf : ImportFormat::Csv;
-            $batch = new ImportBatch(basename($path), $sha256, $format, ImportStatus::Failed);
+            // Ancien lot en échec du même fichier (restauré par le rollback) : remplacé.
+            $entityManager->getConnection()->executeStatement(
+                'DELETE FROM import_batch WHERE sha256 = ? AND status <> ?',
+                [$sha256, ImportStatus::Completed->value],
+            );
+            $batch = new ImportBatch($filename, $sha256, $format, ImportStatus::Failed);
             // Le compte peut provenir de la transaction annulée : on ne garde qu'une référence s'il existe en base.
             if (null !== $account?->getId() && null !== $entityManager->find(\App\Entity\Account::class, $account->getId())) {
                 $batch->setAccount($entityManager->getReference(\App\Entity\Account::class, $account->getId()));
