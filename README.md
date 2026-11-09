@@ -33,7 +33,7 @@ puis `docker compose restart node`. Sans clé, l'appli fonctionne mais affiche u
 make sf c='app:setup'                                   # foyer + catégories par défaut (idempotent)
 make sf c='app:member:add <identifiant> "<Nom affiché>"' # une fois par personne du foyer
 ```
-`.env.local` doit définir `ACCOUNT_NUMBER_PEPPER` (secret aléatoire, `openssl rand -hex 32`), **à ne plus changer** une fois des comptes importés.
+`.env.local` doit définir `ACCOUNT_NUMBER_PEPPER` (secret aléatoire, `openssl rand -hex 32`), **à ne plus changer** une fois des comptes importés. La valeur par défaut versionnée est refusée au démarrage. Pour la cible prod (`compose.prod.yaml`), `APP_SECRET`, `POSTGRES_PASSWORD` et `CADDY_MERCURE_JWT_SECRET` sont obligatoires.
 Modèle de données : [`docs/modele-donnees.md`](docs/modele-donnees.md).
 
 ### Se connecter

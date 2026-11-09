@@ -12,12 +12,18 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  */
 final class AccountNumberHasher
 {
+    /** Valeur versionnée dans .env : publique, donc inutilisable comme pepper. */
+    public const PLACEHOLDER_PEPPER = 'change-me-in-env-local';
+
     public function __construct(
         #[Autowire('%env(ACCOUNT_NUMBER_PEPPER)%')]
         private readonly string $pepper,
     ) {
         if ('' === $pepper) {
             throw new \InvalidArgumentException('La variable ACCOUNT_NUMBER_PEPPER ne doit pas être vide.');
+        }
+        if (self::PLACEHOLDER_PEPPER === $pepper) {
+            throw new \InvalidArgumentException('ACCOUNT_NUMBER_PEPPER a sa valeur par défaut publique : la définir dans .env.local (ex. openssl rand -hex 32).');
         }
     }
 

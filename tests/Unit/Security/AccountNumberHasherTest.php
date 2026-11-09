@@ -42,4 +42,10 @@ final class AccountNumberHasherTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         new AccountNumberHasher('');
     }
+
+    public function testPlaceholderPepperIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new AccountNumberHasher(AccountNumberHasher::PLACEHOLDER_PEPPER);
+    }
 }

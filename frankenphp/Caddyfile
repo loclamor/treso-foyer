@@ -24,6 +24,14 @@
 	root /app/public
 	encode zstd br gzip
 
+	# En-têtes de sécurité communs (HSTS et CSP : compose.prod.yaml, via CADDY_SERVER_EXTRA_DIRECTIVES).
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
 	mercure {
 		# Share the hub between the addresses listed in SERVER_NAME (e.g. "localhost, php:80")
 		name default

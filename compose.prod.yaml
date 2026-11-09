@@ -1,5 +1,6 @@
----
 # Production environment override
+# Secrets obligatoires (le démarrage échoue s'ils manquent, au lieu de garder une valeur par défaut publique) :
+# APP_SECRET, POSTGRES_PASSWORD, CADDY_MERCURE_JWT_SECRET.
 services:
   php:
     image: ${IMAGES_PREFIX:-}app-php-prod
@@ -7,6 +8,19 @@ services:
       context: .
       target: frankenphp_prod
     environment:
-      APP_SECRET: ${APP_SECRET}
-      MERCURE_PUBLISHER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET}
-      MERCURE_SUBSCRIBER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET doit être défini (ex. openssl rand -hex 32)}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-banque}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD doit être défini}@database:5432/${POSTGRES_DB:-banque}?serverVersion=${POSTGRES_VERSION:-17}&charset=${POSTGRES_CHARSET:-utf8}
+      MERCURE_PUBLISHER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET:?CADDY_MERCURE_JWT_SECRET doit être défini}
+      MERCURE_SUBSCRIBER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET:?CADDY_MERCURE_JWT_SECRET doit être défini}
+      MERCURE_JWT_SECRET: ${CADDY_MERCURE_JWT_SECRET:?CADDY_MERCURE_JWT_SECRET doit être défini}
+      # HSTS et CSP uniquement en prod : en dev, HSTS sur localhost forcerait le https sur le serveur Vite
+      # (http://localhost:5173) et la CSP bloquerait Vite et la barre du profiler.
+      CADDY_SERVER_EXTRA_DIRECTIVES: |
+        header {
+          Strict-Transport-Security "max-age=31536000"
+          Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        }
+
+  database:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD doit être défini}
