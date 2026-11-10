@@ -531,7 +531,7 @@ onMounted(() => {
                     </div>
                     <div class="field">
                         <label for="f-cat">Catégorie</label>
-                        <CategoryPicker id="f-cat" v-model="filters.categoryId" placeholder="Toutes les catégories" />
+                        <CategoryPicker id="f-cat" v-model="filters.categoryId" placeholder="Toutes les catégories" @update:model-value="onFilterChange" />
                     </div>
                     <div class="field field-check">
                         <Checkbox id="f-uncat" v-model="filters.uncategorized" binary @update:model-value="onFilterChange" />
