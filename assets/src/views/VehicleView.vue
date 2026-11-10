@@ -344,7 +344,8 @@ async function loadReadings() {
     try {
         const res = await listOdometerReadings(vehicleId);
         if (!isLatest()) return;
-        readings.value = res;
+        // Clé unique : les points des pleins et de l'AdBlue n'ont pas d'id de relevé.
+        readings.value = res.map((r) => ({ ...r, key: `${r.source}-${r.id ?? r.operationId ?? r.adblueFillId}` }));
     } catch (e) {
         if (isLatest()) toast.add({ severity: 'error', summary: 'Relevés illisibles', detail: apiMessage(e), life: 6000 });
     } finally {
@@ -606,7 +607,7 @@ async function submitAdblue() {
             toast.add({ severity: 'warn', summary: 'Kilométrage incohérent', detail: saved.warning, life: 10000 });
         }
         adblueDialogVisible.value = false;
-        await Promise.all([loadAdblue(), loadStats(), loadOps(), vehiclesStore.refresh(true)]);
+        await Promise.all([loadAdblue(), loadReadings(), loadStats(), loadOps(), vehiclesStore.refresh(true)]);
     } catch (e) {
         const data = e.response?.data;
         if (Array.isArray(data?.violations)) {
@@ -632,7 +633,7 @@ function removeAdblue(f) {
             try {
                 await deleteAdblueFill(f.id);
                 toast.add({ severity: 'success', summary: 'Remplissage supprimé', life: 3000 });
-                await Promise.all([loadAdblue(), vehiclesStore.refresh(true)]);
+                await Promise.all([loadAdblue(), loadReadings(), loadStats(), vehiclesStore.refresh(true)]);
             } catch (e) {
                 toast.add({ severity: 'error', summary: 'Suppression impossible', detail: apiMessage(e), life: 6000 });
             }
@@ -889,7 +890,7 @@ onMounted(async () => {
                 <h2>Relevés kilométriques</h2>
                 <Button label="Ajouter un relevé" icon="pi pi-plus" size="small" @click="openReadingCreate" />
             </div>
-            <DataTable :value="readings" :loading="loadingReadings" size="small" data-key="id">
+            <DataTable :value="readings" :loading="loadingReadings" size="small" data-key="key">
                 <template #empty>Aucun relevé. Ajoutez le compteur actuel pour calculer les km parcourus.</template>
                 <Column field="date" header="Date" style="width: 8rem">
                     <template #body="{ data }">{{ formatDate(data.date) }}</template>
@@ -897,11 +898,21 @@ onMounted(async () => {
                 <Column field="km" header="Kilométrage" class="text-right" style="width: 10rem">
                     <template #body="{ data }">{{ data.km.toLocaleString('fr-FR') }} km</template>
                 </Column>
+                <Column header="Origine" style="width: 8rem">
+                    <template #body="{ data }">
+                        <Tag v-if="data.source === 'fuel'" value="Plein" severity="info" />
+                        <Tag v-else-if="data.source === 'adblue'" value="AdBlue" severity="secondary" />
+                        <Tag v-else value="Relevé" severity="contrast" />
+                    </template>
+                </Column>
                 <Column field="note" header="Note" />
                 <Column header="Actions" style="width: 7rem">
                     <template #body="{ data }">
-                        <Button icon="pi pi-pencil" text rounded size="small" :aria-label="'Modifier le relevé du ' + formatDate(data.date)" @click="openReadingEdit(data)" />
-                        <Button icon="pi pi-trash" text rounded size="small" severity="danger" :aria-label="'Supprimer le relevé du ' + formatDate(data.date)" @click="removeReading(data)" />
+                        <span v-if="data.source !== 'reading'" class="text-muted" :title="data.source === 'fuel' ? 'Modifiable depuis le plein (opération)' : 'Modifiable depuis le remplissage d\'AdBlue'">—</span>
+                        <template v-else>
+                            <Button icon="pi pi-pencil" text rounded size="small" :aria-label="'Modifier le relevé du ' + formatDate(data.date)" @click="openReadingEdit(data)" />
+                            <Button icon="pi pi-trash" text rounded size="small" severity="danger" :aria-label="'Supprimer le relevé du ' + formatDate(data.date)" @click="removeReading(data)" />
+                        </template>
                     </template>
                 </Column>
             </DataTable>

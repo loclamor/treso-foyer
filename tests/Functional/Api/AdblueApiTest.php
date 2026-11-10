@@ -65,6 +65,43 @@ final class AdblueApiTest extends ApiTestCase
         self::assertSame('operation_already_linked', $this->decode($response)['error']);
     }
 
+    public function testOdometerListIncludesFuelAndAdbluePointsReadOnly(): void
+    {
+        $vehicle = $this->createVehicle();
+        $vid = (int) $vehicle['id'];
+        $client = $this->client();
+
+        $response = $this->json($client, 'POST', "/api/vehicles/$vid/odometer", ['date' => '2026-03-01', 'km' => 49000]);
+        $reading = $this->decode($response);
+
+        // Plein avec kilométrage sur une opération affectée au véhicule.
+        $fuelOp = $this->addOperation($this->account, '2026-03-05', -7000, 'ACHAT CB STATION GAZOLE 05.03.26', 'STATION');
+        $managed = $this->em()->find(Vehicle::class, $vid);
+        self::assertNotNull($managed);
+        $fuelOp->assignVehicle($managed, VehicleSource::Manual);
+        $this->em()->flush();
+        $fuelOpId = (int) $fuelOp->getId();
+        self::assertSame(Response::HTTP_OK, $this->json($client, 'PUT', "/api/operations/$fuelOpId/fuel", ['volumeMl' => 45000, 'odometerKm' => 49400])->getStatusCode());
+
+        // Remplissage d'AdBlue au bidon avec kilométrage, et un autre sans (absent de la liste).
+        $fill = $this->decode($this->json($client, 'POST', "/api/vehicles/$vid/adblue", [
+            'date' => '2026-03-10', 'volumeMl' => 5000, 'source' => 'can', 'odometerKm' => 50000, 'note' => 'Bidon',
+        ]));
+        $this->json($client, 'POST', "/api/vehicles/$vid/adblue", ['date' => '2026-03-12', 'volumeMl' => 2000, 'source' => 'can']);
+
+        /** @var list<array<string, mixed>> $list */
+        $list = $this->decode($this->json($client, 'GET', "/api/vehicles/$vid/odometer"));
+        self::assertSame(['adblue', 'fuel', 'reading'], array_column($list, 'source'));
+        self::assertSame([50000, 49400, 49000], array_column($list, 'km'));
+        self::assertSame(['2026-03-10', '2026-03-05', '2026-03-01'], array_column($list, 'date'));
+        self::assertSame([null, null, $reading['id']], array_column($list, 'id'));
+        self::assertSame($fill['id'], $list[0]['adblueFillId']);
+        self::assertSame('Bidon', $list[0]['note']);
+        self::assertSame($fuelOpId, $list[1]['operationId']);
+        self::assertNull($list[2]['operationId']);
+        self::assertNull($list[2]['adblueFillId']);
+    }
+
     public function testCanFillEstimatesCostAndValidations(): void
     {
         $vehicle = $this->createVehicle();

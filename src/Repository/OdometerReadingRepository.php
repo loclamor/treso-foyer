@@ -69,6 +69,39 @@ final class OdometerReadingRepository extends ServiceEntityRepository
      * @param ?int $excludeOperationId opération à exclure des points (ex. plein en cours de saisie)
      * @return list<array{date: string, km: int}> points {date, km} du véhicule, date asc (relevé avant plein à date égale)
      */
+    /**
+     * Points de compteur portés par les pleins (ADR 0015) et les remplissages d'AdBlue (ADR 0016)
+     * du véhicule, pour les lister avec les relevés saisis (lecture seule : ils se modifient
+     * depuis leur plein ou leur remplissage). Date desc, plein avant AdBlue, puis id desc.
+     *
+     * @return list<array{source: 'fuel'|'adblue', id: int, date: string, km: int, note: string|null}>
+     */
+    public function derivedPointsByVehicle(Vehicle $vehicle): array
+    {
+        $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
+            <<<'SQL'
+                SELECT 'fuel' AS source, o.id, COALESCE(o.spent_at, o.date) AS date, o.odometer_km AS km, o.raw_label AS note, 1 AS priority
+                FROM operation o
+                WHERE o.vehicle_id = :id AND o.odometer_km IS NOT NULL
+                UNION ALL
+                SELECT 'adblue' AS source, f.id, f.date, f.odometer_km AS km, f.note, 2 AS priority
+                FROM adblue_fill f
+                WHERE f.vehicle_id = :id AND f.odometer_km IS NOT NULL
+                ORDER BY date DESC, priority ASC, id DESC
+                SQL,
+            ['id' => (int) $vehicle->getId()],
+            ['id' => ParameterType::INTEGER],
+        );
+
+        return array_map(static fn (array $row): array => [
+            'source' => 'fuel' === $row['source'] ? 'fuel' : 'adblue',
+            'id' => (int) $row['id'],
+            'date' => (new \DateTimeImmutable((string) $row['date']))->format('Y-m-d'),
+            'km' => (int) $row['km'],
+            'note' => null === $row['note'] ? null : (string) $row['note'],
+        ], $rows);
+    }
+
     public function findPointsByVehicle(Vehicle $vehicle, ?int $excludeOperationId = null, ?int $excludeAdblueFillId = null): array
     {
         return $this->pointsByVehicleIds([(int) $vehicle->getId()], $excludeOperationId, $excludeAdblueFillId)[(int) $vehicle->getId()] ?? [];

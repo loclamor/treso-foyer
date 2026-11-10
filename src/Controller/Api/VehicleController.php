@@ -297,10 +297,28 @@ final class VehicleController extends AbstractController
     ): JsonResponse {
         $vehicle = $this->find($entityManager, $householdProvider->get(), $id);
 
-        return new JsonResponse(array_map(
-            static fn (OdometerReading $reading): array => $odometerReadingPresenter->present($reading),
+        // Relevés saisis (modifiables) + kilométrages des pleins et des remplissages d'AdBlue
+        // (points de compteur, ADR 0015/0016, en lecture seule). Date desc ; à date égale,
+        // relevé, puis plein, puis AdBlue (même priorité que le calcul des distances).
+        $rows = array_map(
+            static fn (OdometerReading $reading): array => $odometerReadingPresenter->present($reading) + ['source' => 'reading', 'operationId' => null, 'adblueFillId' => null],
             $odometerReadingRepository->findByVehicleDesc($vehicle),
-        ));
+        );
+        foreach ($odometerReadingRepository->derivedPointsByVehicle($vehicle) as $point) {
+            $rows[] = [
+                'id' => null,
+                'date' => $point['date'],
+                'km' => $point['km'],
+                'note' => $point['note'],
+                'source' => $point['source'],
+                'operationId' => 'fuel' === $point['source'] ? $point['id'] : null,
+                'adblueFillId' => 'adblue' === $point['source'] ? $point['id'] : null,
+            ];
+        }
+        $priority = ['reading' => 0, 'fuel' => 1, 'adblue' => 2];
+        usort($rows, static fn (array $a, array $b): int => [$b['date'], $priority[$a['source']]] <=> [$a['date'], $priority[$b['source']]]);
+
+        return new JsonResponse($rows);
     }
 
     #[Route('/api/vehicles/{id}/odometer', name: 'api_vehicle_odometer_create', requirements: ['id' => '\d+'], methods: ['POST'])]
