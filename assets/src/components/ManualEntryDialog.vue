@@ -11,7 +11,8 @@ import { useToast } from 'primevue/usetoast';
 import CategoryPicker from '@/components/CategoryPicker.vue';
 import VehiclePicker from '@/components/VehiclePicker.vue';
 import FuelFields from '@/components/FuelFields.vue';
-import { createOperation, patchOperation, categorizeOperation, setOperationFuel, clearOperationFuel } from '@/api/operations';
+import GasFields from '@/components/GasFields.vue';
+import { createOperation, patchOperation, categorizeOperation, setOperationFuel, clearOperationFuel, setOperationGas, clearOperationGas } from '@/api/operations';
 import { assignOperationVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { useAccountsStore } from '@/stores/accounts';
@@ -46,6 +47,8 @@ const note = ref('');
 const loading = ref(false);
 // Plein de carburant (ADR 0015) : {volumeMl, fullTank, odometerKm}, volumeMl null = pas de plein.
 const fuelModel = ref({ volumeMl: null, fullTank: true, odometerKm: null });
+// Achat de gaz en bouteille (ADR 0017) : {massG}, massG null = pas d'achat de gaz.
+const gasModel = ref({ massG: null });
 
 const directionOptions = [
     { label: 'Dépense', value: 'debit' },
@@ -61,8 +64,10 @@ const accountOptions = computed(() =>
 const showVehiclePicker = computed(() => vehiclesStore.list.length > 0);
 
 // Catégorie carburant + dépense ⇒ champs du plein (le champ Montant est alors rendu par FuelFields).
+// Catégorie gaz + dépense ⇒ champs de l'achat de gaz (masse, prix au kg ; montant rendu par GasFields).
 const selectedCategory = computed(() => categoriesStore.byId.get(categoryId.value));
 const showFuelFields = computed(() => !!selectedCategory.value?.fuel && direction.value === 'debit');
+const showGasFields = computed(() => !!selectedCategory.value?.gas && !selectedCategory.value?.fuel && direction.value === 'debit');
 
 // Présélection du compte du périmètre courant quand c'est un compte.
 const defaultAccountId = computed(() => (scope.current.type === 'account' ? scope.current.id : null));
@@ -109,6 +114,7 @@ function reset() {
             fullTank: op.fuel?.fullTank ?? true,
             odometerKm: op.fuel?.odometerKm ?? null,
         };
+        gasModel.value = { massG: op.gas?.massG ?? null };
     } else {
         accountId.value = defaultAccountId.value ?? accountOptions.value[0]?.value ?? null;
         date.value = new Date();
@@ -119,11 +125,13 @@ function reset() {
         vehicleId.value = null;
         note.value = '';
         fuelModel.value = { volumeMl: null, fullTank: true, odometerKm: null };
+        gasModel.value = { massG: null };
     }
 }
 
-// Montant dérivé par FuelFields (volume × prix au litre) ⇒ on met à jour le champ Montant.
-function onFuelAmount(cents) {
+// Montant dérivé par FuelFields (volume × prix au litre) ou GasFields (masse × prix au kg)
+// ⇒ on met à jour le champ Montant.
+function onDerivedAmount(cents) {
     if (cents === null) {
         amountEuros.value = '';
         return;
@@ -186,6 +194,15 @@ async function submit() {
                     toast.add({ severity: 'warn', summary: 'Kilométrage incohérent', detail: res.warning, life: 10000 });
                 }
             }
+            // Achat de gaz (ADR 0017) : PUT/DELETE dédié si la masse a changé.
+            const prevGas = props.entry.gas ?? null;
+            const nextGasMass = gasModel.value.massG;
+            if ((prevGas?.massG ?? null) !== (nextGasMass ?? null)) {
+                const res = nextGasMass
+                    ? await setOperationGas(props.entry.id, { massG: nextGasMass })
+                    : await clearOperationGas(props.entry.id);
+                updated = res.operation;
+            }
             toast.add({ severity: 'success', summary: 'Saisie mise à jour', detail: `Opération #${updated.id}.`, life: 4000 });
             emit('saved', { operation: updated, reconciled: false });
         } else {
@@ -203,6 +220,10 @@ async function submit() {
                 payload.fuelVolumeMl = fuelModel.value.volumeMl;
                 payload.fuelFullTank = fuelModel.value.fullTank;
                 if (fuelModel.value.odometerKm !== null) payload.odometerKm = fuelModel.value.odometerKm;
+            }
+            // Achat de gaz (ADR 0017) : envoyé avec la création si une masse est saisie.
+            if (showGasFields.value && gasModel.value.massG) {
+                payload.gasMassG = gasModel.value.massG;
             }
             const res = await createOperation(payload);
             if (res.reconciled) {
@@ -276,7 +297,7 @@ async function submit() {
                 />
             </div>
 
-            <div v-if="!showFuelFields" class="field">
+            <div v-if="!showFuelFields && !showGasFields" class="field">
                 <label for="entry-amount">Montant (€)</label>
                 <InputText
                     id="entry-amount"
@@ -294,7 +315,17 @@ async function submit() {
                 v-model="fuelModel"
                 :amount-cents="signedAmount"
                 amount-editable
-                @update:amount-cents="onFuelAmount"
+                @update:amount-cents="onDerivedAmount"
+            />
+
+            <!-- Catégorie gaz + dépense : la bonbonne (masse en kg, prix au kg) ;
+                 GasFields rend alors aussi le champ Montant, lié aux deux autres grandeurs. -->
+            <GasFields
+                v-if="showGasFields"
+                v-model="gasModel"
+                :amount-cents="signedAmount"
+                amount-editable
+                @update:amount-cents="onDerivedAmount"
             />
 
             <div class="field">

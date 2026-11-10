@@ -12,6 +12,7 @@ use App\Api\Input\BulkVehicleAssignInput;
 use App\Api\Input\CategorizeOperationInput;
 use App\Api\Input\DuplicateInput;
 use App\Api\Input\FuelInput;
+use App\Api\Input\GasInput;
 use App\Api\Input\OperationCreateInput;
 use App\Api\Input\OperationPatchInput;
 use App\Api\Input\ReconcileInput;
@@ -126,6 +127,10 @@ final class OperationController extends AbstractController
         if (null !== $input->fuelVolumeMl && (int) $input->amount > 0) {
             throw new ValidationException([['field' => 'fuelVolumeMl', 'message' => 'Un plein n’est possible que sur un débit (montant négatif).']]);
         }
+        // Achat de gaz (ADR 0017) : idem, un achat de gaz n'est possible que sur un débit.
+        if (null !== $input->gasMassG && (int) $input->amount > 0) {
+            throw new ValidationException([['field' => 'gasMassG', 'message' => 'Un achat de gaz n’est possible que sur un débit (montant négatif).']]);
+        }
 
         $spentAt = new \DateTimeImmutable((string) $input->spentAt);
         $normalized = $labelNormalizer->normalize((string) $input->label);
@@ -148,6 +153,9 @@ final class OperationController extends AbstractController
         }
         if (null !== $input->fuelVolumeMl) {
             $operation->recordFuel($input->fuelVolumeMl, $input->fuelFullTank ?? true, $input->odometerKm);
+        }
+        if (null !== $input->gasMassG) {
+            $operation->recordGas($input->gasMassG);
         }
         $entityManager->persist($operation);
         $entityManager->flush();
@@ -325,6 +333,10 @@ final class OperationController extends AbstractController
                 if ($operation->isCredit() && $operation->hasFuel()) {
                     $operation->clearFuel();
                 }
+                // Idem pour un achat de gaz (ADR 0017).
+                if ($operation->isCredit() && $operation->hasGas()) {
+                    $operation->clearGas();
+                }
             }
             if (array_key_exists('label', $body)) {
                 $normalized = $labelNormalizer->normalize((string) $input->label);
@@ -404,6 +416,44 @@ final class OperationController extends AbstractController
     ): JsonResponse {
         $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
         $operation->clearFuel();
+        $entityManager->flush();
+
+        return new JsonResponse(['operation' => $operationPresenter->present($operation)]);
+    }
+
+    /**
+     * PUT /api/operations/{id}/gas : enregistre (remplace) l'achat de gaz de l'opération
+     * (bonbonne, ADR 0017) ⇒ 200 {"operation": Operation}. 400 `not_a_debit` si crédit.
+     */
+    #[Route('/api/operations/{id}/gas', name: 'api_operation_gas', requirements: ['id' => '\\d+'], methods: ['PUT'])]
+    public function recordGas(
+        int $id,
+        #[MapRequestPayload] GasInput $input,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        if ($operation->isCredit()) {
+            throw new BadRequestException('Un achat de gaz ne peut être enregistré que sur un débit.', 'not_a_debit');
+        }
+
+        $operation->recordGas((int) $input->massG);
+        $entityManager->flush();
+
+        return new JsonResponse(['operation' => $operationPresenter->present($operation)]);
+    }
+
+    /** DELETE /api/operations/{id}/gas : supprime l'achat de gaz de l'opération (ADR 0017) ⇒ 200 {"operation": Operation}. */
+    #[Route('/api/operations/{id}/gas', name: 'api_operation_gas_delete', requirements: ['id' => '\\d+'], methods: ['DELETE'])]
+    public function clearGas(
+        int $id,
+        HouseholdProvider $householdProvider,
+        EntityManagerInterface $entityManager,
+        OperationPresenter $operationPresenter,
+    ): JsonResponse {
+        $operation = $this->findOperation($entityManager, $householdProvider->get(), $id);
+        $operation->clearGas();
         $entityManager->flush();
 
         return new JsonResponse(['operation' => $operationPresenter->present($operation)]);

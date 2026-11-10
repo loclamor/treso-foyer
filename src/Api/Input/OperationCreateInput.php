@@ -46,6 +46,10 @@ final class OperationCreateInput
         #[Assert\Type(type: 'int', message: 'odometerKm doit être un entier.')]
         #[Assert\PositiveOrZero(message: 'odometerKm doit être positif ou nul.')]
         public readonly ?int $odometerKm = null,
+        /** Achat de gaz en bouteille (ADR 0017) : masse en grammes, > 0 ; refusé sur un crédit (422). */
+        #[Assert\Type(type: 'int', message: 'gasMassG doit être un entier (grammes).')]
+        #[Assert\Positive(message: 'gasMassG doit être strictement positif.')]
+        public readonly ?int $gasMassG = null,
     ) {
     }
 }

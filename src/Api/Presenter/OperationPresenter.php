@@ -50,6 +50,11 @@ final class OperationPresenter
                 'odometerKm' => $operation->getOdometerKm(),
                 'pricePerLiter' => $operation->getFuelPricePerLiter(),
             ] : null,
+            // Achat de gaz en bouteille (ADR 0017) : null, ou {massG, pricePerKg}.
+            'gas' => $operation->hasGas() ? [
+                'massG' => $operation->getGasMassG(),
+                'pricePerKg' => $operation->getGasPricePerKg(),
+            ] : null,
         ];
     }
 }

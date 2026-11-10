@@ -20,7 +20,7 @@ import { bulkCategorize, deleteOperation, listOperations, patchOperation } from 
 import { listRecurrences } from '@/api/recurrences';
 import { assignOperationVehicle, bulkAssignVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
-import { centsToEuros, dateToIso, formatDate, formatDateTime, formatLiters, formatPricePerLiter, parseEuros } from '@/utils/format';
+import { centsToEuros, dateToIso, formatDate, formatDateTime, formatKg, formatLiters, formatPricePerKg, formatPricePerLiter, parseEuros } from '@/utils/format';
 import { latestGuard } from '@/utils/latest';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import CategoryTag from '@/components/CategoryTag.vue';
@@ -663,6 +663,11 @@ onMounted(() => {
                             <span v-if="data.fuel" class="fuel-line text-muted">
                                 <i class="pi pi-gauge" aria-hidden="true" />
                                 {{ formatLiters(data.fuel.volumeMl) }} · {{ formatPricePerLiter(data.fuel.pricePerLiter) }}<template v-if="data.fuel.fullTank === false"> · partiel</template><template v-if="data.fuel.odometerKm !== null && data.fuel.odometerKm !== undefined"> · {{ data.fuel.odometerKm.toLocaleString('fr-FR') }} km</template>
+                            </span>
+                            <!-- Achat de gaz en bouteille (ADR 0017) : masse, prix au kg calculé. -->
+                            <span v-if="data.gas" class="fuel-line text-muted">
+                                <i class="pi pi-fire" aria-hidden="true" />
+                                {{ formatKg(data.gas.massG) }} · {{ formatPricePerKg(data.gas.pricePerKg) }}
                             </span>
                         </div>
                         <i

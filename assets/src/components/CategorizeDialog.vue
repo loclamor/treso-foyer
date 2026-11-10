@@ -8,7 +8,8 @@ import CategoryPicker from '@/components/CategoryPicker.vue';
 import VehiclePicker from '@/components/VehiclePicker.vue';
 import MoneyAmount from '@/components/MoneyAmount.vue';
 import FuelFields from '@/components/FuelFields.vue';
-import { categorizeOperation, setOperationFuel, clearOperationFuel } from '@/api/operations';
+import GasFields from '@/components/GasFields.vue';
+import { categorizeOperation, setOperationFuel, clearOperationFuel, setOperationGas, clearOperationGas } from '@/api/operations';
 import { assignOperationVehicle } from '@/api/vehicles';
 import { apiMessage } from '@/api/http';
 import { useCategoriesStore } from '@/stores/categories';
@@ -34,6 +35,8 @@ const result = ref(null);
 const vehicleId = ref(null);
 // Plein de carburant (ADR 0015) : {volumeMl, fullTank, odometerKm}, volumeMl null = pas de plein.
 const fuelModel = ref({ volumeMl: null, fullTank: true, odometerKm: null });
+// Achat de gaz en bouteille (ADR 0017) : {massG}, massG null = pas d'achat de gaz.
+const gasModel = ref({ massG: null });
 
 // Proposition de véhicule seulement si la catégorie choisie est vehicleRelated et qu'au moins
 // 2 véhicules sont actifs (avec un seul véhicule actif, l'affectation auto suffit).
@@ -41,6 +44,8 @@ const selectedCategory = computed(() => categoriesStore.byId.get(categoryId.valu
 const showVehiclePicker = computed(() => !!selectedCategory.value?.vehicleRelated && vehiclesStore.active.length >= 2);
 // Catégorie carburant + débit ⇒ champs du plein (montant imposé = celui de l'opération).
 const showFuelFields = computed(() => !!selectedCategory.value?.fuel && (props.operation?.amount ?? 0) < 0);
+// Catégorie gaz + débit ⇒ champs de l'achat de gaz (masse, prix au kg ; montant imposé).
+const showGasFields = computed(() => !!selectedCategory.value?.gas && !selectedCategory.value?.fuel && (props.operation?.amount ?? 0) < 0);
 
 const visible = computed({
     get: () => props.visible,
@@ -61,6 +66,7 @@ watch(
                 fullTank: op.fuel?.fullTank ?? true,
                 odometerKm: op.fuel?.odometerKm ?? null,
             };
+            gasModel.value = { massG: op.gas?.massG ?? null };
             result.value = null;
         }
     },
@@ -108,6 +114,18 @@ async function submit() {
                 }
             }
         }
+        // Achat de gaz (ADR 0017) : masse saisie et différente de l'existante ⇒ PUT ; masse vidée
+        // alors qu'il en existait un ⇒ DELETE.
+        if (showGasFields.value) {
+            const prevGas = props.operation.gas ?? null;
+            const nextGasMass = gasModel.value.massG;
+            if ((prevGas?.massG ?? null) !== (nextGasMass ?? null)) {
+                const gasRes = nextGasMass
+                    ? await setOperationGas(props.operation.id, { massG: nextGasMass })
+                    : await clearOperationGas(props.operation.id);
+                res.operation = gasRes.operation;
+            }
+        }
         result.value = res;
         toast.add({ severity: 'success', summary: 'Catégorisation appliquée', detail: detailOf(res), life: 5000 });
         emit('done', res);
@@ -150,6 +168,14 @@ async function removeCategory() {
             <FuelFields
                 v-if="showFuelFields"
                 v-model="fuelModel"
+                :amount-cents="operation.amount"
+                :amount-editable="false"
+            />
+
+            <!-- Catégorie gaz + débit : saisie de la bonbonne (masse, prix au kg), montant imposé. -->
+            <GasFields
+                v-if="showGasFields"
+                v-model="gasModel"
                 :amount-cents="operation.amount"
                 :amount-editable="false"
             />

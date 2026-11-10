@@ -150,3 +150,41 @@ export function parsePricePerLiter(str) {
     if (!/^\d+(\.\d{1,3})?$/.test(s)) return null;
     return Number(s);
 }
+
+// ---------- gaz en bouteille (ADR 0017) : masse en g côté API, affichée en kg ----------
+
+const kgFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// 13000 g → '13,00 kg'
+export function formatKg(g) {
+    if (g === null || g === undefined || Number.isNaN(Number(g))) return '—';
+    return `${kgFmt.format(Number(g) / 1000)} kg`;
+}
+
+const pricePerKgFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+// 1.234 (euros) → '1,234 €/kg'
+export function formatPricePerKg(eur) {
+    if (eur === null || eur === undefined || Number.isNaN(Number(eur))) return '—';
+    return `${pricePerKgFmt.format(Number(eur))} €/kg`;
+}
+
+// '13' | '13,5' | '6.25' → 13000 / 13500 / 6250 (g entier, arrondi au g près) ; null si vide ou invalide.
+export function parseKg(str) {
+    if (typeof str !== 'string') return null;
+    const s = str.trim().replace(/[\s ]/g, '').replace(',', '.');
+    if (!/^\d+(\.\d+)?$/.test(s)) return null;
+    return Math.round(parseFloat(s) * 1000);
+}
+
+// g → '13,00' (pré-remplir une saisie en kg, virgule française). '' si null.
+export function gToKg(g) {
+    if (g === null || g === undefined) return '';
+    return kgFmt.format(Number(g) / 1000);
+}
+
+// '1,234' | '1.234' | '1' → 1.234 (euros/kg, 3 décimales max) ; null si vide ou invalide.
+export function parsePricePerKg(str) {
+    if (typeof str !== 'string') return null;
+    const s = str.trim().replace(/[\s ]/g, '').replace(',', '.');
+    if (!/^\d+(\.\d{1,3})?$/.test(s)) return null;
+    return Number(s);
+}

@@ -31,6 +31,8 @@ final class CategoryPatchInput
         public readonly ?bool $vehicleRelated = null,
         #[Assert\Type(type: 'bool', message: 'fuel doit être un booléen.')]
         public readonly ?bool $fuel = null,
+        #[Assert\Type(type: 'bool', message: 'gas doit être un booléen.')]
+        public readonly ?bool $gas = null,
         #[Assert\Type(type: 'bool', message: 'financing doit être un booléen.')]
         public readonly ?bool $financing = null,
         // null explicite = retire l'emplacement (la présence de la clé est détectée

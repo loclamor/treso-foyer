@@ -24,7 +24,7 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 {"id": 12, "name": "Courses", "fullName": "Alimentation › Courses", "kind": "expense|income|transfer", "color": "#4caf50", "icon": "pi pi-shopping-cart", "chartSlot": 1 | null}  // chartSlot : celui de la racine
 // Category (arbre)
 {"id": 1, "name": "Alimentation", "fullName": "Alimentation", "kind": "expense", "color": "#…", "icon": "…", "position": 0, "archived": false,
- "vehicleRelated": false, "fuel": false, "financing": false, "parentId": null, "operationsCount": 1234, "children": [Category]}  // fuel : poste carburant (ADR 0015) ; financing : financement d'un véhicule, hors coût d'usage (ADR 0011)
+ "vehicleRelated": false, "fuel": false, "gas": false, "financing": false, "parentId": null, "operationsCount": 1234, "children": [Category]}  // fuel : poste carburant (ADR 0015) ; gas : poste gaz, achat de bonbonne (ADR 0017) ; financing : financement d'un véhicule, hors coût d'usage (ADR 0011)
 // VehicleRef
 {"id": 3, "name": "Clio", "type": "car|motorcycle|bike|other", "archived": false}
 // Vehicle
@@ -45,7 +45,9 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
  // Saisie manuelle / rapprochement (ADR 0014) : date effective = spentAt ?? date
  "spentAt": "2026-08-25" | null, "effectiveDate": "2026-08-25", "awaitingStatement": false, "reconciledAt": "…" | null,
  // Plein de carburant (ADR 0015) : null, ou {volumeMl, fullTank, odometerKm, pricePerLiter} (prix au litre calculé, euros)
- "fuel": null | {"volumeMl": 45000, "fullTank": true, "odometerKm": 48200, "pricePerLiter": 1.511}}
+ "fuel": null | {"volumeMl": 45000, "fullTank": true, "odometerKm": 48200, "pricePerLiter": 1.511},
+ // Achat de gaz en bouteille (ADR 0017) : null, ou {massG, pricePerKg} (prix au kg calculé, euros)
+ "gas": null | {"massG": 13000, "pricePerKg": 3.069}}
 // Rule
 {"id": 7, "category": CategoryRef, "matchField": "merchant|label", "matchType": "contains|starts_with|exact|regex", "pattern": "…",
  "direction": "any|debit|credit", "amountMin": 4000 | null, "amountMax": 8000 | null, "account": AccountRef | null,
@@ -104,8 +106,8 @@ Référence unique entre le back (Symfony, `src/Controller/Api/`) et le front (V
 | GET | `/api/accounts` | `[Account]` |
 | PATCH | `/api/accounts/{id}` | `{"alias"?, "label"?, "type"?, "holderIds"?: [int]}` ⇒ `Account` (alias unique ⇒ `409`) |
 | GET | `/api/categories` | arbre `[Category]` (racines triées par `position`) |
-| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?,"vehicleRelated"?,"fuel"?,"financing"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
-| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?,"vehicleRelated"?,"fuel"?,"financing"?,"chartSlot"?}` (`fuel`, `financing` : sans resynchro véhicule) |
+| POST | `/api/categories` | `{"name","parentId"?,"kind","color"?,"icon"?,"vehicleRelated"?,"fuel"?,"gas"?,"financing"?}` ⇒ `201 Category` (doublon ⇒ `409`) |
+| PATCH | `/api/categories/{id}` | `{"name"?,"parentId"?,"kind"?,"color"?,"icon"?,"position"?,"archived"?,"vehicleRelated"?,"fuel"?,"gas"?,"financing"?,"chartSlot"?}` (`fuel`, `gas`, `financing` : sans resynchro véhicule) |
 | DELETE | `/api/categories/{id}` | `204` ; refus `409` si opérations, règles ou budgets rattachés (proposer l'archivage) |
 
 ## Véhicules (lot 3)
@@ -142,6 +144,17 @@ Un plein est porté par l'opération elle-même (au plus un plein par opération
 
 `POST /api/operations` accepte en plus `fuelVolumeMl` (?int > 0), `fuelFullTank` (?bool, défaut `true` si volume fourni) et `odometerKm` (?int ≥ 0, **refusé 422 sans `fuelVolumeMl`**) ; volume avec montant positif ⇒ `422` sur `fuelVolumeMl`. `POST /api/operations/{id}/duplicate` (`merge`) reporte le plein de l'opération supprimée sur l'opération conservée si elle n'en a pas (et qu'elle est un débit) ; le rapprochement (`ManualEntryReconciler::merge`) copie de même le plein de la saisie sur la ligne de relevé.
 
+## Achats de gaz en bouteille (ADR 0017)
+
+Une bonbonne de gaz achetée en magasin (souvent dans le ticket de courses) est classée manuellement en « Logement › Gaz » ; la masse achetée est portée par l'opération elle-même (au plus un achat par opération, uniquement sur un **débit**) : `gasMassG` (g, > 0). Le prix au kg n'est pas stocké : `|amount| × 10 / gasMassG` (euros, 3 décimales). Le drapeau `Category.gas` ne pilote que l'affichage des champs (masse, prix au kg) dans le front.
+
+| Méthode | Route | Notes |
+|---|---|---|
+| PUT | `/api/operations/{id}/gas` | `{"massG": int > 0}` ⇒ `200 {"operation": Operation}` (remplace l'achat existant). Crédit ⇒ `400 not_a_debit` |
+| DELETE | `/api/operations/{id}/gas` | ⇒ `200 {"operation": Operation}` avec `gas: null` |
+
+`POST /api/operations` accepte en plus `gasMassG` (?int > 0) ; masse avec montant positif ⇒ `422` sur `gasMassG`. Passer une saisie manuelle en crédit (PATCH `amount` > 0) retire l'achat de gaz. `POST /api/operations/{id}/duplicate` (`merge`) reporte la masse de l'opération supprimée sur l'opération conservée si elle n'en a pas (et qu'elle est un débit) ; le rapprochement (`ManualEntryReconciler::merge`) copie de même la masse de la saisie sur la ligne de relevé.
+
 ## AdBlue (ADR 0016)
 
 `AdblueFill` = `{"id", "date", "volumeMl", "odometerKm", "source": "station"|"can", "operation": {"id", "date" (effective), "amount", "label", "awaitingStatement"} | null, "canPrice", "canVolumeMl", "cost" (centimes, positif, null si inconnu), "costEstimated" (true au bidon), "pricePerLiter" (€/L, 3 déc., null sans coût), "note"}`. Coût : station = `-operation.amount` ; bidon = `round(canPrice × volumeMl / canVolumeMl)` (estimé, jamais ajouté aux dépenses du véhicule).
@@ -159,7 +172,7 @@ Un plein est porté par l'opération elle-même (au plus un plein par opération
 |---|---|---|
 | GET | `/api/operations` | Filtres : périmètre, `from`, `to` (**date effective** `COALESCE(spentAt, date)`, ADR 0014), `categoryId` (inclut les sous-catégories), `uncategorized=1`, `q` (texte, insensible casse/accents, sur libellés et commerçant), `merchant` (égalité exacte sur la clé brute `coalesce(merchant, normalizedLabel)`, cf. `/api/merchants`, **ou** sur la clé de groupe de variantes `merchantGroup` — toutes les variantes, cf. top commerçants et [ADR 0013](adr/0013-regroupement-commercants.md)), `direction=debit|credit`, `minAmount`/`maxAmount` (valeur absolue, centimes), `duplicateStatus`, `source` (categorizationSource), `vehicleId` (véhicule du foyer, inconnu ⇒ `400`), `vehicleUnassigned=1` (hors « ignorées »), `vehicleIgnored=1` (catégories `vehicleRelated` sans véhicule), `recurringSeriesId` (série du foyer, inconnue ⇒ `400`), `awaitingStatement=1` (saisies manuelles en attente de relevé). Tri `sort=date|amount|merchant` `order=asc|desc` (défaut date desc — sur la date effective — puis id desc). Réponse paginée + `"sums": {"debit": -n, "credit": n}` sur l'ensemble filtré. |
 | GET | `/api/operations/{id}` | `Operation` |
-| POST | `/api/operations` | **Saisie manuelle d'une dépense** (ADR 0014). Corps : `{"accountId": int, "spentAt": "AAAA-MM-JJ", "amount": int (centimes signés, ≠ 0), "label": string (1..255), "categoryId"?: int|null, "vehicleId"?: int|null, "note"?: string|null, "fuelVolumeMl"?: int > 0, "fuelFullTank"?: bool, "odometerKm"?: int ≥ 0}` (plein ADR 0015 : `odometerKm` refusé 422 sans `fuelVolumeMl`, volume refusé 422 sur un crédit). Compte du foyer **non clos**, catégorie/véhicule du foyer (422 sinon). `label` normalisé (`normalizedLabel` + `merchant`) ; catégorie fournie ⇒ source `manual`, véhicule fourni ⇒ source `manual` ; puis `VehicleAssigner::sync()` et, si aucune catégorie fournie, catégorisation automatique de cette seule opération. Puis tentative immédiate de rapprochement (relevé déjà importé). ⇒ `201 {"operation": Operation, "reconciled": bool}` — si `reconciled` est true, `operation` est la **ligne du relevé** qui a absorbé la saisie |
+| POST | `/api/operations` | **Saisie manuelle d'une dépense** (ADR 0014). Corps : `{"accountId": int, "spentAt": "AAAA-MM-JJ", "amount": int (centimes signés, ≠ 0), "label": string (1..255), "categoryId"?: int|null, "vehicleId"?: int|null, "note"?: string|null, "fuelVolumeMl"?: int > 0, "fuelFullTank"?: bool, "odometerKm"?: int ≥ 0, "gasMassG"?: int > 0}` (plein ADR 0015 : `odometerKm` refusé 422 sans `fuelVolumeMl`, volume refusé 422 sur un crédit ; gaz ADR 0017 : `gasMassG` refusé 422 sur un crédit). Compte du foyer **non clos**, catégorie/véhicule du foyer (422 sinon). `label` normalisé (`normalizedLabel` + `merchant`) ; catégorie fournie ⇒ source `manual`, véhicule fourni ⇒ source `manual` ; puis `VehicleAssigner::sync()` et, si aucune catégorie fournie, catégorisation automatique de cette seule opération. Puis tentative immédiate de rapprochement (relevé déjà importé). ⇒ `201 {"operation": Operation, "reconciled": bool}` — si `reconciled` est true, `operation` est la **ligne du relevé** qui a absorbé la saisie |
 | PATCH | `/api/operations/{id}` | `{"note": "…"|null}` ⇒ `Operation` (`note` absente = inchangée, `null` = efface la note). En plus, **sur une saisie en attente uniquement** : `accountId`, `spentAt` (modifie aussi `date`), `amount`, `label` (champ présent = modifié ; ces champs sur une opération importée ⇒ `400 not_a_manual_entry`) |
 | DELETE | `/api/operations/{id}` | Uniquement une saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `204` |
 | GET | `/api/operations/{id}/reconciliation-candidates` | Saisie en attente (sinon `400 not_a_manual_entry`) ⇒ `{"items": [Operation]}` : lignes de relevé du foyer, même signe, non rapprochées, fenêtre [spentAt − 5 j, spentAt + 30 j], tri montant exact → même compte → |écart montant| → |écart date| (20 max) |
@@ -168,7 +181,7 @@ Un plein est porté par l'opération elle-même (au plus un plein par opération
 | POST | `/api/operations/bulk-vehicle` | `{"ids": [int], "vehicleId": int|null, "ignore": bool}` (même sémantique) ⇒ `{"updatedCount": n}` |
 | POST | `/api/operations/{id}/categorize` | `{"categoryId": int|null, "scope": "operation|merchant"}`. `operation` : catégorie manuelle sur cette seule opération (aucune règle). `merchant` : catégorie manuelle + règle apprise (commerçant exact, sens, priorité 100) appliquée aux opérations non manuelles du même commerçant. `categoryId=null` : retire la catégorie manuelle puis recatégorise automatiquement. ⇒ `{"operation": Operation, "updatedCount": n, "rule": Rule|null}` |
 | POST | `/api/operations/bulk-categorize` | `{"ids": [int], "categoryId": int}` (manuel, sans règle) ⇒ `{"updatedCount": n}` |
-| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle, note et plein (ADR 0015) si elle n'en a pas, supprime l'autre et garde son empreinte (un import ultérieur ne la recrée pas, ADR 0005). `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
+| POST | `/api/operations/{id}/duplicate` | `{"action": "merge|distinct"}`. `merge` : conserve l'opération de référence (celle dont le libellé vient du PDF, sinon `duplicateOf`), lui reporte catégorie manuelle, note, plein (ADR 0015) et achat de gaz (ADR 0017) si elle n'en a pas, supprime l'autre et garde son empreinte (un import ultérieur ne la recrée pas, ADR 0005). `distinct` : `duplicateStatus=confirmed_distinct`, `duplicateOf=null`. ⇒ `{"kept": Operation}` |
 
 ## Commerçants (écran « à catégoriser »)
 | Méthode | Route | Notes |
@@ -361,3 +374,14 @@ Choix et écarts par rapport au contrat :
 - Au `merge` de doublon, le plein n'est copié que si l'opération conservée est un débit (sinon `recordFuel` lèverait) : un crédit conservé perd le plein du doublon supprimé.
 - `GET /api/vehicles/{id}/fuel` : `segmentKm` est un float (interpolation possible), `consumption` arrondi à 2 décimales ; `distanceKm` arrondi à l'entier, `null` sans segment.
 - Le CHECK `ck_operation_fuel` n'existe qu'en base (pas dans le mapping) : `doctrine:schema:validate` reste vert.
+
+## Notes d'implémentation (lot gaz en bouteille, ADR 0017)
+
+Fichiers clés :
+- `src/Entity/Operation.php` : `gasMassG` (?int), `recordGas()` (lève `\InvalidArgumentException` si masse ≤ 0 ou crédit), `clearGas()`, `hasGas()`, `getGasPricePerKg()` (calculé : `|amount| × 10 / gasMassG`, euros 3 déc.). `src/Entity/Category.php` : `gas` (bool, défaut false).
+- Migration `Version20261110090000` : `operation.gas_mass_g` + `category.gas` + CHECK `ck_operation_gas` (SQL brut, hors mapping) ; renommage « Logement › Énergie » → « Logement › Électricité », création de « Logement › Gaz » (gas = true), recatégorisation des opérations GRDF vers « Gaz », règles par défaut EDF & co → Électricité et GRDF → Gaz.
+- `src/Setup/DefaultCategories.php` : enfants « Électricité »/« Gaz » de « Logement », `GAS_CHILD = 'Gaz'` + `isGas()` ; posé par `app:setup` et `CategorizationFixtures::seedCategories`. `src/Setup/DefaultRules.php` : règles « Logement › Électricité » (EDF|ENGIE|EKWATEUR|PLANETE OUI|ENEDIS|ENERCOOP) et « Logement › Gaz » (GRDF).
+- Présentations/entrées : `OperationPresenter` (`gas` = null ou `{massG, pricePerKg}`), `CategoryPresenter` (`gas`), `CategoryCreateInput`/`CategoryPatchInput` (`gas`), `GasInput` (`massG` > 0 obligatoire), `OperationCreateInput` (`gasMassG` optionnel).
+- `src/Controller/Api/OperationController.php` : `PUT`/`DELETE /api/operations/{id}/gas` (200 `{"operation"}`, 400 `not_a_debit` sur crédit), champ `gasMassG` de `POST /api/operations` (422 sur crédit), PATCH vers crédit qui retire l'achat, copie au `merge` de doublon. `src/Reconciliation/ManualEntryReconciler.php` : `merge()` copie la masse de la saisie sur la ligne si elle n'en a pas.
+- Front : `assets/src/components/GasFields.vue` (masse en kg + prix au kg, montant lié), `ManualEntryDialog.vue` / `CategorizeDialog.vue` (champs gaz si catégorie `gas` + débit), `OperationsView.vue` (ligne « kg · €/kg »), `CategoriesView.vue` (case « Catégorie gaz »), `utils/format.js` (`formatKg`/`parseKg`/`gToKg`/`formatPricePerKg`/`parsePricePerKg`).
+- Tests : `tests/Unit/Entity/OperationGasTest.php`, `tests/Functional/Api/GasApiTest.php`, `tests/Integration/Reconciliation/ManualEntryReconcilerTest.php` (masse suivie au merge), `tests/Integration/Command/SetupCommandTest.php` (flag gas de « Logement › Gaz », « Électricité »/« Gaz » présents).

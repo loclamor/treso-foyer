@@ -54,7 +54,9 @@ final class DefaultRules
         // « FLEUR\w* » : fleuristes indépendants et Monceau Fleurs ; pas de préfixe « FLOR » (ne doit pas matcher « LE FLORENCE »).
         ['Shopping › Fleuriste', 50, 'FLEUR\\w*|INTERFLORA|AQUARELLE|FLORAJET|RAPID ?FLORE|BEBLOOM|WAKE UP FLOWERS'],
         ['Shopping › Beauté & soins', 50, 'SEPHORA|NOCIBE|MARIONNAUD|YVES ROCHER|L OCCITANE|KIKO|COIFF\\w*|BARBIER|ESTHETIQUE|INSTITUT DE BEAUTE|WECASA'],
-        ['Logement › Énergie', 50, 'EDF|ENGIE|EKWATEUR|PLANETE OUI|GRDF|ENEDIS|ENERCOOP'],
+        // GRDF = gaz de réseau ; le gaz en bouteille se saisit manuellement (catégorie « Logement › Gaz », ADR 0017).
+        ['Logement › Électricité', 50, 'EDF|ENGIE|EKWATEUR|PLANETE OUI|ENEDIS|ENERCOOP'],
+        ['Logement › Gaz', 50, 'GRDF'],
         ['Logement › Eau', 50, 'VEOLIA|SUEZ|SAUR'],
         ['Loisirs & culture › Sport', 50, 'BASIC FIT|FITNESS|PISCINE|ESCALADE|KEEP COOL'],
         ['Loisirs & culture › Sorties & spectacles', 50, 'CINEMA|PATHE|GAUMONT|UGC|MEGA CGR|KINEPOLIS|TICKETMASTER|THEATRE|MUSEE'],

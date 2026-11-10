@@ -73,3 +73,18 @@ export async function clearOperationFuel(id) {
     const { data } = await http.delete(`/operations/${id}/fuel`);
     return data; // {operation}
 }
+
+// ---------- achats de gaz en bouteille (ADR 0017) ----------
+
+// payload : {massG: int > 0} (grammes)
+// ⇒ 200 {operation} (remplace l'achat existant ; 400 not_a_debit sur un crédit).
+export async function setOperationGas(id, payload) {
+    const { data } = await http.put(`/operations/${id}/gas`, payload);
+    return data; // {operation}
+}
+
+// ⇒ 200 {operation} avec gas: null.
+export async function clearOperationGas(id) {
+    const { data } = await http.delete(`/operations/${id}/gas`);
+    return data; // {operation}
+}

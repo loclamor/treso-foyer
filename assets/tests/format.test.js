@@ -4,12 +4,17 @@ import {
     dateToIso,
     escapeHtml,
     formatDate,
+    formatKg,
     formatMoney,
     formatPercent,
+    formatPricePerKg,
+    gToKg,
     isoToDate,
     monthBounds,
     parseEuros,
+    parseKg,
     parseLiters,
+    parsePricePerKg,
     parsePricePerLiter,
     percentChange,
 } from '@/utils/format';
@@ -141,5 +146,33 @@ describe('carburant', () => {
     it('parsePricePerLiter accepte jusqu’à 3 décimales', () => {
         expect(parsePricePerLiter('1,859')).toBe(1.859);
         expect(parsePricePerLiter('1,8599')).toBeNull();
+    });
+});
+
+describe('gaz en bouteille (ADR 0017)', () => {
+    it('formatKg affiche des grammes en kg', () => {
+        expect(plain(formatKg(13000))).toBe('13,00 kg');
+        expect(plain(formatKg(6250))).toBe('6,25 kg');
+        expect(formatKg(null)).toBe('—');
+    });
+
+    it('parseKg convertit en grammes', () => {
+        expect(parseKg('13')).toBe(13000);
+        expect(parseKg('13,5')).toBe(13500);
+        expect(parseKg('6.25')).toBe(6250);
+        expect(parseKg('-3')).toBeNull();
+        expect(parseKg('abc')).toBeNull();
+    });
+
+    it('gToKg pré-remplit une saisie en kg', () => {
+        expect(gToKg(13000)).toBe('13,00');
+        expect(gToKg(null)).toBe('');
+    });
+
+    it('formatPricePerKg / parsePricePerKg (3 décimales max)', () => {
+        expect(plain(formatPricePerKg(3.069))).toBe('3,069 €/kg');
+        expect(formatPricePerKg(null)).toBe('—');
+        expect(parsePricePerKg('3,069')).toBe(3.069);
+        expect(parsePricePerKg('3,0699')).toBeNull();
     });
 });

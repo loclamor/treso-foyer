@@ -39,6 +39,7 @@ final class CategorizationFixtures
                 $child->setVehicleRelated(DefaultCategories::isVehicleRelated($rootData['name'], $childName));
                 $child->setFuel(DefaultCategories::isFuel($rootData['name'], $childName));
                 $child->setFinancing(DefaultCategories::isFinancing($rootData['name'], $childName));
+                $child->setGas(DefaultCategories::isGas($rootData['name'], $childName));
                 $entityManager->persist($child);
             }
         }

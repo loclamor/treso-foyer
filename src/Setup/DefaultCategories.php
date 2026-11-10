@@ -35,6 +35,9 @@ final class DefaultCategories
     /** Sous-catégorie « Crédit véhicule » de « Transport » : poste de financement, hors coût d'usage (ADR 0011). */
     public const FINANCING_CHILD = 'Crédit véhicule';
 
+    /** Sous-catégorie « Gaz » de « Logement » : achat de gaz (bonbonne), masse en kg et prix au kg (ADR 0017). */
+    public const GAS_CHILD = 'Gaz';
+
     /**
      * @var list<array{name: string, kind: CategoryKind, icon: string, color: string, chartSlot: ?int, children: list<string>}>
      */
@@ -48,7 +51,8 @@ final class DefaultCategories
             'children' => [
                 'Loyer / crédit immobilier',
                 'Charges & copropriété',
-                'Énergie',
+                'Électricité',
+                'Gaz',
                 'Eau',
                 'Assurance habitation',
                 'Travaux & entretien',
@@ -263,5 +267,11 @@ final class DefaultCategories
     public static function isFinancing(string $rootName, string $childName): bool
     {
         return self::TRANSPORT_ROOT === $rootName && self::FINANCING_CHILD === $childName;
+    }
+
+    /** Vrai si la sous-catégorie est le poste gaz (« Logement › Gaz », ADR 0017). */
+    public static function isGas(string $rootName, string $childName): bool
+    {
+        return 'Logement' === $rootName && self::GAS_CHILD === $childName;
     }
 }

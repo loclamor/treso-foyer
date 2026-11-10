@@ -25,7 +25,7 @@ use Symfony\Component\HttpFoundation\Response;
  * Opérations du foyer :
  *  - perso 2026-01-05  -800  Courses (Alimentation)      MONSHOP
  *  - perso 2026-01-20  -200  Alimentation (racine)       BOULANGER
- *  - perso 2026-02-10 -1500  Logement › Énergie          EDF
+ *  - perso 2026-02-10 -1500  Logement › Électricité          EDF
  *  - perso 2026-02-15  +300  Courses (remboursement)     MONSHOP
  *  - perso 2026-03-01 +250000 Salaires                   EMPLOYEUR
  *  - perso 2026-03-05  -450  non catégorisé              INCONNU
@@ -55,7 +55,7 @@ final class StatsApiTest extends ApiTestCase
     {
         $courses = $this->category('Alimentation › Courses');
         $alimentation = $this->category('Alimentation');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         $salaires = $this->category('Revenus › Salaires');
         $mouvements = $this->category('Mouvements internes');
 
@@ -282,7 +282,7 @@ final class StatsApiTest extends ApiTestCase
         self::assertSame('EDF', $rows[0]['key']);
         self::assertSame(1500, $rows[0]['total']);
         self::assertSame(1, $rows[0]['count']);
-        self::assertSame('Logement › Énergie', $rows[0]['category']['fullName']);
+        self::assertSame('Logement › Électricité', $rows[0]['category']['fullName']);
         self::assertSame('MONSHOP', $rows[1]['key']);
         self::assertSame(1100, $rows[1]['total']);           // 800-300+600 (remboursement inclus, négatif)
         self::assertSame(3, $rows[1]['count']);
@@ -789,7 +789,7 @@ final class StatsApiTest extends ApiTestCase
     {
         $courses = $this->category('Alimentation › Courses');
         $salaires = $this->category('Revenus › Salaires');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
 
         // Mois complets août-octobre 2026.
         $this->addOperation($this->account, '2026-08-10', 100000, 'VIREMENT EMPLOYEUR AOUT', 'EMPLOYEUR', $salaires);
@@ -883,7 +883,7 @@ final class StatsApiTest extends ApiTestCase
     {
         TestClock::freeze('2026-11-05');
         $courses = $this->category('Alimentation › Courses');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         // Mois en cours (comparable = 01..05/11) : 600 + 400 courses.
         $this->addOperation($this->account, '2026-11-02', -600, 'ACHAT CB NOV 02', 'MONSHOP', $courses);
         $this->addOperation($this->account, '2026-11-04', -400, 'ACHAT CB NOV 04', 'MONSHOP', $courses);

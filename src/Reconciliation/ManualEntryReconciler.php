@@ -214,6 +214,11 @@ final class ManualEntryReconciler
             $statementLine->recordFuel((int) $entry->getFuelVolumeMl(), $entry->getFuelFullTank() ?? true, $entry->getOdometerKm());
         }
 
+        // Achat de gaz (ADR 0017) : copié de la saisie si la ligne n'en a pas et est un débit.
+        if (!$statementLine->hasGas() && $entry->hasGas() && $statementLine->isDebit()) {
+            $statementLine->recordGas((int) $entry->getGasMassG());
+        }
+
         // Note : note de la saisie ; si les deux ont une note distincte, « ligne — saisie » ;
         // si le libellé saisi diffère, on le rajoute sous la forme « Saisie : <libellé> ».
         $note = $statementLine->getNote();

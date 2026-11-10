@@ -25,7 +25,7 @@ final class RecurrenceApiTest extends ApiTestCase
     /** Prélèvements mensuels EDF (dépense) sur 6 mois, salaire EMPLOYEUR (revenu) sur 5 mois, courses irrégulières. */
     private function seedRecurringData(): void
     {
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         $salaires = $this->category('Revenus › Salaires');
         $courses = $this->category('Alimentation › Courses');
         foreach (['2026-06-05', '2026-07-05', '2026-08-05', '2026-09-05', '2026-10-05', '2026-11-03'] as $date) {
@@ -59,7 +59,7 @@ final class RecurrenceApiTest extends ApiTestCase
 
         // Prélèvement du mois issu d'un export CSV : clé commerçant différente (ponctuation), mêmes mots.
         TestClock::freeze('2026-12-06');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         $this->addOperation($this->account, '2026-12-03', -90000, 'PRLV EDF.', 'EDF.', $energie);
         $report = $this->decode($this->json($client, 'POST', '/api/recurrences/detect'));
         self::assertSame(0, $report['created']);
@@ -84,7 +84,7 @@ final class RecurrenceApiTest extends ApiTestCase
         self::assertSame('confirmed', $data['status']);
 
         // Variante « EDF. » plus fréquente : elle devient la clé représentative du groupe.
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         foreach (['2025-11-05', '2025-12-05', '2026-01-05', '2026-02-05', '2026-03-05', '2026-04-05', '2026-05-05'] as $date) {
             $this->addOperation($this->account, $date, -90000, 'PRELEVEMENT EDF.', 'EDF.', $energie);
         }
@@ -156,7 +156,7 @@ final class RecurrenceApiTest extends ApiTestCase
         self::assertNull($edf['activeMonths']);
         self::assertFalse($edf['overdue']);
         self::assertSame((int) $this->account->getId(), $edf['account']['id']);
-        self::assertSame('Logement › Énergie', $edf['category']['fullName']);
+        self::assertSame('Logement › Électricité', $edf['category']['fullName']);
 
         self::assertSame('income', $employeur['direction']);
         self::assertSame(250000, $employeur['expectedAmount']);
@@ -326,7 +326,7 @@ final class RecurrenceApiTest extends ApiTestCase
     public function testMonthlyEstimateWithUnpaidRecurringSeries(): void
     {
         TestClock::freeze('2026-11-05');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         $logement = $this->category('Logement');
         $courses = $this->category('Alimentation › Courses');
         $salaires = $this->category('Revenus › Salaires');
@@ -393,7 +393,7 @@ final class RecurrenceApiTest extends ApiTestCase
     public function testMonthlyEstimateWithPaidRecurringSeries(): void
     {
         TestClock::freeze('2026-11-05');
-        $energie = $this->category('Logement › Énergie');
+        $energie = $this->category('Logement › Électricité');
         $courses = $this->category('Alimentation › Courses');
         // Loyer payé chaque mois y compris novembre.
         foreach (['2026-06-05', '2026-07-05', '2026-08-05', '2026-09-05', '2026-10-05', '2026-11-03'] as $date) {

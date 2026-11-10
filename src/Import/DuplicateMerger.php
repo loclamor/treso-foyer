@@ -47,6 +47,9 @@ final class DuplicateMerger
         if (!$kept->hasFuel() && $removed->hasFuel() && $kept->isDebit()) {
             $kept->recordFuel((int) $removed->getFuelVolumeMl(), $removed->getFuelFullTank() ?? true, $removed->getOdometerKm());
         }
+        if (!$kept->hasGas() && $removed->hasGas() && $kept->isDebit()) {
+            $kept->recordGas((int) $removed->getGasMassG());
+        }
         $kept->setDuplicateStatus(DuplicateStatus::None);
         $kept->setDuplicateOf(null);
 

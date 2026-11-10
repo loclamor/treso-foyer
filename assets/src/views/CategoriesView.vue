@@ -60,7 +60,7 @@ const ICON_SUGGESTIONS = [
 const dialogVisible = ref(false);
 const dialogMode = ref('create'); // 'create' | 'edit'
 const editingId = ref(null);
-const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '', vehicleRelated: false, fuel: false, financing: false });
+const form = reactive({ name: '', parentId: null, kind: 'expense', color: '#4caf50', icon: '', vehicleRelated: false, fuel: false, gas: false, financing: false });
 const saving = ref(false);
 
 function openCreate(parentId = null) {
@@ -73,6 +73,7 @@ function openCreate(parentId = null) {
     form.icon = '';
     form.vehicleRelated = false;
     form.fuel = false;
+    form.gas = false;
     form.financing = false;
     dialogVisible.value = true;
 }
@@ -87,6 +88,7 @@ function openEdit(cat) {
     form.icon = cat.icon || '';
     form.vehicleRelated = !!cat.vehicleRelated;
     form.fuel = !!cat.fuel;
+    form.gas = !!cat.gas;
     form.financing = !!cat.financing;
     dialogVisible.value = true;
 }
@@ -94,7 +96,7 @@ function openEdit(cat) {
 async function submit() {
     if (!form.name.trim()) return;
     saving.value = true;
-    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null, vehicleRelated: form.vehicleRelated, fuel: form.fuel, financing: form.financing };
+    const payload = { name: form.name.trim(), kind: form.kind, color: form.color, icon: form.icon.trim() || null, vehicleRelated: form.vehicleRelated, fuel: form.fuel, gas: form.gas, financing: form.financing };
     try {
         if (dialogMode.value === 'create') {
             await createCategory({ ...payload, parentId: form.parentId });
@@ -215,6 +217,7 @@ async function setChartSlot(cat, slot) {
                         {{ node.data.name }}
                         <i v-if="node.data.vehicleRelated" class="pi pi-car vehicle-icon" v-tooltip.top="'Catégorie liée à un véhicule'" aria-label="Catégorie liée à un véhicule" />
                         <i v-if="node.data.fuel" class="pi pi-gauge vehicle-icon" v-tooltip.top="'Catégorie carburant (volume, prix au litre, kilométrage)'" aria-label="Catégorie carburant" />
+                        <i v-if="node.data.gas" class="pi pi-fire vehicle-icon" v-tooltip.top="'Catégorie gaz (masse en kg, prix au kg)'" aria-label="Catégorie gaz" />
                         <i v-if="node.data.financing" class="pi pi-credit-card vehicle-icon" v-tooltip.top="'Financement du véhicule (exclu du coût d’usage au km)'" aria-label="Catégorie de financement" />
                         <Tag v-if="node.data.archived" value="Archivée" severity="secondary" class="archived-tag" />
                     </span>
@@ -312,6 +315,10 @@ async function setChartSlot(cat, slot) {
                 <div class="field field-check">
                     <Checkbox id="cat-fuel" v-model="form.fuel" binary />
                     <label for="cat-fuel">Catégorie carburant (volume, prix au litre, kilométrage)</label>
+                </div>
+                <div class="field field-check">
+                    <Checkbox id="cat-gas" v-model="form.gas" binary />
+                    <label for="cat-gas">Catégorie gaz (masse en kg, prix au kg — ex. bonbonne achetée en magasin)</label>
                 </div>
                 <div class="field field-check">
                     <Checkbox id="cat-financing" v-model="form.financing" binary />

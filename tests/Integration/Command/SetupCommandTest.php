@@ -123,6 +123,49 @@ final class SetupCommandTest extends KernelTestCase
         self::assertSame(['Transport › Carburant'], $fuelFlagged);
     }
 
+    public function testGazCategoryIsFlaggedGas(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+
+        $setup = $container->get(SetupCommand::class);
+        (new CommandTester($setup))->execute([]);
+
+        $entityManager = $container->get(EntityManagerInterface::class);
+        $gasFlagged = [];
+        foreach ($entityManager->getRepository(Category::class)->findAll() as $category) {
+            if ($category->isGas()) {
+                $gasFlagged[] = $category->getFullName();
+            }
+        }
+
+        // Seule « Logement › Gaz » porte le flag gas (ADR 0017).
+        self::assertSame(['Logement › Gaz'], $gasFlagged);
+    }
+
+    public function testLogementHasElectriciteAndGazInsteadOfEnergie(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+
+        $setup = $container->get(SetupCommand::class);
+        (new CommandTester($setup))->execute([]);
+
+        $entityManager = $container->get(EntityManagerInterface::class);
+        $logement = self::getContainer()->get(\App\Setup\CategoryResolver::class)->require(
+            $entityManager->getRepository(Household::class)->findOneBy([]),
+            'Logement',
+        );
+        $children = array_map(
+            static fn (Category $c): string => $c->getName(),
+            $entityManager->getRepository(Category::class)->findBy(['parent' => $logement]),
+        );
+
+        self::assertContains('Électricité', $children);
+        self::assertContains('Gaz', $children);
+        self::assertNotContains('Énergie', $children);
+    }
+
     public function testMemberAddCreatesMemberAndRejectsDuplicateUsername(): void
     {
         self::bootKernel();

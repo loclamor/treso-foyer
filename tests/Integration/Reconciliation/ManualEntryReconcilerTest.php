@@ -337,6 +337,36 @@ final class ManualEntryReconcilerTest extends KernelTestCase
         self::assertSame(48000, $merged->getOdometerKm());
     }
 
+    public function testMergeCopieLAchatDeGazDeLaSaisieSurLaLigne(): void
+    {
+        // Saisie avec bonbonne de gaz (13 kg), ligne de relevé débit sans gaz ⇒ la masse suit la fusion.
+        $entry = $this->makeEntry('2026-10-20', -3990, 'BONBONNE GAZ 13KG INTERMARCHE');
+        $entry->recordGas(13000);
+        $this->entityManager->flush();
+        $line = $this->makeStatementLine('2026-10-22', -3990, 'ACHAT CB INTERMARCHE 20.10.26 CARTE NUMERO 9', null, 'INTERMARCHE');
+
+        $merged = $this->reconciler->merge($entry, $line);
+
+        self::assertTrue($merged->hasGas());
+        self::assertSame(13000, $merged->getGasMassG());
+        self::assertSame(3.069, $merged->getGasPricePerKg()); // 3990 c × 10 / 13000 g
+    }
+
+    public function testMergeNeEcrasePasLeGazExistantDeLaLigne(): void
+    {
+        $entry = $this->makeEntry('2026-10-20', -3990, 'BONBONNE GAZ 13KG INTERMARCHE');
+        $entry->recordGas(13000);
+        $this->entityManager->flush();
+        $line = $this->makeStatementLine('2026-10-22', -3990, 'ACHAT CB INTERMARCHE 20.10.26 CARTE NUMERO 9', null, 'INTERMARCHE');
+        $line->recordGas(6000);
+        $this->entityManager->flush();
+
+        $merged = $this->reconciler->merge($entry, $line);
+
+        // La masse de gaz de la ligne (qui fait foi) est conservée.
+        self::assertSame(6000, $merged->getGasMassG());
+    }
+
     public function testMergeCopieCategorieAvecSourceEtRegleSiLigneSansManuelle(): void
     {
         $courses = self::getContainer()->get(\App\Setup\CategoryResolver::class)->require($this->household, 'Alimentation › Courses');

@@ -63,6 +63,10 @@ class Category
     #[ORM\Column(options: ['default' => false])]
     private bool $fuel = false;
 
+    /** Poste gaz : fait apparaître les champs de l'achat de gaz (masse en kg, prix au kg, ADR 0017). */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $gas = false;
+
     /**
      * Poste de financement d'un véhicule (crédit, LOA…) : rattaché au véhicule mais exclu du
      * coût d'usage (coût au km d'usage, ADR 0011).
@@ -244,6 +248,18 @@ class Category
     public function setFuel(bool $fuel): static
     {
         $this->fuel = $fuel;
+
+        return $this;
+    }
+
+    public function isGas(): bool
+    {
+        return $this->gas;
+    }
+
+    public function setGas(bool $gas): static
+    {
+        $this->gas = $gas;
 
         return $this;
     }

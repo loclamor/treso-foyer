@@ -164,6 +164,10 @@ class Operation
     #[ORM\Column(nullable: true)]
     private ?int $odometerKm = null;
 
+    /** Masse de gaz achetée (bonbonne) en grammes (> 0), null = pas d'achat de gaz (ADR 0017). */
+    #[ORM\Column(nullable: true)]
+    private ?int $gasMassG = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
@@ -667,6 +671,57 @@ class Operation
         }
 
         return round(abs($this->amount) * 10 / $this->fuelVolumeMl, 3);
+    }
+
+    /**
+     * Enregistre un achat de gaz sur l'opération (ADR 0017) : masse de la bonbonne en grammes.
+     * Remplace un achat existant.
+     *
+     * @throws \InvalidArgumentException si la masse est ≤ 0 ou l'opération n'est pas un débit
+     */
+    public function recordGas(int $massG): static
+    {
+        if ($massG <= 0) {
+            throw new \InvalidArgumentException('La masse de gaz doit être strictement positive (grammes).');
+        }
+        if (!$this->isDebit()) {
+            throw new \InvalidArgumentException('Un achat de gaz ne peut être enregistré que sur un débit.');
+        }
+        $this->gasMassG = $massG;
+
+        return $this;
+    }
+
+    /** Supprime l'achat de gaz de l'opération (ADR 0017). */
+    public function clearGas(): static
+    {
+        $this->gasMassG = null;
+
+        return $this;
+    }
+
+    /** true si l'opération porte un achat de gaz (masse renseignée). */
+    public function hasGas(): bool
+    {
+        return null !== $this->gasMassG;
+    }
+
+    /**
+     * Prix au kilo en euros (3 décimales) : |amount| (centimes) × 10 / masseG (g).
+     * Le prix n'est pas stocké, il est calculé (ADR 0017) ; null sans achat de gaz.
+     */
+    public function getGasPricePerKg(): ?float
+    {
+        if (null === $this->gasMassG || 0 === $this->gasMassG) {
+            return null;
+        }
+
+        return round(abs($this->amount) * 10 / $this->gasMassG, 3);
+    }
+
+    public function getGasMassG(): ?int
+    {
+        return $this->gasMassG;
     }
 
     public function getFuelVolumeMl(): ?int
