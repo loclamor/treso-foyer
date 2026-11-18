@@ -189,8 +189,9 @@ final class ImportCommand extends Command
             ));
             $vehicles = $result->vehicles;
             $io->writeln(sprintf(
-                'Post-traitement — véhicules : %d par règle, %d auto, %d retirée(s).',
+                'Post-traitement — véhicules : %d par règle, %d par période, %d auto, %d retirée(s).',
                 $vehicles->byRule,
+                $vehicles->byPeriod,
                 $vehicles->auto,
                 $vehicles->cleared,
             ));

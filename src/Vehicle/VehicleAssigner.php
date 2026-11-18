@@ -9,6 +9,7 @@ use App\Entity\Operation;
 use App\Entity\Vehicle;
 use App\Enum\VehicleSource;
 use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
 
@@ -19,6 +20,8 @@ use Doctrine\ORM\EntityManagerInterface;
  * - candidats = opérations dont `vehicleSource` ∉ {`manual`, `ignored`} ayant une catégorie
  *   `vehicleRelated`, OU une règle appliquée désignant un véhicule, OU un véhicule
  *   déjà affecté (pour pouvoir retirer une affectation devenue caduque) ;
+ * - décision déléguée à VehicleAssignmentPolicy (règle, véhicule par défaut des périodes
+ *   labellisées, véhicule unique actif) ;
  * - les affectations `manual` et les opérations `ignored` ne sont JAMAIS modifiées ;
  * - traitement idempotent.
  *
@@ -45,6 +48,7 @@ final class VehicleAssigner
 
         /** @var list<Vehicle> $vehicles */
         $vehicles = $this->entityManager->getRepository(Vehicle::class)->findBy(['household' => $householdId]);
+        $periods = $this->periodVehicles($connection, $householdId);
 
         // Lecture en une requête scalaire de toutes les opérations candidates du foyer.
         // La date transmise à la politique est la date effective (COALESCE(spent_at, date), ADR 0014).
@@ -56,7 +60,8 @@ final class VehicleAssigner
                        o.vehicle_id,
                        o.vehicle_source,
                        r.vehicle_id AS rule_vehicle_id,
-                       CASE WHEN c.vehicle_related THEN 1 ELSE 0 END AS category_vehicle_related
+                       CASE WHEN c.vehicle_related THEN 1 ELSE 0 END AS category_vehicle_related,
+                       CASE WHEN c.financing THEN 1 ELSE 0 END AS category_financing
                 FROM operation o
                 JOIN account a ON a.id = o.account_id
                 LEFT JOIN categorization_rule r ON r.id = o.applied_rule_id
@@ -82,6 +87,8 @@ final class VehicleAssigner
                 1 === (int) $row['category_vehicle_related'],
                 new \DateTimeImmutable((string) $row['date']),
                 $vehicles,
+                1 === (int) $row['category_financing'],
+                $periods,
             );
             $currentVehicleId = null !== $row['vehicle_id'] ? (int) $row['vehicle_id'] : null;
             $currentSource = null !== $row['vehicle_source'] ? VehicleSource::from((string) $row['vehicle_source']) : null;
@@ -100,11 +107,11 @@ final class VehicleAssigner
             }
             $key = $decision['vehicleId'].'|'.$decision['source']->value;
             $toAssign[$key][] = (int) $row['id'];
-            if (VehicleSource::Rule === $decision['source']) {
-                ++$report->byRule;
-            } else {
-                ++$report->auto;
-            }
+            match ($decision['source']) {
+                VehicleSource::Rule => ++$report->byRule,
+                VehicleSource::Period => ++$report->byPeriod,
+                default => ++$report->auto,
+            };
         }
         $report->cleared = count($toClear);
 
@@ -133,5 +140,28 @@ final class VehicleAssigner
         }
 
         return $report;
+    }
+
+    /**
+     * Périodes labellisées du foyer portant un véhicule par défaut (ADR 0018).
+     *
+     * @return list<PeriodVehicle>
+     */
+    private function periodVehicles(Connection $connection, int $householdId): array
+    {
+        $rows = $connection->fetchAllAssociative(
+            'SELECT start_date, end_date, vehicle_id, vehicle_overrides_rules
+             FROM tagged_period
+             WHERE household_id = :household AND vehicle_id IS NOT NULL',
+            ['household' => $householdId],
+            ['household' => ParameterType::INTEGER],
+        );
+
+        return array_map(static fn (array $row): PeriodVehicle => new PeriodVehicle(
+            new \DateTimeImmutable((string) $row['start_date']),
+            new \DateTimeImmutable((string) $row['end_date']),
+            (int) $row['vehicle_id'],
+            (bool) $row['vehicle_overrides_rules'],
+        ), $rows);
     }
 }

@@ -5,6 +5,7 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
+import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
 import { useScopeStore } from '@/stores/scope';
 import { usePeriodStore } from '@/stores/period';
@@ -14,12 +15,14 @@ import {
     getCalendar,
     getCategoriesStats,
     getCategoryTrend,
+    getDaily,
     getMerchantsStats,
     getSankey,
     getVehiclesStats,
 } from '@/api/stats';
+import { listTaggedPeriods } from '@/api/taggedPeriods';
 import { apiMessage } from '@/api/http';
-import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, monthBounds, percentChange } from '@/utils/format';
+import { escapeHtml, formatCompactEuro, formatDate, formatMoney, formatMonth, formatPercent, isoToDate, monthBounds, percentChange } from '@/utils/format';
 import { latestGuard } from '@/utils/latest';
 import {
     chartColors,
@@ -32,12 +35,13 @@ import {
     categoryAxisY,
     barItemStyle,
 } from '@/charts/theme';
-import { colorForCategory, slotColor, SEQUENTIAL_BLUE, DEFICIT_COLOR, withAlpha } from '@/charts/palette';
+import { colorForCategory, foldToOthers, slotColor, SEQUENTIAL_BLUE, DEFICIT_COLOR, TAGGED_PERIOD_TYPES, taggedPeriodColor, withAlpha } from '@/charts/palette';
 import { fr as frLocale } from '@/locale/fr';
 import PeriodFilter from '@/components/PeriodFilter.vue';
 import ChartCard from '@/components/ChartCard.vue';
 import VChart from '@/components/VChart.vue';
 import CategoryPicker from '@/components/CategoryPicker.vue';
+import TaggedPeriodDialog from '@/components/TaggedPeriodDialog.vue';
 
 const router = useRouter();
 const scope = useScopeStore();
@@ -745,12 +749,241 @@ function onVehicleClick(e) {
     if (id) router.push({ name: 'vehicle', params: { id } });
 }
 
+// ---------- 8. dépenses quotidiennes par poste + périodes taguées ----------
+const daily = ref(null);
+const taggedPeriods = ref([]);
+const loadingDaily = ref(true);
+const dailyError = ref('');
+
+const dailyGuard = latestGuard();
+async function loadDaily() {
+    const isLatest = dailyGuard();
+    loadingDaily.value = true;
+    dailyError.value = '';
+    try {
+        const [d, periods] = await Promise.all([getDaily(scope.params, period.params), listTaggedPeriods(period.params)]);
+        if (!isLatest()) return;
+        daily.value = d;
+        taggedPeriods.value = periods;
+    } catch (e) {
+        if (isLatest()) dailyError.value = apiMessage(e, 'Graphique indisponible');
+    } finally {
+        if (isLatest()) loadingDaily.value = false;
+    }
+}
+
+// Recharge seule des périodes taguées (après création / modification / suppression).
+async function reloadTaggedPeriods() {
+    try {
+        taggedPeriods.value = await listTaggedPeriods(period.params);
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Périodes indisponibles', detail: apiMessage(e), life: 6000 });
+    }
+}
+
+// Séries empilées par catégorie racine (même construction que monthlyRoots du tableau de bord).
+const dailyRoots = computed(() => {
+    const d = daily.value;
+    if (!d) return [];
+    const series = (d.byRoot ?? []).map((r) => ({ category: r.category, values: r.values }));
+    if ((d.uncategorized ?? []).some((v) => v)) series.push({ category: null, values: d.uncategorized });
+    return foldToOthers(series, theme.mode.value);
+});
+
+// Bandes markArea : xAxis = index dans dates, après bornage à la plage affichée
+// (périodes entièrement hors plage ignorées).
+const dailyMarkAreas = computed(() => {
+    const d = daily.value;
+    if (!d?.dates?.length) return [];
+    const c = chartColors(theme.mode.value);
+    const mode = theme.mode.value;
+    const dates = d.dates;
+    const areas = [];
+    for (const p of taggedPeriods.value) {
+        // Comparaison lexicographique OK sur 'AAAA-MM-JJ'.
+        const iStart = dates.findIndex((dt) => dt >= p.startDate);
+        const iEnd = dates.length - 1 - dates.slice().reverse().findIndex((dt) => dt <= p.endDate);
+        if (iStart === -1 || iEnd === -1 || iStart > iEnd) continue;
+        areas.push([
+            {
+                name: p.label,
+                xAxis: iStart,
+                itemStyle: { color: withAlpha(taggedPeriodColor(p.type, mode), 0.18) },
+                label: { show: true, position: 'insideTop', color: c.inkSecondary },
+                periodId: p.id,
+            },
+            { xAxis: iEnd },
+        ]);
+    }
+    return areas;
+});
+
+// Périodes taguées couvrant un jour donné ('AAAA-MM-JJ').
+function periodsCovering(dateIso) {
+    return taggedPeriods.value.filter((p) => p.startDate <= dateIso && dateIso <= p.endDate);
+}
+
+function taggedPeriodTypeLabel(type) {
+    return TAGGED_PERIOD_TYPES.find((t) => t.value === type)?.label ?? type;
+}
+
+const DAILY_WINDOW = 62; // ~2 mois affichés par défaut
+
+const dailyOption = computed(() => {
+    const d = daily.value;
+    if (!d?.dates?.length) return {};
+    const c = chartColors(theme.mode.value);
+    const labels = d.dates.map((dt) => formatDate(dt));
+    const xAxis = categoryAxis(c, labels);
+    // Intervalle automatique : calculé par ECharts sur la fenêtre zoomée (un intervalle fixe
+    // calculé sur toute la plage ne laisserait que 2-3 dates visibles une fois zoomé).
+    xAxis.axisLabel.interval = 'auto';
+    xAxis.axisLabel.hideOverlap = true;
+    const series = dailyRoots.value.map((r) => ({
+        name: r.name,
+        type: 'bar',
+        stack: 'jour',
+        data: r.values,
+        barMaxWidth: 16,
+        barCategoryGap: '20%',
+        // Pas de bordure ni d'arrondi (barItemStyle) : sur des centaines de jours, la bordure
+        // de 2 px couleur surface mangerait des barres de 2-3 px de large.
+        itemStyle: { color: r.color },
+        emphasis: { focus: 'series' },
+    }));
+    // Bandes posées sur la première série ; si aucun poste, une série bar vide porteuse.
+    if (!series.length) {
+        series.push({
+            name: 'Dépenses',
+            type: 'bar',
+            stack: 'jour',
+            data: d.dates.map(() => 0),
+            barMaxWidth: 16,
+            itemStyle: { color: 'transparent' },
+        });
+    }
+    series[0].markArea = { silent: false, data: dailyMarkAreas.value };
+    const tooltip = baseTooltip(c);
+    tooltip.axisPointer = { type: 'shadow' };
+    tooltip.formatter = (params) => {
+        const list = Array.isArray(params) ? params : [params];
+        if (!list.length) return '';
+        const i = list[0].dataIndex;
+        const dateIso = d.dates[i];
+        const dateLong = isoToDate(dateIso)?.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) ?? dateIso;
+        const lines = [`<strong>${escapeHtml(dateLong)}</strong>`];
+        let total = 0;
+        for (const p of list) {
+            if (p.value == null) continue;
+            total += p.value;
+            lines.push(`${p.marker} ${escapeHtml(p.seriesName)} : ${formatMoney(p.value)}`);
+        }
+        lines.push(`<strong>Total : ${formatMoney(total)}</strong>`);
+        for (const per of periodsCovering(dateIso)) {
+            lines.push(`Période : ${escapeHtml(per.label)} (${escapeHtml(taggedPeriodTypeLabel(per.type))})`);
+        }
+        return lines.join('<br/>');
+    };
+    return {
+        tooltip,
+        legend: baseLegend(c, { bottom: 20 }), // au-dessus du slider dataZoom (bottom 0, height 14)
+        grid: baseGrid({ bottom: 68 }),
+        xAxis,
+        yAxis: valueAxis(c),
+        series,
+        // Fenêtre initiale : les DAILY_WINDOW derniers jours (lisibles), le curseur élargit.
+        dataZoom: [
+            { type: 'inside', startValue: Math.max(0, d.dates.length - DAILY_WINDOW), endValue: d.dates.length - 1 },
+            {
+                type: 'slider',
+                startValue: Math.max(0, d.dates.length - DAILY_WINDOW),
+                endValue: d.dates.length - 1,
+                bottom: 0,
+                height: 14,
+                borderColor: c.grid,
+                backgroundColor: c.surface,
+                fillerColor: c.grid,
+                handleStyle: { color: c.inkSecondary },
+                moveHandleStyle: { color: c.inkSecondary },
+                labelFormatter: () => '',
+            },
+        ],
+    };
+});
+
+// Vide si aucune dépense ET aucune période (les bandes seules suffisent à afficher le graphe).
+const dailyEmpty = computed(() => {
+    const d = daily.value;
+    const hasExpense = !!d?.dates?.length && (d.expense ?? []).some((v) => v);
+    return !hasExpense && !taggedPeriods.value.length;
+});
+
+// Dialogue de création / édition d'une période.
+const periodDialogVisible = ref(false);
+const periodDialogPeriod = ref(null);
+const periodDialogInitialDate = ref(null);
+
+function openCreatePeriod() {
+    periodDialogPeriod.value = null;
+    periodDialogInitialDate.value = null;
+    periodDialogVisible.value = true;
+}
+
+function openEditPeriod(p) {
+    periodDialogPeriod.value = p;
+    periodDialogInitialDate.value = null;
+    periodDialogVisible.value = true;
+}
+
+// Clic sur une bande ⇒ édition de la période ; clic sur une barre ⇒ création à la date du jour.
+function onDailyClick(e) {
+    if (e.componentType === 'markArea') {
+        const item = Array.isArray(e.data) ? e.data[0] : e.data;
+        const p = taggedPeriods.value.find((x) => x.id === item?.periodId) ?? taggedPeriods.value.find((x) => x.label === e.name);
+        if (p) openEditPeriod(p);
+        return;
+    }
+    if (e.componentType === 'series' && e.seriesType === 'bar' && daily.value?.dates?.[e.dataIndex] != null) {
+        periodDialogPeriod.value = null;
+        periodDialogInitialDate.value = daily.value.dates[e.dataIndex];
+        periodDialogVisible.value = true;
+    }
+}
+
+// Une période peut porter un véhicule par défaut (affectation des dépenses de transport,
+// ADR 0018) : le back resynchronise l'axe véhicule, on recharge donc aussi le bloc véhicules.
+function onPeriodSaved() {
+    reloadTaggedPeriods();
+    loadVehicles();
+}
+
+function onPeriodDeleted() {
+    reloadTaggedPeriods();
+    loadVehicles();
+}
+
+// Lignes du tableau des périodes : durée en jours et dépenses sommées sur les jours de la
+// période tombant dans la plage affichée.
+const taggedPeriodTableRows = computed(() => {
+    const d = daily.value;
+    const dates = d?.dates ?? [];
+    return taggedPeriods.value.map((p) => {
+        let spent = 0;
+        for (let i = 0; i < dates.length; i++) {
+            if (dates[i] >= p.startDate && dates[i] <= p.endDate) spent += d.expense[i] ?? 0;
+        }
+        const days = Math.round((isoToDate(p.endDate) - isoToDate(p.startDate)) / 86400000) + 1;
+        return { ...p, days, spent };
+    });
+});
+
 // ---------- chargement global ----------
 function loadAll() {
     loadCompare();
     loadMerchants();
     loadSankey();
     loadCalendar();
+    loadDaily();
     loadTrend();
     loadBalanceDay();
     loadVehicles();
@@ -774,7 +1007,7 @@ onMounted(async () => {
 });
 
 // Toast en cas d'erreur silencieuse de fond (les cartes affichent déjà leur état d'erreur).
-watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError, vehiclesError], (errs) => {
+watch([compareError, merchantsError, sankeyError, calendarError, dailyError, balanceDayError, vehiclesError], (errs) => {
     const first = errs.find(Boolean);
     if (first) toast.add({ severity: 'error', summary: 'Statistiques indisponibles', detail: first, life: 6000 });
 });
@@ -970,6 +1203,65 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
 
             <ChartCard
                 class="span-2"
+                title="Dépenses quotidiennes par poste"
+                subtitle="Barres empilées par catégorie racine — périodes en bandes colorées ; clic sur un jour pour créer une période, sur une bande pour la modifier"
+                aria-label="Barres empilées des dépenses quotidiennes par poste de dépense, périodes taguées en bandes colorées"
+                :loading="loadingDaily"
+                :error="dailyError"
+                :empty="dailyEmpty"
+                :height="340"
+                @retry="loadDaily"
+            >
+                <template #actions>
+                    <Button label="Ajouter une période" icon="pi pi-plus" size="small" @click="openCreatePeriod" />
+                </template>
+                <VChart :option="dailyOption" aria-label="Dépenses quotidiennes par poste" @click="onDailyClick" />
+                <template #table>
+                    <DataTable :value="taggedPeriodTableRows" size="small" scrollable scroll-height="280px">
+                        <template #empty>Aucune période sur la plage</template>
+                        <Column header="Type">
+                            <template #body="{ data }">
+                                <span class="cat-dot" :style="{ background: taggedPeriodColor(data.type, theme.mode.value) }" aria-hidden="true" />
+                                {{ taggedPeriodTypeLabel(data.type) }}
+                            </template>
+                        </Column>
+                        <Column field="label" header="Libellé" />
+                        <Column header="Véhicule">
+                            <template #body="{ data }">
+                                <span v-if="data.vehicle">{{ data.vehicle.name }}</span>
+                                <span v-else class="text-muted">—</span>
+                            </template>
+                        </Column>
+                        <Column header="Du">
+                            <template #body="{ data }">{{ formatDate(data.startDate) }}</template>
+                        </Column>
+                        <Column header="Au">
+                            <template #body="{ data }">{{ formatDate(data.endDate) }}</template>
+                        </Column>
+                        <Column header="Jours" class="text-right">
+                            <template #body="{ data }">{{ data.days.toLocaleString('fr-FR') }}</template>
+                        </Column>
+                        <Column header="Dépensé" class="text-right">
+                            <template #body="{ data }">{{ formatMoney(data.spent) }}</template>
+                        </Column>
+                        <Column header="Actions" class="text-right">
+                            <template #body="{ data }">
+                                <Button
+                                    icon="pi pi-pencil"
+                                    size="small"
+                                    text
+                                    severity="secondary"
+                                    aria-label="Modifier la période"
+                                    @click="openEditPeriod(data)"
+                                />
+                            </template>
+                        </Column>
+                    </DataTable>
+                </template>
+            </ChartCard>
+
+            <ChartCard
+                class="span-2"
                 title="Évolution d'un poste"
                 subtitle="Courbe mensuelle et moyenne mobile 3 mois"
                 aria-label="Courbe mensuelle des dépenses du poste choisi avec sa moyenne mobile sur 3 mois"
@@ -1033,6 +1325,14 @@ watch([compareError, merchantsError, sankeyError, calendarError, balanceDayError
                 </template>
             </ChartCard>
         </div>
+
+        <TaggedPeriodDialog
+            v-model:visible="periodDialogVisible"
+            :period="periodDialogPeriod"
+            :initial-date="periodDialogInitialDate"
+            @saved="onPeriodSaved"
+            @deleted="onPeriodDeleted"
+        />
     </div>
 </template>
 

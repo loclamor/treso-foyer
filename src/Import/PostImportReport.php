@@ -32,9 +32,9 @@ final readonly class PostImportReport
         return $this->categorization->byRule + $this->categorization->bySimilarity;
     }
 
-    /** Opérations ayant reçu un véhicule (règle + auto). */
+    /** Opérations ayant reçu un véhicule (règle + période + auto). */
     public function vehiclesAssigned(): int
     {
-        return $this->vehicles->byRule + $this->vehicles->auto;
+        return $this->vehicles->byRule + $this->vehicles->byPeriod + $this->vehicles->auto;
     }
 }

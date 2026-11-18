@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Vehicle;
 use App\Entity\Household;
 use App\Entity\Vehicle;
 use App\Enum\VehicleSource;
+use App\Vehicle\PeriodVehicle;
 use App\Vehicle\VehicleAssignmentPolicy;
 use PHPUnit\Framework\TestCase;
 
@@ -109,6 +110,107 @@ final class VehicleAssignmentPolicyTest extends TestCase
         $vehicles = [$this->vehicle(1, null, null)];
 
         self::assertNull($this->policy->decide(null, false, new \DateTimeImmutable('2026-03-10'), $vehicles));
+    }
+
+    public function testPeriodVehicleWinsOverSingleActiveVehicle(): void
+    {
+        $vehicles = [$this->vehicle(1, null, null), $this->vehicle(2, null, null)];
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2)];
+
+        // Deux véhicules actifs (auto impossible) : la période tranche.
+        $decision = $this->policy->decide(null, true, new \DateTimeImmutable('2026-08-05'), $vehicles, false, $periods);
+        self::assertSame(['vehicleId' => 2, 'source' => VehicleSource::Period], $decision);
+
+        // Un seul véhicule actif (1) : la période (2) l'emporte quand même sur l'auto.
+        $decision = $this->policy->decide(null, true, new \DateTimeImmutable('2026-08-05'), [$vehicles[0]], false, $periods);
+        self::assertSame(['vehicleId' => 2, 'source' => VehicleSource::Period], $decision);
+    }
+
+    public function testPeriodBoundsAreInclusive(): void
+    {
+        $vehicles = [$this->vehicle(1, null, null)];
+        $periods = [$this->period('2026-08-01', '2026-08-15', 9)];
+
+        foreach (['2026-08-01', '2026-08-15 18:30:00'] as $day) {
+            $decision = $this->policy->decide(null, true, new \DateTimeImmutable($day), $vehicles, false, $periods);
+            self::assertSame(['vehicleId' => 9, 'source' => VehicleSource::Period], $decision, $day);
+        }
+        foreach (['2026-07-31', '2026-08-16'] as $day) {
+            $decision = $this->policy->decide(null, true, new \DateTimeImmutable($day), $vehicles, false, $periods);
+            self::assertSame(['vehicleId' => 1, 'source' => VehicleSource::Auto], $decision, $day);
+        }
+    }
+
+    public function testRuleWinsOverNonOverridingPeriod(): void
+    {
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2)];
+
+        $decision = $this->policy->decide(7, true, new \DateTimeImmutable('2026-08-05'), [], false, $periods);
+
+        self::assertSame(['vehicleId' => 7, 'source' => VehicleSource::Rule], $decision);
+    }
+
+    public function testOverridingPeriodWinsOverRule(): void
+    {
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2, overridesRules: true)];
+
+        $decision = $this->policy->decide(7, true, new \DateTimeImmutable('2026-08-05'), [], false, $periods);
+        self::assertSame(['vehicleId' => 2, 'source' => VehicleSource::Period], $decision);
+
+        // Hors période : la règle reprend la main.
+        $decision = $this->policy->decide(7, true, new \DateTimeImmutable('2026-08-20'), [], false, $periods);
+        self::assertSame(['vehicleId' => 7, 'source' => VehicleSource::Rule], $decision);
+    }
+
+    public function testPeriodIgnoresFinancingAndNonTransportCategories(): void
+    {
+        $vehicles = [$this->vehicle(1, null, null)];
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2, overridesRules: true)];
+        $date = new \DateTimeImmutable('2026-08-05');
+
+        // Crédit véhicule (vehicleRelated + financing) : la période ne s'applique pas.
+        self::assertSame(
+            ['vehicleId' => 1, 'source' => VehicleSource::Auto],
+            $this->policy->decide(null, true, $date, $vehicles, true, $periods),
+        );
+        self::assertSame(
+            ['vehicleId' => 5, 'source' => VehicleSource::Rule],
+            $this->policy->decide(5, true, $date, $vehicles, true, $periods),
+        );
+        // Catégorie non vehicleRelated : rien.
+        self::assertNull($this->policy->decide(null, false, $date, $vehicles, false, $periods));
+    }
+
+    public function testOverlappingPeriodsWithDifferentVehiclesAreIgnored(): void
+    {
+        $vehicles = [$this->vehicle(1, null, null)];
+        $date = new \DateTimeImmutable('2026-08-05');
+
+        // Deux véhicules différents au même niveau ⇒ ambiguïté ⇒ retour à l'auto.
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2), $this->period('2026-08-05', '2026-08-06', 3)];
+        self::assertSame(
+            ['vehicleId' => 1, 'source' => VehicleSource::Auto],
+            $this->policy->decide(null, true, $date, $vehicles, false, $periods),
+        );
+
+        // Même véhicule ⇒ pas d'ambiguïté.
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2), $this->period('2026-08-05', '2026-08-06', 2)];
+        self::assertSame(
+            ['vehicleId' => 2, 'source' => VehicleSource::Period],
+            $this->policy->decide(null, true, $date, $vehicles, false, $periods),
+        );
+
+        // Niveaux différents : la période prioritaire l'emporte.
+        $periods = [$this->period('2026-08-01', '2026-08-15', 2), $this->period('2026-08-05', '2026-08-06', 3, overridesRules: true)];
+        self::assertSame(
+            ['vehicleId' => 3, 'source' => VehicleSource::Period],
+            $this->policy->decide(null, true, $date, $vehicles, false, $periods),
+        );
+    }
+
+    private function period(string $start, string $end, int $vehicleId, bool $overridesRules = false): PeriodVehicle
+    {
+        return new PeriodVehicle(new \DateTimeImmutable($start), new \DateTimeImmutable($end), $vehicleId, $overridesRules);
     }
 
     /**

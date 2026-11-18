@@ -47,6 +47,7 @@ export const VEHICLE_SOURCE_LABELS = {
     manual: 'Affectation manuelle',
     rule: 'Affectation par règle',
     auto: 'Affectation automatique',
+    period: 'Affectation par période',
     ignored: 'Ignorée (volontairement sans véhicule)',
 };
 
@@ -54,6 +55,7 @@ export const VEHICLE_SOURCE_ICONS = {
     manual: 'pi pi-user',
     rule: 'pi pi-bolt',
     auto: 'pi pi-cog',
+    period: 'pi pi-calendar',
     ignored: 'pi pi-eye-slash',
 };
 

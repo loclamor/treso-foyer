@@ -120,37 +120,85 @@ final class StatsRepository
      */
     public function monthly(Household $household, ?array $accountIds, StatsPeriod $period): array
     {
+        $series = $this->series($household, $accountIds, $period, 'month');
+        $net = array_map(static fn (int $i, int $e): int => $i - $e, $series['income'], $series['expense']);
+
+        return [
+            'months' => $series['keys'],
+            'income' => $series['income'],
+            'expense' => $series['expense'],
+            'net' => $net,
+            'uncategorized' => $series['uncategorized'],
+            'byRoot' => $series['byRoot'],
+        ];
+    }
+
+    /**
+     * Série quotidienne complète (jours sans opération = 0), de from à to inclus :
+     * dépenses totales, par racine de dépense et non catégorisé.
+     *
+     * @param list<int>|null $accountIds
+     * @return array{dates: list<string>, expense: list<int>, uncategorized: list<int>, byRoot: list<array{rootId: int, values: list<int>}>}
+     */
+    public function daily(Household $household, ?array $accountIds, StatsPeriod $period): array
+    {
+        $series = $this->series($household, $accountIds, $period, 'day');
+
+        return [
+            'dates' => $series['keys'],
+            'expense' => $series['expense'],
+            'uncategorized' => $series['uncategorized'],
+            'byRoot' => $series['byRoot'],
+        ];
+    }
+
+    /**
+     * Cœur commun de monthly() et daily() : unité 'month' (buckets = premiers de mois,
+     * clés « YYYY-MM ») ou 'day' (buckets = chaque jour, clés « YYYY-MM-DD »).
+     * 2 requêtes : série d'unités (generate_series) + totaux agrégés, puis dépense
+     * par unité et par racine (catégorisée uniquement).
+     *
+     * @param list<int>|null $accountIds
+     * @return array{keys: list<string>, income: list<int>, expense: list<int>, uncategorized: list<int>, byRoot: list<array{rootId: int, values: list<int>}>}
+     */
+    private function series(Household $household, ?array $accountIds, StatsPeriod $period, string $unit): array
+    {
         [$cte, $params, $types] = $this->base($household, $accountIds, $period);
         $kind = AmountClassifier::kindExpr();
-        // Mois de la date effective (COALESCE(spent_at, date), ADR 0014).
+        // Bucket de la date effective (COALESCE(spent_at, date), ADR 0014).
         $eff = Operation::effectiveDateSql('o');
+        $bucket = 'day' === $unit ? "$eff::date" : "date_trunc('month', $eff)::date";
+        $generate = 'day' === $unit
+            ? "generate_series(params.from_d, params.to_d, interval '1 day')"
+            : "generate_series(date_trunc('month', params.from_d), date_trunc('month', params.to_d), interval '1 month')";
+        $keyFormat = 'day' === $unit ? 'Y-m-d' : 'Y-m';
 
-        // 1re requête : série de mois (generate_series) + totaux agrégés.
+        // 1re requête : série d'unités (generate_series) + totaux agrégés.
         $sql = $cte.",\n"
-            ."months AS (\n"
-            ."    SELECT (generate_series(date_trunc('month', params.from_d), date_trunc('month', params.to_d), interval '1 month'))::date AS m\n"
+            ."buckets AS (\n"
+            ."    SELECT ($generate)::date AS m\n"
             ."    FROM params\n"
             ."),\n"
             ."agg AS (\n"
-            ."    SELECT date_trunc('month', $eff)::date AS m,\n"
+            ."    SELECT $bucket AS m,\n"
             .'           SUM('.AmountClassifier::incomeAmountExpr().') AS income,'."\n"
             .'           SUM('.AmountClassifier::expenseAmountExpr().') AS expense,'."\n"
             .'           SUM('.AmountClassifier::uncategorizedExpenseExpr().') AS uncat'."\n"
             .'    '.$this->fromWhere($accountIds)."\n"
             ."    GROUP BY 1\n"
             .")\n"
-            ."SELECT months.m::date AS m,\n"
+            ."SELECT buckets.m::date AS m,\n"
             ."       COALESCE(agg.income, 0) AS income,\n"
             ."       COALESCE(agg.expense, 0) AS expense,\n"
             ."       COALESCE(agg.uncat, 0) AS uncat\n"
-            ."FROM months LEFT JOIN agg ON agg.m = months.m\n"
-            ."ORDER BY months.m";
+            ."FROM buckets LEFT JOIN agg ON agg.m = buckets.m\n"
+            ."ORDER BY buckets.m";
         $rows = $this->connection()->fetchAllAssociative($sql, $params, $types);
 
-        // 2e requête : dépense par mois et par racine (catégorisée uniquement).
+        // 2e requête : dépense par unité et par racine (catégorisée uniquement).
         $sql = $cte.",\n"
             ."agg AS (\n"
-            ."    SELECT date_trunc('month', $eff)::date AS m, COALESCE(r.id, c.id) AS root_id, SUM(-o.amount) AS v\n"
+            ."    SELECT $bucket AS m, COALESCE(r.id, c.id) AS root_id, SUM(-o.amount) AS v\n"
             .'    '.$this->fromWhere($accountIds)."\n"
             ."    AND $kind = '".AmountClassifier::EXPENSE."' AND o.category_id IS NOT NULL\n"
             ."    GROUP BY 1, 2\n"
@@ -158,30 +206,29 @@ final class StatsRepository
             ."SELECT agg.m::date AS m, agg.root_id, agg.v FROM agg ORDER BY agg.m, agg.root_id";
         $byRootRows = $this->connection()->fetchAllAssociative($sql, $params, $types);
 
-        $months = [];
+        $keys = [];
         $income = [];
         $expense = [];
         $uncategorized = [];
-        $monthIndex = [];
+        $keyIndex = [];
         foreach ($rows as $i => $row) {
-            $month = (new \DateTimeImmutable((string) $row['m']))->format('Y-m');
-            $months[] = $month;
-            $monthIndex[$month] = $i;
+            $key = (new \DateTimeImmutable((string) $row['m']))->format($keyFormat);
+            $keys[] = $key;
+            $keyIndex[$key] = $i;
             $income[] = (int) $row['income'];
             $expense[] = (int) $row['expense'];
             $uncategorized[] = (int) $row['uncat'];
         }
-        $net = array_map(static fn (int $i, int $e): int => $i - $e, $income, $expense);
 
         $byRoot = [];
         foreach ($byRootRows as $row) {
             $rootId = (int) $row['root_id'];
-            $month = (new \DateTimeImmutable((string) $row['m']))->format('Y-m');
-            $byRoot[$rootId]['values'][$monthIndex[$month]] = (int) $row['v'];
+            $key = (new \DateTimeImmutable((string) $row['m']))->format($keyFormat);
+            $byRoot[$rootId]['values'][$keyIndex[$key]] = (int) $row['v'];
         }
         $byRootList = [];
         foreach ($byRoot as $rootId => $entry) {
-            $values = array_fill(0, count($months), 0);
+            $values = array_fill(0, count($keys), 0);
             foreach ($entry['values'] as $i => $v) {
                 $values[$i] = $v;
             }
@@ -190,10 +237,9 @@ final class StatsRepository
         usort($byRootList, static fn (array $a, array $b): int => array_sum($b['values']) <=> array_sum($a['values']));
 
         return [
-            'months' => $months,
+            'keys' => $keys,
             'income' => $income,
             'expense' => $expense,
-            'net' => $net,
             'uncategorized' => $uncategorized,
             'byRoot' => $byRootList,
         ];

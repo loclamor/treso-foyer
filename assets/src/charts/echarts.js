@@ -8,6 +8,7 @@ import {
     DataZoomComponent,
     VisualMapComponent,
     CalendarComponent,
+    MarkAreaComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 
@@ -23,5 +24,8 @@ use([
     DataZoomComponent,
     VisualMapComponent,
     CalendarComponent,
+    // Bandes des périodes labellisées (graphe quotidien, page Statistiques) : sans ce
+    // composant, ECharts ignore silencieusement `markArea`.
+    MarkAreaComponent,
     CanvasRenderer,
 ]);

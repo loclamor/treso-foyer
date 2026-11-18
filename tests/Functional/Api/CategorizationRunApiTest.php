@@ -34,7 +34,7 @@ final class CategorizationRunApiTest extends ApiTestCase
         $data = $this->decode($response);
         self::assertArrayHasKey('vehicles', $data);
         self::assertSame(
-            ['processed', 'byRule', 'auto', 'cleared', 'unchanged'],
+            ['processed', 'byRule', 'auto', 'byPeriod', 'cleared', 'unchanged'],
             array_keys($data['vehicles']),
         );
         // La règle a catégorisé l'opération (Carburant, vehicleRelated) : un seul véhicule

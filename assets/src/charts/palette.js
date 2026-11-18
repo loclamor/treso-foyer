@@ -71,3 +71,24 @@ export function withAlpha(hex, alpha) {
     const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
     return `${hex}${a}`;
 }
+
+// Types de périodes taguées (contrat API : 'vacation' | 'weekend' | 'outing' | 'other').
+export const TAGGED_PERIOD_TYPES = [
+    { value: 'vacation', label: 'Vacances' },
+    { value: 'weekend', label: 'Week-end' },
+    { value: 'outing', label: 'Sortie' },
+    { value: 'other', label: 'Autre' },
+];
+
+// Couleurs des périodes taguées, choisies HORS de la palette catégorielle (CATEGORICAL) :
+// une bande de période ne doit pas être confondue avec un poste de dépense.
+const TAGGED_PERIOD_COLORS = {
+    light: { vacation: '#0e7490', weekend: '#78350f', outing: '#a21caf', other: '#475569' },
+    dark: { vacation: '#22d3ee', weekend: '#d9a066', outing: '#e879f9', other: '#94a3b8' },
+};
+
+// Couleur d'un type de période taguée ; type inconnu ⇒ couleur « Autre ».
+export function taggedPeriodColor(type, mode) {
+    const palette = TAGGED_PERIOD_COLORS[mode] ?? TAGGED_PERIOD_COLORS.light;
+    return palette[type] ?? palette.other;
+}

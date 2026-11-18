@@ -188,6 +188,67 @@ final class StatsApiTest extends ApiTestCase
         }
     }
 
+    public function testDaily(): void
+    {
+        $this->seedStatsData();
+        // spent_at prioritaire sur date : opération datée 2026-03-10, dépensée le 2026-03-08.
+        $op = $this->addOperation($this->account, '2026-03-10', -700, 'ACHAT CB SPENTAT 10/03', 'SPENTAT', $this->category('Alimentation › Courses'));
+        $op->setSpentAt(new \DateTimeImmutable('2026-03-08'));
+        $this->em()->flush();
+        $client = $this->client();
+
+        $data = $this->decode($this->json($client, 'GET', '/api/stats/daily?from=2026-03-01&to=2026-03-31'));
+
+        // Un point par jour, du from au to inclus (jours vides = 0).
+        self::assertCount(31, $data['dates']);
+        self::assertSame('2026-03-01', $data['dates'][0]);
+        self::assertSame('2026-03-31', $data['dates'][30]);
+        self::assertCount(31, $data['expense']);
+        self::assertCount(31, $data['uncategorized']);
+        $expenseByDate = array_combine($data['dates'], $data['expense']);
+        $uncatByDate = array_combine($data['dates'], $data['uncategorized']);
+        self::assertSame(0, $expenseByDate['2026-03-01']);   // salaire = revenu, pas de dépense
+        self::assertSame(450, $expenseByDate['2026-03-05']);   // non catégorisé
+        self::assertSame(450, $uncatByDate['2026-03-05']);
+        self::assertSame(700, $expenseByDate['2026-03-08']);   // spent_at : compte le 08, pas le 10
+        self::assertSame(0, $expenseByDate['2026-03-10']);     // virement interne exclu (kind transfer)
+        self::assertSame(600, $expenseByDate['2026-03-12']);   // courses compte joint
+        self::assertSame(0, $uncatByDate['2026-03-08']);
+        self::assertSame(array_sum($data['expense']), 1750);   // 450 + 700 + 600
+
+        // Répartition par racine (catégorisé uniquement, non catégorisé à part).
+        $byRoot = [];
+        foreach ($data['byRoot'] as $entry) {
+            $byRoot[$entry['category']['id']] = array_combine($data['dates'], $entry['values']);
+        }
+        $alimentationId = (int) $this->category('Alimentation')->getId();
+        self::assertSame(700, $byRoot[$alimentationId]['2026-03-08']);
+        self::assertSame(600, $byRoot[$alimentationId]['2026-03-12']);
+        self::assertSame(0, $byRoot[$alimentationId]['2026-03-05']); // non catégorisé hors byRoot
+        // Logement n'a aucune dépense en mars ⇒ absent de byRoot.
+        self::assertArrayNotHasKey((int) $this->category('Logement')->getId(), $byRoot);
+    }
+
+    public function testDailyRejectsPeriodLongerThan731Days(): void
+    {
+        $client = $this->client();
+
+        // 732 jours (2024 bissextile) ⇒ 400 invalid_query.
+        $response = $this->json($client, 'GET', '/api/stats/daily?from=2024-01-01&to=2026-01-01');
+        self::assertSame(Response::HTTP_BAD_REQUEST, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertSame('invalid_query', $data['error']);
+        self::assertSame('Période trop longue pour la série quotidienne (731 jours max).', $data['message']);
+
+        // 731 jours pile (2024-01-01..2025-12-31) ⇒ 200, 731 points.
+        $response = $this->json($client, 'GET', '/api/stats/daily?from=2024-01-01&to=2025-12-31');
+        self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = $this->decode($response);
+        self::assertCount(731, $data['dates']);
+        self::assertSame('2024-01-01', $data['dates'][0]);
+        self::assertSame('2025-12-31', $data['dates'][730]);
+    }
+
     public function testCategories(): void
     {
         $this->seedStatsData();

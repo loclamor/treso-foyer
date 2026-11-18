@@ -117,8 +117,9 @@ final class CategorizeCommand extends Command
         ));
         $io->writeln(sprintf('Opérations catégorisées du foyer : %d/%d (%.1f %%).', $categorized, $total, $percent));
         $io->writeln(sprintf(
-            'Véhicules : par règle %d | auto %d | retirées %d.',
+            'Véhicules : par règle %d | par période %d | auto %d | retirées %d.',
             $vehicleReport->byRule,
+            $vehicleReport->byPeriod,
             $vehicleReport->auto,
             $vehicleReport->cleared,
         ));

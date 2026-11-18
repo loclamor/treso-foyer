@@ -65,6 +65,13 @@ export async function getSankey(scopeParams, range) {
     return data;
 }
 
+// {dates, expense, byRoot: [{category, values}], uncategorized} — jours sans dépense à 0
+// (400 si la plage dépasse 731 jours).
+export async function getDaily(scopeParams, range) {
+    const { data } = await http.get('/stats/daily', { params: buildParams(scopeParams, range) });
+    return data;
+}
+
 // [{date, expense, count}]
 export async function getCalendar(scopeParams, range) {
     const { data } = await http.get('/stats/calendar', { params: buildParams(scopeParams, range) });

@@ -16,20 +16,23 @@ final class VehicleAssignmentReport
         public int $byRule = 0,
         /** Affectations posées automatiquement (catégorie vehicleRelated + un seul véhicule actif). */
         public int $auto = 0,
-        /** Affectations rule/auto retirées (plus de correspondance). */
+        /** Affectations posées par le véhicule par défaut d'une période labellisée. */
+        public int $byPeriod = 0,
+        /** Affectations rule/auto/period retirées (plus de correspondance). */
         public int $cleared = 0,
         /** Candidates déjà dans l'état attendu (idempotence). */
         public int $unchanged = 0,
     ) {
     }
 
-    /** @return array{processed: int, byRule: int, auto: int, cleared: int, unchanged: int} */
+    /** @return array{processed: int, byRule: int, auto: int, byPeriod: int, cleared: int, unchanged: int} */
     public function toArray(): array
     {
         return [
             'processed' => $this->processed,
             'byRule' => $this->byRule,
             'auto' => $this->auto,
+            'byPeriod' => $this->byPeriod,
             'cleared' => $this->cleared,
             'unchanged' => $this->unchanged,
         ];

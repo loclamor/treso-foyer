@@ -157,6 +157,42 @@ final class StatsController extends AbstractController
         ]);
     }
 
+    #[Route('/api/stats/daily', name: 'api_stats_daily', methods: ['GET'])]
+    public function daily(
+        Request $request,
+        HouseholdProvider $householdProvider,
+        Scope $scope,
+        StatsRepository $statsRepository,
+        CategoryPresenter $categoryPresenter,
+        EntityManagerInterface $entityManager,
+        ClockInterface $clock,
+    ): JsonResponse {
+        $household = $householdProvider->get();
+        $accountIds = $scope->accountIds($request, $household);
+        $period = StatsPeriod::fromRequest($request, $clock->now());
+
+        // Série quotidienne limitée à 731 jours (2 ans + 1 jour) : au-delà, 400.
+        if ((int) $period->from->diff($period->to)->days + 1 > 731) {
+            throw new BadRequestException('Période trop longue pour la série quotidienne (731 jours max).', 'invalid_query');
+        }
+
+        $categories = $this->categoryMap($entityManager, $household);
+        $data = $statsRepository->daily($household, $accountIds, $period);
+
+        return new JsonResponse([
+            'dates' => $data['dates'],
+            'expense' => $data['expense'],
+            'byRoot' => array_map(
+                static fn (array $entry): array => [
+                    'category' => $categoryPresenter->presentRef($categories[$entry['rootId']]),
+                    'values' => $entry['values'],
+                ],
+                $data['byRoot'],
+            ),
+            'uncategorized' => $data['uncategorized'],
+        ]);
+    }
+
     #[Route('/api/stats/categories', name: 'api_stats_categories', methods: ['GET'])]
     public function categories(
         Request $request,

@@ -9,6 +9,7 @@ erDiagram
     Household ||--o{ Category : categories
     Household ||--o{ CategorizationRule : regles
     Household ||--o{ Budget : budgets
+    Household ||--o{ TaggedPeriod : periodes_labellisees
     Household ||--o{ Vehicle : vehicules
     Account }o--o{ Member : titulaires
     Account ||--o{ ImportBatch : imports
@@ -27,6 +28,7 @@ erDiagram
     Budget }o--|| Category : poste
     Vehicle ||--o{ OdometerReading : releves_compteur
     Vehicle |o--o{ Operation : affecte
+    Vehicle |o--o{ TaggedPeriod : vehicule_par_defaut
     CategorizationRule }o--o| Vehicle : vehicule
     Member |o--o{ Vehicle : conducteur_principal
 ```
@@ -43,6 +45,7 @@ erDiagram
 | `CategorizationRule` | Règle automatique | champ commerçant/libellé, contient/commence par/exact/regex, sens, bornes de montant (valeur absolue), compte optionnel, priorité ; `matches()` pur et testé |
 | `InternalTransfer` | Paire de virements entre comptes du foyer | exclue des stats consolidées |
 | `Budget` | Budget mensuel d'un poste | portée foyer / personne / compte |
+| `TaggedPeriod` | Période labellisée du foyer (ADR 0018) | `type` : `vacation`/`weekend`/`outing`/`other` (couleur de la bande) ; `label` ≤ 100 car. ; `[start_date, end_date]` inclus, `end_date >= start_date` (même jour autorisé ; contrainte CHECK `ck_tagged_period_dates` en SQL brut, hors mapping) ; index `(household_id, start_date)` ; `vehicle_id` nullable (FK `ON DELETE SET NULL`) = véhicule par défaut des dépenses de transport de la période ; `vehicle_overrides_rules` (bool, défaut `false`) = prioritaire sur les règles |
 | `RecurringSeries` | Dépense/revenu récurrent détecté (ADR 0012) | unicité (compte, `matchKey` = `coalesce(merchant_group, merchant, normalized_label)`, `direction`) ; fréquence (ajout de `bimonthly`), montant attendu **toujours positif** ± tolérance, `lastOccurrence`/`nextExpected`, `activeMonths` (mois 1..12 actifs ou null), statut `detected`/`confirmed`/`ignored`/`ended` |
 | `Vehicle` | Véhicule du foyer | plaque toujours stockée normalisée (SIV `AA-123-AA`, FNI sans séparateurs), unicité (foyer, nom) et (foyer, plaque) ; période de service `acquiredAt`/`disposedAt` (`isActiveOn()`), conducteur principal, données brutes d'une API de plaque (`lookupData`/`lookupAt`) |
 | `OdometerReading` | Relevé de compteur d'un véhicule | un relevé par (véhicule, date), `km` ≥ 0 |
