@@ -14,6 +14,7 @@ const toast = useToast();
 
 const uploading = ref(false);
 const lastResult = ref(null); // {reports, postProcessing}
+const fileUpload = ref(null);
 
 const batches = ref([]);
 const total = ref(0);
@@ -39,6 +40,7 @@ async function upload(event) {
     lastResult.value = null;
     try {
         lastResult.value = await uploadImports(files);
+        fileUpload.value?.clear(); // vide la liste des fichiers encore affichés « pending »
         toast.add({ severity: 'success', summary: 'Envoi terminé', detail: 'Le post-traitement (virements + catégorisation) a été lancé.', life: 5000 });
         load();
     } catch (e) {
@@ -78,6 +80,7 @@ onMounted(load);
             <template #title>Envoyer des relevés</template>
             <template #content>
                 <FileUpload
+                    ref="fileUpload"
                     mode="advanced"
                     custom-upload
                     :auto="true"
@@ -194,6 +197,20 @@ onMounted(load);
 }
 .upload-progress {
     margin-top: 0.5rem;
+}
+/* PrimeVue rend un <img> même pour les non-images (src absent => icône cassée) : on le cache et on met pi-file à la place. */
+:deep(.p-fileupload-file-thumbnail:not([src])) {
+    display: none;
+}
+:deep(.p-fileupload-file:has(> .p-fileupload-file-thumbnail:not([src]))::before) {
+    content: '\e991'; /* pi-file */
+    font-family: 'PrimeIcons';
+    font-style: normal;
+    font-weight: normal;
+    speak: never;
+    font-size: 1.6rem;
+    line-height: 1;
+    color: var(--p-text-muted-color);
 }
 .empty-state {
     text-align: center;
