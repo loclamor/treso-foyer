@@ -22,3 +22,4 @@ Chaque décision technique structurante est consignée ici (format court : conte
 | [0016](0016-adblue.md) | AdBlue : journal des remplissages (station / bidon), coût réel ou estimé, consommation L/1000 km | Acceptée |
 | [0017](0017-gaz-bouteille.md) | Énergie : distinction électricité / gaz, achat de bonbonne (masse en kg, prix au kg) | Acceptée |
 | [0018](0018-periodes-labellisees.md) | Périodes labellisées du foyer (bandes markArea sur le graphe quotidien, véhicule par défaut des dépenses de transport) + série quotidienne des dépenses par poste (731 jours max) | Acceptée |
+| [0019](0019-backups-automatisees.md) | Backups automatisés de la base (app:backup --watch, fréquence/rotation en .env) + upload externe optionnel via rclone (Google Drive…) | Acceptée |

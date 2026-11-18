@@ -94,10 +94,5 @@ ranger: ## Simulation du rangement des fichiers de data/inbox/ (dans le conteneu
 ranger-apply: ## Rangement réel des fichiers de data/inbox/ (dans le conteneur php)
 	@$(PHP_CONT) python3 -I tools/ranger_releves.py --apply
 
-backup: ## Sauvegarde de la base dans data/backups/
-	@mkdir -p data/backups
-	@f=data/backups/banque-$$(date +%Y%m%d-%H%M%S).sql.gz; \
-	if ! $(DOCKER_COMP) exec -T database sh -c 'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB"' | gzip > "$$f"; then \
-		rm -f "$$f"; echo "Échec de la sauvegarde (archive supprimée)" >&2; exit 1; \
-	fi; \
-	echo "$$f ($$(du -h "$$f" | cut -f1))"
+backup: ## Sauvegarde de la base dans data/backups/ (app:backup ; auto via BACKUP_ENABLED, voir .env)
+	@$(SYMFONY) app:backup $(c)

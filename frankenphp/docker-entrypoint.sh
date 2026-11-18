@@ -36,6 +36,12 @@ if [ "$1" = 'frankenphp' ] || [ "$1" = 'php' ] || [ "$1" = 'bin/console' ]; then
 		if find ./migrations -iname '*.php' -print -quit | grep --quiet .; then
 			php bin/console doctrine:migrations:migrate --no-interaction --all-or-nothing
 		fi
+
+		# Backups automatiques de la base (app:backup --watch en arrière-plan, voir .env)
+		if [ "${BACKUP_ENABLED:-false}" = "true" ]; then
+			echo "Backups automatiques activés (BACKUP_INTERVAL=${BACKUP_INTERVAL:-1d}, BACKUP_KEEP=${BACKUP_KEEP:-14})..."
+			php bin/console app:backup --watch &
+		fi
 	fi
 
 	echo 'PHP app ready!'

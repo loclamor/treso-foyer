@@ -70,7 +70,7 @@ data/                 # données privées (hors git, hors images)
   releves/<alias>/    # relevés rangés : <AAAA>/<AAAA-MM>_releve.pdf, csv/, frais/
   comptes.ini         # numéro de compte -> alias
   _doublons/          # fichiers écartés car déjà présents
-  backups/            # dumps de la base (make backup)
+  backups/            # dumps de la base (make backup ; auto via BACKUP_ENABLED, voir .env et DEPLOY.md)
 docs/adr/             # décisions techniques
 tools/                # outils hôte (rangement des fichiers)
 assets/               # front Vue (src/main.js, App.vue, router, stores, views, components)

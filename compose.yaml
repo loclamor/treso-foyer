@@ -15,6 +15,10 @@ services:
       MERCURE_PUBLIC_URL: ${CADDY_MERCURE_PUBLIC_URL:-https://${SERVER_NAME:-localhost}:${HTTPS_PORT:-8543}/.well-known/mercure}
       MERCURE_JWT_SECRET: ${CADDY_MERCURE_JWT_SECRET:-!ChangeThisMercureHubJWTSecretKey!}
       MERCURE_JWT_ISSUER: ${CADDY_MERCURE_JWT_ISSUER:-https://localhost}
+      # Backups automatiques de la base (app:backup --watch lancé par l'entrypoint, voir .env)
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-1d}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -57,6 +61,49 @@ services:
       # You may use a bind-mounted host directory instead, so that it is harder to accidentally remove the volume and lose all your data!
       # - ./docker/db/data:/var/lib/postgresql/data:rw
 ###< doctrine/doctrine-bundle ###
+
+  # Upload externe des dumps (rclone) vers un stockage cloud, ex. Google Drive.
+  # Actif uniquement avec le profil Docker « backup-remote » (COMPOSE_PROFILES=backup-remote
+  # dans .env.local) ; n'uploade que si BACKUP_REMOTE est renseigné (ex. gdrive:treso-foyer/backups).
+  # Les identifiants du remote se configurent en variables d'environnement rclone :
+  # RCLONE_CONFIG_GDRIVE_TYPE=drive + RCLONE_CONFIG_GDRIVE_TOKEN={...} dans .env.local
+  # (token obtenu avec `rclone authorize "drive"`, voir DEPLOY.md).
+  backup-remote:
+    profiles: ["backup-remote"]
+    image: rclone/rclone:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_REMOTE_INTERVAL: ${BACKUP_REMOTE_INTERVAL:-1d}
+      RCLONE_CONFIG: /tmp/rclone.conf
+      RCLONE_CONFIG_GDRIVE_TYPE: ${RCLONE_CONFIG_GDRIVE_TYPE:-drive}
+      RCLONE_CONFIG_GDRIVE_SCOPE: ${RCLONE_CONFIG_GDRIVE_SCOPE:-drive}
+      RCLONE_CONFIG_GDRIVE_TOKEN: ${RCLONE_CONFIG_GDRIVE_TOKEN:-}
+    volumes:
+      - ./data/backups:/backups:ro
+    command:
+      - |
+        to_sec() {
+          v=$$1
+          case $$v in
+            *w) echo $$(( $${v%w} * 604800 )) ;;
+            *d) echo $$(( $${v%d} * 86400 )) ;;
+            *h) echo $$(( $${v%h} * 3600 )) ;;
+            *m) echo $$(( $${v%m} * 60 )) ;;
+            *s) echo $${v%s} ;;
+            *)  echo $$v ;;
+          esac
+        }
+        while true; do
+          if [ -n "$$BACKUP_REMOTE" ]; then
+            echo "rclone sync /backups -> $$BACKUP_REMOTE"
+            rclone sync /backups "$$BACKUP_REMOTE" --create-empty-src-dirs -v || echo "rclone sync a échoué" >&2
+          else
+            echo "BACKUP_REMOTE vide : aucune destination configurée, attente."
+          fi
+          sleep "$$(to_sec "$${BACKUP_REMOTE_INTERVAL:-1d}")"
+        done
 
 volumes:
   caddy_data:

@@ -23,6 +23,7 @@ RUN <<-EOF
 		file \
 		git \
 		poppler-utils \
+		postgresql-client \
 		python3
 	install-php-extensions \
 		@composer \
@@ -144,7 +145,7 @@ RUN <<-'EOF'
 	apt-get update
 	apt-get install -y --no-install-recommends libtree
 	mkdir -p /tmp/libs
-	BINARIES=(frankenphp php file)
+	BINARIES=(frankenphp php file pg_dump)
 	for target in $(printf '%s\n' "${BINARIES[@]}" | xargs -I{} which {}) \
 		$(find "$(php -r 'echo ini_get("extension_dir");')" -maxdepth 2 -name "*.so"); do
 		libtree -pv "$target" 2>/dev/null | grep -oP '(?:── )\K/\S+(?= \[)' | while IFS= read -r lib; do
@@ -182,9 +183,11 @@ COPY --from=frankenphp_prod_builder /usr/lib/file/magic.mgc /usr/lib/file/magic.
 
 ENV  OPENSSL_CONF=/etc/ssl/openssl.cnf XDG_CONFIG_HOME=/config XDG_DATA_HOME=/data SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-# pdftotext (import des relevés PDF) + python3 (outil de rangement tools/ranger_releves.py)
+# pdftotext (import des relevés PDF) + python3 (outil de rangement) + pg_dump (backups app:backup)
 # hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils postgresql-client python3 && rm -rf /var/lib/apt/lists/*
+
+COPY --from=frankenphp_prod_builder /usr/bin/pg_dump /usr/bin/pg_dump
 
 RUN <<-EOF
 	mkdir -p /data/caddy /config/caddy

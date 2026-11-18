@@ -11,6 +11,11 @@ parameters:
     app.accounts_ini: '%kernel.project_dir%/data/comptes.ini'
     # Dossier de conservation des fichiers uploadés via POST /api/imports (voir docs/api.md).
     app.uploads_dir: '%kernel.project_dir%/data/uploads'
+    # Dossier des dumps pg_dump (app:backup, voir docs/adr/0019-backups-automatisees.md).
+    app.backups_dir: '%kernel.project_dir%/data/backups'
+    # Replis des variables d'env backup si absentes des fichiers .env.
+    app.backup_keep_default: 14
+    app.backup_interval_default: '1d'
 
 services:
     # default configuration for services in *this* file
@@ -30,3 +35,12 @@ services:
     # (« none » → NullVehicleLookup, « rapidapi » → RapidApiVehicleLookup).
     App\Vehicle\Lookup\VehicleLookup:
         factory: ['@App\Vehicle\Lookup\VehicleLookupFactory', 'create']
+
+    # Backups de la base (app:backup) : BACKUP_DIR permet de surcharger le dossier en test.
+    App\Backup\BackupManager:
+        $databaseUrl: '%env(resolve:DATABASE_URL)%'
+        $backupDir: '%env(default:app.backups_dir:BACKUP_DIR)%'
+        $keep: '%env(int:default:app.backup_keep_default:BACKUP_KEEP)%'
+
+    App\Command\BackupCommand:
+        $defaultInterval: '%env(default:app.backup_interval_default:BACKUP_INTERVAL)%'

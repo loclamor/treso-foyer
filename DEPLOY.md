@@ -93,9 +93,50 @@ docker compose -f compose.yaml -f compose.prod.yaml exec php bin/console app:mem
   docker compose -f compose.yaml -f compose.prod.yaml exec php python3 -I tools/ranger_releves.py --apply    # réel
   ```
 
-- Sauvegarde de la base : `make backup` (dump dans `data/backups/banque-<date>.sql.gz`) —
-  en prod, préfixer par les mêmes `-f` Compose. Restauration : `zcat <dump> | docker compose ... exec -T database psql -U banque banque`.
-- Planifier la sauvegarde (cron) et la rotation des dumps hors du serveur si possible.
+- Sauvegarde de la base : `make backup` (commande `app:backup`, dump gzipé dans
+  `data/backups/banque-<date>.sql.gz`) — en prod, préfixer par les mêmes `-f` Compose.
+  Restauration : `zcat <dump> | docker compose ... exec -T database psql -U banque banque`.
+
+### Sauvegardes automatiques
+
+Le conteneur `php` peut tourner les backups tout seul (dump + rotation, voir ADR 0019). Dans
+`.env.local` :
+
+```bash
+BACKUP_ENABLED=true      # lance app:backup --watch en arrière-plan au démarrage du conteneur
+BACKUP_INTERVAL=1d       # fréquence : secondes, ou suffixe m/h/d/w (30m, 12h, 1d, 1w…)
+BACKUP_KEEP=14           # nombre de dumps conservés, les plus anciens sont supprimés
+```
+
+Puis recréer le conteneur : `docker compose -f compose.yaml -f compose.prod.yaml up -d php`.
+Logs du watcher : `docker compose ... logs php` (ligne « Backup base effectué » / « app:backup --watch démarré »).
+
+### Sauvegardes externes (Google Drive)
+
+Un service Compose dédié copie `data/backups/` vers un stockage externe avec **rclone**
+(profil Docker `backup-remote`). Configuration dans `.env.local` :
+
+```bash
+COMPOSE_PROFILES=backup-remote          # démarre le service rclone
+BACKUP_REMOTE=gdrive:treso-foyer/backups # destination rclone (dossier créé au besoin)
+BACKUP_REMOTE_INTERVAL=1d               # fréquence de synchronisation
+# Identifiants du remote Google Drive (rclone lit RCLONE_CONFIG_<REMOTE>_* en env) :
+RCLONE_CONFIG_GDRIVE_TYPE=drive
+RCLONE_CONFIG_GDRIVE_SCOPE=drive
+RCLONE_CONFIG_GDRIVE_TOKEN={"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}
+```
+
+Obtenir le token une fois sur un poste avec navigateur :
+
+```bash
+docker run -it --rm rclone/rclone authorize "drive"
+# colle le JSON affiché dans RCLONE_CONFIG_GDRIVE_TOKEN (une seule ligne, dans .env.local)
+```
+
+Le service monte `data/backups/` en **lecture seule** et ne démarre vraiment l'upload que si
+`BACKUP_REMOTE` est renseigné. Démarrage : `docker compose -f compose.yaml -f compose.prod.yaml up -d`.
+Logs : `docker compose ... logs backup-remote`. Autre remote (S3, Dropbox…) : même mécanisme,
+avec `RCLONE_CONFIG_<REMOTE>_TYPE` adapté et `BACKUP_REMOTE=<remote>:<chemin>`.
 
 ## 6. Sécurité réseau
 
